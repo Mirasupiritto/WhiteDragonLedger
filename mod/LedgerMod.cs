@@ -1,0 +1,178 @@
+using System;
+using System.Collections.Generic;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+using UnityEngine;
+
+namespace WhiteDragon.Ledger
+{
+    public sealed class LedgerMod : IMod
+    {
+        private GameObject observer;
+        public void Init(ModManifest manifest) { }
+        public void OnEnable()
+        {
+            observer = new GameObject("White Dragon Ledger Observer");
+            UnityEngine.Object.DontDestroyOnLoad(observer);
+            observer.AddComponent<InventoryObserver>();
+        }
+        public void OnDisable()
+        {
+            if (observer != null) UnityEngine.Object.Destroy(observer);
+        }
+    }
+
+    public sealed class InventoryObserver : MonoBehaviour
+    {
+        private const string ModId = "white_dragon_ledger";
+        private readonly Dictionary<GameInventory, string> areas = new Dictionary<GameInventory, string>();
+        private readonly Dictionary<GameItem, int> ids = new Dictionary<GameItem, int>();
+        private readonly HashSet<GameItem> changed = new HashSet<GameItem>();
+        private readonly Dictionary<int, JObject> known = new Dictionary<int, JObject>();
+
+        private string generation;
+        private int sequence, fullScans, loadScans, nextId, slot;
+        private bool pending;
+        private string phase;
+
+        private static void Write(string name, JObject body)
+        {
+            ModHelper.WriteModDataFileText(ModId, name, body.ToString(Formatting.None));
+        }
+
+        private void Awake()
+        {
+            ResetLoad();
+        }
+
+        private void OnEnable()
+        {
+
+            ModHook.OnGameLoadedInit += ResetLoad;
+            ModHook.OnGameLoadedLate += Ready;
+        }
+
+        private void ResetLoad()
+        {
+            DetachAreas();
+            ids.Clear();
+            changed.Clear();
+            known.Clear();
+            pending = false;
+            generation = null;
+            nextId = sequence = loadScans = 0;
+            Write("head.json", new JObject { ["status"] = "waiting_for_load" });
+        }
+
+        private void Ready() { pending = true; }
+
+        private void DetachAreas()
+        {
+            foreach (var area in areas.Keys)
+            {
+                area.onSlotAddItemLateFunc -= Changed;
+                area.onSlotRemoveItemLateFunc -= Changed;
+                area.onSlotChangeAmountItemFunc -= Changed;
+            }
+            areas.Clear();
+        }
+
+        private void Changed(GameItem item, GameInventory inventory, SlotMarker marker)
+        {
+            changed.Add(item);
+        }
+
+        private void Track(GameInventory area, string name)
+        {
+            areas.Add(area, name);
+            area.onSlotAddItemLateFunc += Changed;
+            area.onSlotRemoveItemLateFunc += Changed;
+            area.onSlotChangeAmountItemFunc += Changed;
+        }
+
+        private JObject Row(GameItem item, string area)
+        {
+            if (!ids.TryGetValue(item, out var id)) ids[item] = id = ++nextId;
+            return new JObject { ["id"] = id, ["name"] = item.GetDisplayName(true),
+                ["kind"] = item.identifier, ["area"] = area, ["owned"] = GeneralHelper.IsItemOwned(item),
+                ["quantity"] = item.unitCount };
+        }
+
+        private void Publish(JObject record)
+        {
+            int revision = sequence + 1;
+            Write(generation + "-" + revision + ".json", record);
+            Write("head.json", new JObject { ["status"] = "observed", ["generation"] = generation,
+                ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
+                ["full_scans"] = fullScans, ["load_scans"] = loadScans });
+            sequence = revision;
+        }
+
+        private void Baseline(EmporiumEntry shop)
+        {
+            pending = false;
+            generation = Guid.NewGuid().ToString("N");
+            slot = PlayerStore.Instance.saveSlotId;
+            phase = PlayerStore.Instance.storeState.ToString();
+            Track(shop.invElement, "inventory");
+            Track(shop.showcaseElement, "showcase");
+            Track(shop.frontInvinvElement, "front");
+            Track(shop.backInvinvElement, "back");
+            var rows = new JArray();
+            ++fullScans;
+            ++loadScans;
+            foreach (var area in areas)
+                foreach (var item in area.Key.childItems)
+                {
+                    var row = Row(item, area.Value);
+                    known.Add(ids[item], row);
+                    rows.Add(row);
+                }
+            Publish(new JObject { ["op"] = "baseline", ["items"] = rows });
+        }
+
+        private void LateUpdate()
+        {
+
+            if (pending)
+            {
+                var shop = EmporiumEntry.Instance;
+                if (shop != null && PlayerStore.HasInstance && shop.invElement != null &&
+                    shop.showcaseElement != null && shop.frontInvinvElement != null && shop.backInvinvElement != null)
+                    Baseline(shop);
+                return;
+            }
+            if (generation == null || !PlayerStore.HasInstance) return;
+            var currentPhase = PlayerStore.Instance.storeState.ToString();
+            if (changed.Count == 0 && phase == currentPhase) return;
+            var upserts = new JArray();
+            var removed = new JArray();
+            foreach (var item in changed)
+            {
+                var parent = item.parentInventory;
+                if (parent != null && areas.TryGetValue(parent, out var area))
+                {
+                    var row = Row(item, area);
+                    int id = ids[item];
+                    if (known.TryGetValue(id, out var old) && JToken.DeepEquals(old, row)) continue;
+                    known[id] = row;
+                    upserts.Add(row);
+                }
+                else if (ids.TryGetValue(item, out var id) && known.Remove(id))
+                    removed.Add(id);
+            }
+            changed.Clear();
+            if (upserts.Count == 0 && removed.Count == 0 && phase == currentPhase) return;
+            phase = currentPhase;
+            Publish(new JObject { ["op"] = "delta", ["upsert"] = upserts, ["remove"] = removed });
+        }
+
+        private void OnDestroy()
+        {
+            DetachAreas();
+
+            ModHook.OnGameLoadedInit -= ResetLoad;
+            ModHook.OnGameLoadedLate -= Ready;
+        }
+    }
+}
