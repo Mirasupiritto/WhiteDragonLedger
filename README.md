@@ -1,6 +1,6 @@
 # 白龍店帳
 
-《深空當鋪》0.46D 的本機唯讀 Mod 與 stdio MCP。第一版觀察庫存、展示櫃、前櫃和後櫃。遊戲模組使用公開讀檔及貨區回呼，MCP 從 SQLite 查詢最後一份已發布的店帳。
+《深空當鋪》0.46D 的本機 Mod 與 stdio MCP。店帳觀察庫存、展示櫃、前櫃和後櫃。遊戲模組使用公開讀檔及貨區回呼，MCP 從 SQLite 查詢最後一份已發布的店帳。
 
 ## 查帳
 
@@ -15,6 +15,14 @@
 | `revision` | 這次讀檔最新發布的庫存或營業階段記錄編號 |
 | `applied_records` | 本次查詢新匯入 SQLite 的記錄數 |
 | `phase` | 遊戲原生營業階段，`MORNING` 為尚未開門，`CLOSED` 為歇業 |
+
+## 歇業搬貨
+
+0.2.0 新增 `move_item`。從 `query_inventory` 取這次讀檔的 `generation`、最新 `revision` 和物品編號，填入 `item_id`、`source`、`destination` 即可搬動一件自有物品。庫存（`inventory`）和展示櫃（`showcase`）可雙向移動。遊戲處於 `MORNING` 或 `CLOSED` 時才會執行。
+
+遊戲在主執行緒呼叫原生搬貨方法，更新逐件帳本，再核對該物品的實際貨區和數量。`status="moved"` 表示已確認抵達，回執內的 `actual_area`、`revision`、`load_scans` 和 `full_scans` 直接來自這次操作。讀檔的完整盤點次數可從回執直接查看。
+
+每次命令有獨立的 `command_id`。客戶端可以預先指定 UUID 的 32 位小寫十六進位字串，以便連線中斷後用原參數查回執。收到 `unconfirmed` 時先用原命令編號核對；收到 `stale_observation` 時重新查當前位置和版本。已送出而延遲的命令有六秒有效期。現有遊戲程序升級後需重啟並重新載入存檔。
 
 ## 建置與安裝
 
@@ -38,7 +46,7 @@ $python = "$work/venv/Scripts/python.exe"
 ```powershell
 $env:LEDGER_TEST_TEMP = "$work/tests"
 New-Item -ItemType Directory -Force $env:LEDGER_TEST_TEMP | Out-Null
-& $python -B tests/test_ledger.py
+& $python -B -m unittest discover -s tests -p 'test_*.py'
 $journal = Join-Path $env:USERPROFILE 'AppData/LocalLow/Questing Goose Studio/Probably Stolen/ModData/white_dragon_ledger'
 $measure = @('--journal', $journal, '--database', "$work/state/account.sqlite3", '--output', "$work/tests/live")
 & $python -X utf8 -B tests/measure.py before @measure

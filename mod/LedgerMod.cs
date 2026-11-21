@@ -22,11 +22,12 @@ namespace WhiteDragon.Ledger
         }
     }
 
-    public sealed class InventoryObserver : MonoBehaviour
+    public sealed partial class InventoryObserver : MonoBehaviour
     {
         private const string ModId = "white_dragon_ledger";
         private readonly Dictionary<GameInventory, string> areas = new Dictionary<GameInventory, string>();
         private readonly Dictionary<GameItem, int> ids = new Dictionary<GameItem, int>();
+        private readonly Dictionary<int, GameItem> itemsById = new Dictionary<int, GameItem>();
         private readonly HashSet<GameItem> changed = new HashSet<GameItem>();
         private readonly Dictionary<int, JObject> known = new Dictionary<int, JObject>();
 
@@ -56,6 +57,7 @@ namespace WhiteDragon.Ledger
         {
             DetachAreas();
             ids.Clear();
+            itemsById.Clear();
             changed.Clear();
             known.Clear();
             pending = false;
@@ -92,7 +94,11 @@ namespace WhiteDragon.Ledger
 
         private JObject Row(GameItem item, string area)
         {
-            if (!ids.TryGetValue(item, out var id)) ids[item] = id = ++nextId;
+            if (!ids.TryGetValue(item, out var id))
+            {
+                ids[item] = id = ++nextId;
+                itemsById.Add(id, item);
+            }
             return new JObject { ["id"] = id, ["name"] = item.GetDisplayName(true),
                 ["kind"] = item.identifier, ["area"] = area, ["owned"] = GeneralHelper.IsItemOwned(item),
                 ["quantity"] = item.unitCount };
@@ -102,7 +108,7 @@ namespace WhiteDragon.Ledger
         {
             int revision = sequence + 1;
             Write(generation + "-" + revision + ".json", record);
-            Write("head.json", new JObject { ["status"] = "observed", ["generation"] = generation,
+            Write("head.json", new JObject { ["status"] = "observed", ["move_protocol"] = 1, ["generation"] = generation,
                 ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
                 ["full_scans"] = fullScans, ["load_scans"] = loadScans });
             sequence = revision;
@@ -143,6 +149,12 @@ namespace WhiteDragon.Ledger
                 return;
             }
             if (generation == null || !PlayerStore.HasInstance) return;
+            FlushChanges();
+            CheckMove();
+        }
+
+        private void FlushChanges()
+        {
             var currentPhase = PlayerStore.Instance.storeState.ToString();
             if (changed.Count == 0 && phase == currentPhase) return;
             var upserts = new JArray();

@@ -5,6 +5,7 @@ from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 from ledger import lookup
+from moves import move_item as submit_move
 
 
 def main():
@@ -24,6 +25,15 @@ def main():
         The game measures load_scans for the current load and full_scans for this observer instance.
         A query reads local files and SQLite. IDs are scoped to generation."""
         return lookup(args.journal, database, name, area, owned)
+
+    @server.tool()
+    def move_item(item_id: int, source: Literal["inventory", "showcase"],
+                  destination: Literal["inventory", "showcase"], generation: str,
+                  revision: int, command_id: str | None = None) -> dict:
+        """Move one owned item while the shutter is closed. Use the generation and revision from
+        query_inventory. A moved receipt gives the confirmed location and game-side scan counts.
+        Reuse the same command_id and original arguments when checking an uncertain response."""
+        return submit_move(args.journal, item_id, source, destination, generation, revision, command_id)
 
     server.run()
 

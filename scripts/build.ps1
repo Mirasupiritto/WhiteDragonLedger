@@ -15,7 +15,8 @@ $target = Join-Path $output 'white_dragon_ledger'
 [IO.Directory]::CreateDirectory($target) | Out-Null
 $references = Get-ChildItem -LiteralPath $managed -Filter '*.dll' | ForEach-Object { '/reference:'+$_.FullName }
 $dll = Join-Path $target 'WhiteDragonLedger.dll'
-& dotnet $compiler /nologo /nostdlib+ /optimize+ /target:library "/out:$dll" $references (Join-Path $root 'mod/LedgerMod.cs')
+$sources = (Get-ChildItem -LiteralPath (Join-Path $root 'mod') -Filter '*.cs').FullName
+& dotnet $compiler /nologo /nostdlib+ /optimize+ /target:library "/out:$dll" $references $sources
 if ($LASTEXITCODE) { throw 'Compilation failed' }
 Copy-Item -LiteralPath (Join-Path $root 'mod/manifest.xml') -Destination $target
 Write-Output $target
