@@ -62,13 +62,17 @@ class ShopDeskReplay(unittest.TestCase):
         snap=dict(generation=self.gen,revision=1,slot=4,phase="MORNING",day=11,customer=None,
                   available_strips=1,machines=[machine],last_night=[dict(machine,bottle_id=15)])
         self.put(f"desk-{self.gen}.json",snap)
-        row=machines(self.folder)["machines"][0]
+        report=machines(self.folder)
+        row=report["machines"][0]
+        self.assertEqual((report["strip_summary"],row["available_strips"]),("全店可用試紙剩 1 張",1))
         self.assertTrue(row["same_bottle_as_last_night"] and row["ready_to_take_and_test"])
         self.assertFalse(row["can_power"])
         machine["bottle_key"]=302
         snap["available_strips"]=0
         self.put(f"desk-{self.gen}.json",snap)
-        row=machines(self.folder)["machines"][0]
+        report=machines(self.folder)
+        row=report["machines"][0]
+        self.assertEqual((report["strip_summary"],row["available_strips"]),("全店可用試紙剩 0 張",0))
         self.assertFalse(row["same_bottle_as_last_night"] or row["ready_to_take_and_test"])
         self.assertFalse(any("quality" in k or "purity" in k for k in row))
         self.assertEqual(sell_order(self.folder,[dict(item_id=26,min_price=10)],self.gen,1,"d"*32,True)["status"],"shop_closed")

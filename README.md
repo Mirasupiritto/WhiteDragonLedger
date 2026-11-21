@@ -33,7 +33,7 @@
 ## 批發回本、淨水器與櫃檯訂單（0.3.0）
 
 - `query_purchase_lots(supplier, product, lot_id)` 按商人、品名或批次查詢。Windows 可用繁體或簡體搜尋。遊戲完成批發時記一次整批實扣金額，再依每件物品的存檔識別碼累計零售實收。同一商人的多次進貨分列。四件花 9，第一件賣 10，回執為 `paid=9, recovered=10, in_stock=3`；四件共賣 40 才出現 `gross_profit=31`。找不到的未售件另列 `unlocated`，扣款未核實則顯示 `payment_status=unconfirmed`。資料隨遊戲存檔保存與回退，從新版觀察到的批發開始記錄。
-- `inspect_purifiers()` 讀取自有標準淨水器的容器槽與電池槽。晚上記一次機台與瓶子的存檔識別碼，晨檢附當前可操作瓶號、是否同一瓶、電力、可否取出、庫存空間與可用試紙數。第一次安裝若沒有昨晚的記錄，`same_bottle_as_last_night` 為空。取出和用試紙由玩家操作；晨檢沒有水質、純度或污染物欄位。
+- `inspect_purifiers()` 讀取自有標準淨水器的容器槽與電池槽。晚上記一次機台與瓶子的存檔識別碼，晨檢附當前可操作瓶號、是否同一瓶、電力、可否取出、庫存空間與可用試紙數。晨檢固定顯示「全店可用試紙剩 N 張」，每台的 `available_strips` 都是同一份全店餘量，包含散裝與試劑盒裡尚未使用的試紙。第一次安裝若沒有昨晚的記錄，`same_bottle_as_last_night` 為空。取出和用試紙由玩家操作；晨檢沒有水質、純度或污染物欄位。
 - 先用 `get_buyer_context()` 讀來訪編號、預算與版本，搭配 `query_inventory` 選貨，再呼叫 `sell_order`。訂單以 `lines=[{"item_id":25,"min_price":10},{"item_id":26,"min_price":10},{"item_id":12,"min_price":3}]` 逐件指定底價，另傳 `generation`、`revision`、`visit`。可選的 `stop_same_kind_on_budget=true` 只影響這張單。首件因預算不足且已回到原貨區時，餘下相同遊戲品種跳過，在原位等候；後續不同品種繼續。逐件回執列出實收或退回原因及剩餘預算。換人、櫃檯被改動或成交待確認時會停單。購買批次的成本不參與售價決策。
 
 ## 建置與安裝

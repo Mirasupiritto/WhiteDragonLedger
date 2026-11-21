@@ -59,7 +59,7 @@ def main():
 
     @server.tool()
     def inspect_purifiers() -> dict:
-        """Compare last night's and current bottle IDs and read battery, extraction and test-strip availability."""
+        """Compare last night's and current bottle IDs and read battery, extraction readiness and the shared count of unused test strips."""
         return shopdesk.machines(args.journal)
 
     @server.tool()
