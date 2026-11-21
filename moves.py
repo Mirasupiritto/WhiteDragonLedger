@@ -5,12 +5,12 @@ import re
 import tempfile
 import time
 from pathlib import Path
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from ledger import read_head
 
 
-def move_item(folder: Path, item_id, source, destination, generation, revision, command_id=None):
+def move_item(folder: Path, item_id, source, destination, generation, revision, command_id=None, *, previous_command=None):
     command = command_id or uuid4().hex
     if not re.fullmatch("[a-f0-9]{32}", generation) or not re.fullmatch("[a-f0-9]{32}", command):
         raise ValueError("generation and command_id must be lowercase 32-digit hex values")
@@ -43,18 +43,27 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump({**request, "expires_ms": int(time.time()*1000)+6000}, stream)
-        try:
-            # A fully written request becomes visible atomically, without replacing another move.
-            os.link(name, inbox)
-        except FileExistsError:
+        # Unity publishes the receipt just before removing the inbox. A batch may
+        # reach this point while the preceding confirmed command still owns it.
+        handoff_deadline = time.monotonic() + 0.5 if previous_command else None
+        while True:
             try:
-                pending = json.loads(inbox.read_text(encoding="utf-8"))
-            except FileNotFoundError:
-                pending = {}
-            if pending and pending.get("command_id") != command:
+                os.link(name, inbox)
+                break
+            except FileExistsError:
+                try:
+                    pending = json.loads(inbox.read_text(encoding="utf-8"))
+                except FileNotFoundError:
+                    continue
+                if pending.get("command_id") == command:
+                    if any(pending.get(k) != v for k, v in request.items()):
+                        raise ValueError("command_id already pending for a different move")
+                    break
+                if (previous_command and pending.get("command_id") == previous_command
+                        and time.monotonic() < handoff_deadline):
+                    time.sleep(0.025)
+                    continue
                 return {"status": "busy", "command_id": command}
-            if pending and any(pending.get(k) != v for k,v in request.items()):
-                raise ValueError("command_id already pending for a different move")
     finally:
         Path(name).unlink(missing_ok=True)
     deadline = time.monotonic() + 8
@@ -65,3 +74,39 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         time.sleep(0.075)
     return {"status": "unconfirmed", "command_id": command,
             "detail": "Use the same command_id to check the receipt and query inventory before another move."}
+
+
+def move_items(folder: Path, item_ids, source, destination, generation, revision):
+    """Execute one ordered plan. An identical plan reuses its native receipts."""
+    if not item_ids or any(item_id < 1 for item_id in item_ids):
+        raise ValueError("Expected a nonempty list of positive item IDs")
+    if len(set(item_ids)) != len(item_ids):
+        raise ValueError("Each item must appear only once in a batch")
+
+    plan = json.dumps([generation, revision, source, destination, item_ids], separators=(",", ":"))
+    batch_id = uuid5(NAMESPACE_URL, "white-dragon-ledger/move-items/" + plan)
+    result = dict(batch_id=batch_id.hex, generation=generation, expected_revision=revision,
+                  revision=revision, source=source, destination=destination,
+                  status="moved", moved_count=0, items=[])
+    previous_command = None
+    for position, item_id in enumerate(item_ids):
+        command = uuid5(batch_id, str(item_id)).hex
+        receipt = move_item(folder, item_id, source, destination, generation, result["revision"], command,
+                            previous_command=previous_command)
+        row = {"item_id": item_id, "status": receipt["status"], "from": source,
+               "actual_area": receipt.get("actual_area")}
+        for field in ("name", "kind", "quantity", "revision"):
+            if field in receipt:
+                row[field] = receipt[field]
+        result["items"].append(row)
+        if "load_scans" in receipt:
+            for field in ("load_scans", "full_scans", "phase", "slot", "revision"):
+                result[field] = receipt[field]
+        if receipt["status"] != "moved":
+            result["status"] = "partial" if result["moved_count"] else "stopped"
+            result["items"].extend({"item_id": pending, "status": "not_attempted", "actual_area": None}
+                                   for pending in item_ids[position+1:])
+            break
+        result["moved_count"] += 1
+        previous_command = command
+    return result

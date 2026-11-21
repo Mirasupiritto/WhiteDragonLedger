@@ -5,7 +5,7 @@ from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 from ledger import lookup
-from moves import move_item as submit_move
+from moves import move_item as submit_move, move_items as submit_batch
 
 
 def main():
@@ -34,6 +34,15 @@ def main():
         query_inventory. A moved receipt gives the confirmed location and game-side scan counts.
         Reuse the same command_id and original arguments when checking an uncertain response."""
         return submit_move(args.journal, item_id, source, destination, generation, revision, command_id)
+
+    @server.tool()
+    def move_items(item_ids: list[int], source: Literal["inventory", "showcase"],
+                   destination: Literal["inventory", "showcase"], generation: str, revision: int) -> dict:
+        """Move an ordered list of owned items with the shutter closed. Pass the generation and
+        starting revision from query_inventory. Returns one receipt with each observed destination
+        and game scan counters. Stops at the first unconfirmed or rejected item. The original
+        arguments recover completed lines and can continue pending lines."""
+        return submit_batch(args.journal, item_ids, source, destination, generation, revision)
 
     server.run()
 

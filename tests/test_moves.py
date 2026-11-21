@@ -7,7 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from moves import move_item
+from moves import move_item, move_items
 
 
 class MoveMailbox(unittest.TestCase):
@@ -63,6 +63,50 @@ class MoveMailbox(unittest.TestCase):
         self.inbox.write_text(json.dumps(dict(command_id="b"*32)), encoding="utf-8")
         self.assertEqual(self.request()["status"], "busy")
         self.assertEqual(json.loads(self.inbox.read_text())["command_id"], "b"*32)
+
+    def batch(self, ids):
+        return move_items(self.folder, ids, "showcase", "inventory", self.generation, 2)
+
+    def test_batch_chains_native_receipts_and_replays(self):
+        posted = []
+        def game_tick(_):
+            request = json.loads(self.inbox.read_text(encoding="utf-8"))
+            posted.append((request["item_id"], request["revision"]))
+            revision = request["revision"] + 1
+            receipt = dict(command_id=request["command_id"], item_id=request["item_id"],
+                           generation=self.generation, expected_revision=request["revision"],
+                           revision=revision, slot=4, phase="MORNING", full_scans=2,
+                           load_scans=1, status="moved", actual_area="inventory",
+                           requested_area="inventory")
+            receipt["from"] = "showcase"
+            self.head["revision"] = revision
+            self.publish_head()
+            (self.folder / ("receipt-" + request["command_id"] + ".json")).write_text(json.dumps(receipt))
+            self.inbox.unlink()
+        with patch("moves.time.sleep", side_effect=game_tick):
+            result = self.batch([25, 26])
+            self.assertEqual(self.batch([25, 26]), result)
+        self.assertEqual(posted, [(25, 2), (26, 3)])
+        self.assertEqual([(r["item_id"], r["actual_area"]) for r in result["items"]],
+                         [(25, "inventory"), (26, "inventory")])
+        self.assertEqual((result["moved_count"],result["load_scans"],result["revision"]), (2,1,4))
+
+    def test_batch_stops_with_one_row_per_item(self):
+        first = dict(status="moved", actual_area="inventory", slot=4, phase="MORNING",
+                     revision=3, load_scans=1, full_scans=2)
+        with patch("moves.move_item", side_effect=[first, {"status":"unconfirmed"}]) as submit:
+            result = self.batch([25,26,27])
+            self.assertEqual(submit.call_count, 2)
+        self.assertEqual(result["status"], "partial")
+        self.assertEqual([(r["item_id"],r["status"]) for r in result["items"]],
+                         [(25,"moved"),(26,"unconfirmed"),(27,"not_attempted")])
+        self.assertIsNone(result["items"][1]["actual_area"])
+
+    def test_invalid_batch_has_no_side_effect(self):
+        for invalid in ([], [25,25], [25,0]):
+            with self.assertRaises(ValueError):
+                self.batch(invalid)
+        self.assertFalse(self.inbox.exists())
 
     def test_unconfirmed_is_not_success(self):
         with patch("moves.time.monotonic", side_effect=[0, 9]):
