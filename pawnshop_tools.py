@@ -92,6 +92,18 @@ def register_pawnshop_tools(server, folder, database):
                                window_token=window_token, label=label)
 
     @server.tool()
+    def water_panel(generation: str, revision: int, mode: Literal["read", "match", "close"] = "read",
+                    panel_token: str | None = None, bottle_id: int | None = None) -> dict:
+        """Read an already open test-strip panel, including tested bottle, displayed result and unused strip count.
+        Match an owned bottle label only with its observed ID and panel token, or close that panel by token."""
+        if mode == "read":
+            return counter.command(folder, "water_panel", generation, revision, mode=mode, read_id=uuid4().hex)
+        if not panel_token or (mode == "match" and (bottle_id is None or bottle_id < 1)):
+            raise ValueError("Use the observed panel_token and, for match, its bottle_id")
+        return counter.command(folder, "water_panel", generation, revision, mode=mode,
+                               panel_token=panel_token, bottle_id=bottle_id)
+
+    @server.tool()
     def inspect_purifiers() -> dict:
         """Compare last night's and current bottle IDs and read battery, extraction readiness and the shared count of unused test strips."""
         return shopdesk.machines(folder)

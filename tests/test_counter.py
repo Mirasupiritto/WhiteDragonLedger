@@ -20,6 +20,20 @@ class CounterFlow(unittest.TestCase):
 
     @patch("counter.exchange")
     @patch("counter.context")
+    def test_water_panel_in_morning_or_during_trade(self, context, exchange):
+        for phase in ("MORNING", "OPEN", "CLOSED"):
+            context.return_value = dict(self.view, phase=phase, water_panel_protocol=1)
+            exchange.return_value = {"status": "panel_closed"}
+            result = counter.command(self.folder, "water_panel", self.generation, 2, mode="read")
+            self.assertEqual(result["status"], "panel_closed")
+        self.assertEqual(exchange.call_count, 3)
+        context.return_value = self.view
+        result = counter.command(self.folder, "water_panel", self.generation, 2, mode="read")
+        self.assertEqual(result["status"], "reload_updated_mod")
+        self.assertEqual(exchange.call_count, 3)
+
+    @patch("counter.exchange")
+    @patch("counter.context")
     def test_workstation_read_and_action_gates(self, context, exchange):
         context.return_value = self.view
         self.assertEqual(counter.command(self.folder, "inspect_window", self.generation, 2)["status"], "reload_updated_mod")

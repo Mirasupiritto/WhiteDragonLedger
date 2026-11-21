@@ -55,6 +55,9 @@ def command(folder, action, generation, revision, **args):
             return {"status": "reload_updated_mod"}
         if not view["can_open_shop"]:
             return {"status": "shutter_unavailable", "phase": view["phase"]}
+    elif action == "water_panel":
+        if view.get("water_panel_protocol") != 1:
+            return {"status": "reload_updated_mod"}
     elif action in {"inspect_archive", "close_archive"}:
         if view.get("archive_protocol") != 1:
             return {"status": "reload_updated_mod"}

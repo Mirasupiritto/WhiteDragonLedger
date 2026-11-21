@@ -36,6 +36,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 init = await client.initialize()
                 self.assertTrue(init.capabilities.tools.listChanged)
                 tools = {t.name for t in (await client.list_tools()).tools}
+                self.assertIn("water_panel", tools)
                 self.assertIn("pay_info_receipt", tools)
                 self.assertIn("get_phone_contacts", tools)
                 self.assertIn("query_inventory", tools)
