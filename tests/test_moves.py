@@ -108,6 +108,29 @@ class MoveMailbox(unittest.TestCase):
                 self.batch(invalid)
         self.assertFalse(self.inbox.exists())
 
+    def test_purifier_gate_and_machine_specific_replay(self):
+        def take(machine):
+            return move_item(self.folder, 27, "purifier", "inventory", self.generation, 2,
+                             self.command, machine_id=machine)
+        self.assertEqual(take(23)["status"], "reload_updated_mod")
+        self.assertFalse(self.inbox.exists())
+        self.head["purifier_take_protocol"] = 1
+        self.publish_head()
+        def game_tick(_):
+            request = json.loads(self.inbox.read_text())
+            self.assertEqual((request["machine_id"],request["item_id"]),(23,27))
+            response = dict(request, status="moved", expected_revision=2, revision=3,
+                            requested_area="inventory", actual_area="inventory",
+                            source_slot_empty=True, available_strips=6)
+            response["from"] = "purifier"
+            (self.folder/f"receipt-{self.command}.json").write_text(json.dumps(response))
+            self.inbox.unlink()
+        with patch("moves.time.sleep", side_effect=game_tick):
+            self.assertEqual(take(23)["available_strips"],6)
+        self.assertTrue(take(23)["source_slot_empty"])
+        with self.assertRaises(ValueError):
+            take(24)
+
     def test_unconfirmed_is_not_success(self):
         with patch("moves.time.monotonic", side_effect=[0, 9]):
             result = self.request()

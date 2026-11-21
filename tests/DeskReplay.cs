@@ -25,6 +25,7 @@ namespace WhiteDragon.Ledger {
     public class GameInventory {
         public List<GameItem> childItems = new List<GameItem>();
         public bool IsInsertLocked() => false;
+        public bool IsRemoveLocked() => false;
         public object TryFindOneValidInventorySlot(GameItem item) => new object();
     }
     public class GameSlotInventory:GameInventory { public GameItem childItem; }
@@ -34,7 +35,7 @@ namespace WhiteDragon.Ledger {
     }
     public class GameItem {
         public string identifier;
-        public int uniqueId, price;
+        public int uniqueId, price, unitCount=1;
         public bool owned=true;
         public GameInventory parentInventory;
         public int GetUniqueID() => uniqueId;
@@ -46,9 +47,11 @@ namespace WhiteDragon.Ledger {
         public int GetInt() => 0;
         public List<GameItem> FindAllChildItems() => new List<GameItem>();
         public void To(GameInventory target) {
+            if (parentInventory is GameSlotInventory oldSlot) oldSlot.childItem = null;
             parentInventory?.childItems.Remove(this);
             parentInventory=target;
             target?.childItems.Add(this);
+            if (target is GameSlotInventory newSlot) newSlot.childItem = this;
         }
     }
     public class StoreClient {
@@ -113,7 +116,7 @@ namespace WhiteDragon.Ledger {
     public sealed partial class InventoryObserver {
         private const string ModId="replay";
         private string generation="load", phase="OPEN";
-        private int slot=4, sequence=1, loadScans=1, nextId;
+        private int slot=4, sequence=1, loadScans=1, fullScans=1, nextId;
         private Dictionary<GameInventory,string> areas=new Dictionary<GameInventory,string>();
         private Dictionary<GameItem,int> ids=new Dictionary<GameItem,int>();
         private Dictionary<int,GameItem> itemsById=new Dictionary<int,GameItem>();
@@ -189,11 +192,28 @@ namespace WhiteDragon.Ledger {
             Expect(unsold.Count==0 && lots.Count==1,"save-bound lot recovery");
             var purifier=Item(300,"water_purifier",0);
             purifiers.Add(purifier);
-            MachineHelper.container.childItem=Item(301,"bottle",0);
+            var bottle=Item(301,"bottle",0);
+            bottle.To(MachineHelper.container);
             BeforeSleep();
             MachineHelper.battery.childItem=Item(302,"battery",0);
             var now=MachineRows();
             Expect((int)now[0]["bottle_key"]==(int)night[0]["bottle_key"] && (bool)now[0]["can_power"],"overnight bottle and power");
+            phase="MORNING";
+            for(int i=0;i<6;i++) stripSupplies.Add(Item(501+i,"water_test_strip",0));
+            var take = new JObject { ["generation"]=generation, ["revision"]=sequence,
+                ["command_id"]=Guid.NewGuid().ToString("N"), ["source"]="purifier", ["destination"]="inventory",
+                ["machine_id"]=LocalId(purifier), ["item_id"]=LocalId(cheap),
+                ["expires_ms"]=DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds() };
+            Expect((string)ExecuteMove(take)["status"]=="source_changed" && MachineHelper.container.childItem==bottle,"wrong bottle");
+            take["item_id"]=LocalId(bottle);
+            take["machine_id"]=LocalId(cheap);
+            Expect((string)ExecuteMove(take)["status"]=="machine_changed" && MachineHelper.container.childItem==bottle,"wrong machine");
+            take["machine_id"]=LocalId(purifier);
+            var extracted=ExecuteMove(take);
+            Expect((string)extracted["status"]=="moved" && (string)extracted["actual_area"]=="inventory" &&
+                   (bool)extracted["source_slot_empty"] && (int)extracted["available_strips"]==6 &&
+                   (int)extracted["bottle_key"]==301 && (int)extracted["machine_key"]==300 &&
+                   (int)extracted["load_scans"]==1 && extracted["name"]==null,"extraction receipt");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }
         public static void Main() { new InventoryObserver().Run(); }

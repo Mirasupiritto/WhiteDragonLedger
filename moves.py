@@ -10,21 +10,30 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from ledger import read_head
 
 
-def move_item(folder: Path, item_id, source, destination, generation, revision, command_id=None, *, previous_command=None):
+def move_item(folder: Path, item_id, source, destination, generation, revision, command_id=None, *, previous_command=None, machine_id=None):
     command = command_id or uuid4().hex
     if not re.fullmatch("[a-f0-9]{32}", generation) or not re.fullmatch("[a-f0-9]{32}", command):
         raise ValueError("generation and command_id must be lowercase 32-digit hex values")
-    if {source, destination} != {"inventory", "showcase"} or item_id < 1 or revision < 1:
+    if machine_id is not None:
+        if machine_id < 1 or (source, destination) != ("purifier", "inventory"):
+            raise ValueError("Expected a purifier ID and inventory destination")
+    elif {source, destination} != {"inventory", "showcase"}:
+        raise ValueError("Expected two different stock areas")
+    if item_id < 1 or revision < 1:
         raise ValueError("Expected a positive item ID, revision and two different stock areas")
     request = dict(command_id=command, item_id=item_id, source=source, destination=destination,
                    generation=generation, revision=revision)
+    if machine_id is not None:
+        request["machine_id"] = machine_id
+
     def read_receipt():
         try:
             result = json.loads((folder / f"receipt-{command}.json").read_text(encoding="utf-8-sig"))
         except (FileNotFoundError, PermissionError, json.JSONDecodeError):
             return None
         if (result["generation"], result["expected_revision"], result["item_id"], result["from"],
-            result["requested_area"], result["command_id"]) != (generation, revision, item_id, source, destination, command):
+            result["requested_area"], result["command_id"], result.get("machine_id")) != (
+                generation, revision, item_id, source, destination, command, machine_id):
             raise ValueError("command_id already used for a different move")
         return result
 
@@ -34,7 +43,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     head = read_head(folder)
     if head.get("generation") != generation or head.get("revision") != revision:
         return {"status": "stale_observation", "command_id": command}
-    if head.get("move_protocol") != 1:
+    if head.get("move_protocol") != 1 or (machine_id is not None and head.get("purifier_take_protocol") != 1):
         return {"status": "reload_updated_mod", "command_id": command}
     if head["phase"] not in ("CLOSED", "MORNING"):
         return {"status": "shop_open", "command_id": command}

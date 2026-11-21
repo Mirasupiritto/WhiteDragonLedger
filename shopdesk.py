@@ -99,7 +99,7 @@ def machines(folder):
         row["can_remove_to_inventory"] = bool(row["can_remove_bottle"] and row["inventory_has_room"])
         row["available_strips"] = available_strips
         row["ready_to_take_and_test"] = bool(row["can_remove_to_inventory"] and available_strips > 0)
-    return {**{k:view[k] for k in ("status","slot","day","phase","generation","available_strips")},
+    return {**{k:view[k] for k in ("status","slot","day","phase","generation","revision","available_strips")},
             "strip_summary": f"全店可用試紙剩 {available_strips} 張",
             "machines":list(current.values()),
             "missing_since_last_night":[r for k,r in previous.items() if k not in current]}

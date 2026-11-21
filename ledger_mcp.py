@@ -63,6 +63,15 @@ def main():
         return shopdesk.machines(args.journal)
 
     @server.tool()
+    def take_purifier_bottle(machine_id: int, bottle_id: int, generation: str, revision: int,
+                             command_id: str | None = None) -> dict:
+        """While closed, retrieve the observed bottle from its purifier into inventory.
+        Use IDs and revision from inspect_purifiers. A moved receipt confirms the actual
+        destination, empty source slot and unused strip count. Does not test the water."""
+        return submit_move(args.journal, bottle_id, "purifier", "inventory", generation, revision,
+                           command_id, machine_id=machine_id)
+
+    @server.tool()
     def get_buyer_context() -> dict:
         """Read the current customer's visit token, remaining budget and revision before submitting an order."""
         return shopdesk.buyer(args.journal)

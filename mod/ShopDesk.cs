@@ -182,6 +182,19 @@ namespace WhiteDragon.Ledger
             nextView = 0;
         }
 
+        private int AvailableStrips()
+        {
+            int strips = 0;
+            foreach (var supply in stripSupplies)
+            {
+                if (!GeneralHelper.IsItemOwned(supply) || supply.parentInventory == null || !areas.ContainsKey(supply.parentInventory)) continue;
+                if (supply.identifier == "water_test_strip") { if (!supply.IsTag(WaterTestHelper.IS_SPENT)) ++strips; }
+                else foreach (var strip in supply.FindAllChildItems())
+                    if (strip.identifier == "water_test_strip" && !strip.IsTag(WaterTestHelper.IS_SPENT)) ++strips;
+            }
+            return strips;
+        }
+
         private void RefreshDesk()
         {
             if (lotsChanged)
@@ -193,19 +206,11 @@ namespace WhiteDragon.Ledger
             if (Time.realtimeSinceStartup < nextView) return;
             nextView = Time.realtimeSinceStartup + 1f;
             var machines = MachineRows();
-            int strips = 0;
-            foreach (var supply in stripSupplies)
-            {
-                if (!GeneralHelper.IsItemOwned(supply) || supply.parentInventory == null || !areas.ContainsKey(supply.parentInventory)) continue;
-                if (supply.identifier == "water_test_strip") { if (!supply.IsTag(WaterTestHelper.IS_SPENT)) ++strips; }
-                else foreach (var strip in supply.FindAllChildItems())
-                    if (strip.identifier == "water_test_strip" && !strip.IsTag(WaterTestHelper.IS_SPENT)) ++strips;
-            }
             var customer = merchant == null ? null : new JObject { ["visit"] = visitId,
                 ["name"] = merchant.displayName, ["remaining"] = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
             var doc = new JObject { ["generation"] = generation, ["slot"] = slot, ["revision"] = sequence,
                 ["phase"] = phase, ["day"] = StoreStation.Instance.dayCounter, ["customer"] = customer,
-                ["available_strips"] = strips, ["machines"] = machines, ["last_night"] = night.DeepClone() };
+                ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["last_night"] = night.DeepClone() };
             var text = doc.ToString(Formatting.None);
             if (text == previousView) return;
             ModHelper.WriteModDataFileText(ModId, deskFile, text);

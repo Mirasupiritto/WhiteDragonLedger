@@ -42,7 +42,7 @@ namespace WhiteDragon.Ledger
 
         private JObject Receipt(JObject request, string status)
         {
-            return new JObject {
+            var result = new JObject {
                 ["command_id"] = (string)request["command_id"], ["status"] = status,
                 ["generation"] = generation, ["slot"] = slot, ["revision"] = sequence,
                 ["phase"] = phase, ["load_scans"] = loadScans, ["full_scans"] = fullScans,
@@ -50,6 +50,8 @@ namespace WhiteDragon.Ledger
                 ["requested_area"] = (string)request["destination"],
                 ["expected_revision"] = (int)request["revision"]
             };
+            if (request["machine_id"] != null) result["machine_id"] = (int)request["machine_id"];
+            return result;
         }
 
         private JObject ExecuteMove(JObject request)
@@ -62,17 +64,36 @@ namespace WhiteDragon.Ledger
 
             int id = (int)request["item_id"];
             string source = (string)request["source"], destination = (string)request["destination"];
-            if (source == destination || (source != "inventory" && source != "showcase") ||
-                (destination != "inventory" && destination != "showcase"))
-                return Receipt(request, "invalid_route");
-            if (!itemsById.TryGetValue(id, out var item) || item.parentInventory == null ||
-                !areas.TryGetValue(item.parentInventory, out var actual) || actual != source)
+            if (!itemsById.TryGetValue(id, out var item) || item.parentInventory == null)
                 return Receipt(request, "source_changed");
+            GameSlotInventory container = null;
+            GameItem machine = null;
+            if (source == "purifier")
+            {
+                if (destination != "inventory" || request["machine_id"] == null) return Receipt(request, "invalid_route");
+                if (!itemsById.TryGetValue((int)request["machine_id"], out machine) || !purifiers.Contains(machine) ||
+                    machine.parentInventory == null || !areas.ContainsKey(machine.parentInventory) ||
+                    !GeneralHelper.IsItemOwned(machine)) return Receipt(request, "machine_changed");
+                container = MachineHelper.GetBodyStorage(machine, 2) as GameSlotInventory;
+                if (container == null || container.childItem != item || item.parentInventory != container)
+                    return Receipt(request, "source_changed");
+            }
+            else
+            {
+                if (source == destination || (source != "inventory" && source != "showcase") ||
+                    (destination != "inventory" && destination != "showcase"))
+                    return Receipt(request, "invalid_route");
+                if (!areas.TryGetValue(item.parentInventory, out var actual) || actual != source)
+                    return Receipt(request, "source_changed");
+            }
             if (!GeneralHelper.IsItemOwned(item)) return Receipt(request, "not_owned");
             var shop = EmporiumEntry.Instance;
             var target = destination == "showcase" ? shop.showcaseElement : shop.invElement;
             if (item.parentInventory.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove())
                 return Receipt(request, "locked");
+
+            if (container != null && target.TryFindOneValidInventorySlot(item) == null)
+                return Receipt(request, "inventory_full");
 
             // The native placement routine enforces available space and slot rules.
             int quantityBefore = item.unitCount;
@@ -82,11 +103,25 @@ namespace WhiteDragon.Ledger
             FlushChanges();
             string observed = null;
             if (item.parentInventory != null) areas.TryGetValue(item.parentInventory, out observed);
-            string status = observed == destination && item.unitCount == quantityBefore ? "moved" :
+            if (container != null && item.parentInventory == container) observed = "purifier";
+            bool sourceCleared = container == null || container.childItem == null;
+            string status = sourceCleared && observed == destination && item.unitCount == quantityBefore ? "moved" :
                 observed == source && item.unitCount == quantityBefore ? "not_moved" : "outcome_unknown";
             var result = Receipt(request, status);
-            result["name"] = item.GetDisplayName(true);
-            result["kind"] = item.identifier;
+            if (container != null)
+            {
+                result["machine_key"] = machine.uniqueId;
+                result["bottle_key"] = item.uniqueId;
+                result["source_slot_empty"] = container.childItem == null;
+                result["available_strips"] = AvailableStrips();
+                nextView = 0;
+                RefreshDesk();
+            }
+            else
+            {
+                result["name"] = item.GetDisplayName(true);
+                result["kind"] = item.identifier;
+            }
             result["actual_area"] = observed;
             result["quantity"] = item.unitCount;
             return result;
