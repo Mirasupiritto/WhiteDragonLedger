@@ -6,11 +6,15 @@ import re
 import time
 from uuid import NAMESPACE_URL, uuid5
 
+from scene import interrupted_shop_call
 from ledger import lookup, read_head
 from moves import exchange
 
 
 def published(folder, stream="desk"):
+    changed = interrupted_shop_call(folder)
+    if changed:
+        return changed
     for attempt in range(3):
         head = read_head(folder)
         if head.get("status") != "observed":

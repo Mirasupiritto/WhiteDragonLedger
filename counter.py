@@ -55,6 +55,9 @@ def command(folder, action, generation, revision, **args):
             return {"status": "reload_updated_mod"}
         if not view["can_open_shop"]:
             return {"status": "shutter_unavailable", "phase": view["phase"]}
+    elif action == "sleep":
+        if view["phase"] != "CLOSED":
+            return {"status":"sleep_requires_closed_shop", "phase":view["phase"]}
     elif not phone_action and view["phase"] != "OPEN":
         return {"status": "shop_closed"}
     return exchange(folder, folder/f"counter-{generation}.json", dict(plan, command_id=token), receipt)

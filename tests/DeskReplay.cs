@@ -16,6 +16,7 @@ namespace WhiteDragon.Ledger {
     public class NegotiationTabletFrame { public Window confirmRoot; }
     public class StoreUIManager {
         public static StoreUIManager Instance = new StoreUIManager();
+        public SceneFade blackscreen;
         public bool isAboutToStartMainDialog;
     }
     public class DialogUIManager {
@@ -31,15 +32,15 @@ namespace WhiteDragon.Ledger {
         public bool IsCurrentDialogEnd() => true;
         public bool IsLineStillDisplaying(object d) => typing;
     }
-    public class StoreStation { public static StoreStation Instance = new StoreStation(); public int dayCounter=10; }
-    public class GameInventory {
+    public partial class StoreStation { public static StoreStation Instance = new StoreStation(); public int dayCounter=10; }
+    public partial class GameInventory {
         public List<GameItem> childItems = new List<GameItem>();
         public bool IsInsertLocked() => false;
         public bool IsRemoveLocked() => false;
         public object TryFindOneValidInventorySlot(GameItem item) => new object();
     }
     public class GameSlotInventory:GameInventory { public GameItem childItem; }
-    public class EmporiumEntry {
+    public partial class EmporiumEntry {
         public static EmporiumEntry Instance = new EmporiumEntry();
         public List<GameItem> GetAllNonOwnedItem() {
             var result=frontInvinvElement.childItems.FindAll(i=>!i.owned);
@@ -96,6 +97,8 @@ namespace WhiteDragon.Ledger {
         public StoreClient GetClientBlueprint() => client;
     }
     public partial class PlayerStore {
+        public static bool HasInstance => Instance != null;
+        public int saveSlotId=4;
         public static PlayerStore Instance=new PlayerStore();
         public StoreClientInstance currentClientInstance=new StoreClientInstance();
         public int playerCash=100;
@@ -321,6 +324,8 @@ namespace WhiteDragon.Ledger {
             phase="OPEN"; PlayerStore.Instance.currentClientInstance=null; ObserveVisit();
             Expect(ActAtCounter(buy,outcome)=="called" && outcome["visit"]!=null,"one new visit");
             ReplayPhone();
+            ReplayScenes();
+            ReplayDay();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }

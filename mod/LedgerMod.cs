@@ -50,6 +50,10 @@ namespace WhiteDragon.Ledger
         private void OnEnable()
         {
 
+            ModHook.OnAfterhourArriveEarly += OnArriveEarly;
+            ModHook.OnAfterhourArriveLate += OnTravelLate;
+            ModHook.OnAfterhourLeaveEarly += OnLeaveEarly;
+            ModHook.OnAfterhourLeaveLate += OnTravelLate;
             ModHook.OnGameLoadedInit += ResetLoad;
             ModHook.OnGameLoadedLate += Ready;
             ModHook.OnGoingSleepEarly += BeforeSleep;
@@ -57,6 +61,10 @@ namespace WhiteDragon.Ledger
 
         private void ResetLoad()
         {
+            ResetScene();
+            DetachTrash();
+            trashVersion = trashDay = sleepSubmittedDay = 0;
+            trashDirty = true;
             DisconnectVisit();
             received.Clear();
             payments.Clear();
@@ -159,12 +167,17 @@ namespace WhiteDragon.Ledger
         private void LateUpdate()
         {
 
+            if (!CanObserveStore()) return;
             if (pending)
             {
                 var shop = EmporiumEntry.Instance;
                 if (shop != null && PlayerStore.HasInstance && shop.invElement != null &&
                     shop.showcaseElement != null && shop.frontInvinvElement != null && shop.backInvinvElement != null)
+                {
                     Baseline(shop);
+                    shopBoundary = false;
+                    MarkSceneReady(ShopScene, "當鋪");
+                }
                 return;
             }
             if (generation == null || !PlayerStore.HasInstance) return;
@@ -174,7 +187,9 @@ namespace WhiteDragon.Ledger
                     if (bottle != null && BottleLabel(bottle) != (string)known[ids[bottle]]["bottle_label"])
                         changed.Add(bottle);
             FlushChanges();
+            InvalidatePreviousShopVisit();
             RefreshDesk();
+            MarkSceneReady(ShopScene, "當鋪");
             CheckMove();
             CheckOrder();
             CheckCounter();
@@ -214,8 +229,14 @@ namespace WhiteDragon.Ledger
 
         private void OnDestroy()
         {
+            DetachTrash();
             DetachAreas();
 
+            ResetScene();
+            ModHook.OnAfterhourArriveEarly -= OnArriveEarly;
+            ModHook.OnAfterhourArriveLate -= OnTravelLate;
+            ModHook.OnAfterhourLeaveEarly -= OnLeaveEarly;
+            ModHook.OnAfterhourLeaveLate -= OnTravelLate;
             ModHook.OnGameLoadedInit -= ResetLoad;
             ModHook.OnGameLoadedLate -= Ready;
             ModHook.OnGoingSleepEarly -= BeforeSleep;

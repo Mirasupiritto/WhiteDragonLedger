@@ -185,7 +185,7 @@ namespace WhiteDragon.Ledger
 
         private void BeforeSleep()
         {
-            if (generation == null) return;
+            if (generation == null || !CanObserveStore()) return;
             night = MachineRows();
             ModHelper.SetModData(ModId, "last_night", night.ToString(Formatting.None));
             nextView = 0;
@@ -220,7 +220,7 @@ namespace WhiteDragon.Ledger
                 ["name"] = merchant.displayName, ["remaining"] = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
             var doc = new JObject { ["generation"] = generation, ["slot"] = slot, ["revision"] = sequence,
                 ["phase"] = phase, ["day"] = StoreStation.Instance.dayCounter, ["customer"] = customer,
-                ["phone"] = PhoneView(), ["counter_protocol"] = 2, ["counter"] = CounterView(), ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["last_night"] = night.DeepClone() };
+                ["day_info"] = DayView(), ["phone"] = PhoneView(), ["counter_protocol"] = 2, ["counter"] = CounterView(), ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["last_night"] = night.DeepClone() };
             var text = doc.ToString(Formatting.None);
             if (text == previousView) return;
             ModHelper.WriteModDataFileText(ModId, deskFile, text);

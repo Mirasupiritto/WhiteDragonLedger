@@ -7,10 +7,14 @@ import time
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from scene import interrupted_shop_call
 from ledger import read_head
 
 
 def move_item(folder: Path, item_id, source, destination, generation, revision, command_id=None, *, previous_command=None, machine_id=None):
+    changed = interrupted_shop_call(folder)
+    if changed:
+        return changed
     command = command_id or uuid4().hex
     if not re.fullmatch("[a-f0-9]{32}", generation) or not re.fullmatch("[a-f0-9]{32}", command):
         raise ValueError("generation and command_id must be lowercase 32-digit hex values")

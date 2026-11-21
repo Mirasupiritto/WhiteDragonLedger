@@ -128,6 +128,7 @@ namespace WhiteDragon.Ledger
             if ((long)request["expires_ms"] < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) return "expired";
             if ((string)request["generation"] != generation || (int)request["revision"] != sequence) return "stale_observation";
             string action = (string)request["action"];
+            if (action == "sleep") return SubmitSleep(request, receipt);
             if (action == "open_shop")
             {
                 if (!CanOpenShop()) return "shutter_unavailable";
