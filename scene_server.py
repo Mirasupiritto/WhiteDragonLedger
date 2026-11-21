@@ -7,24 +7,37 @@ from mcp.server.stdio import stdio_server
 from scene import at_shop, read_scene, shop_visit
 
 
+def tool_region(scene):
+    if at_shop(scene):
+        return "pawnshop"
+    if scene.get("status") == "selecting_destination":
+        return "destination_selection"
+    return "scene_only"
+
+
 class SceneServer(FastMCP):
     def __init__(self, folder):
         super().__init__("白龍店帳")
         self.folder = folder
         self.global_tools = {"get_scene", "wait_for_scene"}
         self.client_session = None
-        self.listed_shop = None
+        self.listed_region = None
 
     async def list_tools(self):
         scene = read_scene(self.folder)
-        shop = at_shop(scene)
+        region = tool_region(scene)
         self.client_session = self.get_context().session
-        self.listed_shop = shop
+        self.listed_region = region
         registered = await super().list_tools()
-        return registered if shop else [tool for tool in registered if tool.name in self.global_tools]
+        if region == "pawnshop":
+            return [tool for tool in registered if tool.name != "get_travel_options"]
+        allowed = self.global_tools
+        if region == "destination_selection":
+            allowed = allowed | {"get_travel_options"}
+        return [tool for tool in registered if tool.name in allowed]
 
     async def call_tool(self, name, arguments):
-        if name not in self.global_tools:
+        if name != "get_travel_options" and name not in self.global_tools:
             scene = read_scene(self.folder)
             if not at_shop(scene):
                 return {**scene, "tool_status": "unavailable_in_scene"}
@@ -43,9 +56,9 @@ class SceneServer(FastMCP):
             scene = read_scene(self.folder)
             if scene["status"] == "reading_scene":
                 continue
-            shop = at_shop(scene)
-            if shop != self.listed_shop:
-                self.listed_shop = shop
+            region = tool_region(scene)
+            if region != self.listed_region:
+                self.listed_region = region
                 await self.client_session.send_tool_list_changed()
 
     async def run_stdio_async(self):

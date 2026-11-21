@@ -10,7 +10,9 @@ namespace WhiteDragon.Ledger
         private string currentTitle, destinationTitle;
         private int sceneRevision;
         private bool awaitingLateHook, shopBoundary;
-        private JObject lastJourney;
+        private JObject lastJourney, travelOptions;
+        private TransitCardView firstTravelCard;
+        private const string Picker = "selecting_destination";
 
         private void ResetScene()
         {
@@ -25,16 +27,23 @@ namespace WhiteDragon.Ledger
         private void PublishScene(string status)
         {
             sceneStatus = status;
-            Write("scene.json", new JObject {
+            if (status != Picker)
+            {
+                firstTravelCard = null;
+                travelOptions = null;
+            }
+            var receipt = new JObject {
                 ["session"] = sceneSession, ["revision"] = ++sceneRevision, ["status"] = status,
                 ["location"] = currentLocation, ["title"] = currentTitle,
-                ["tool_region"] = status == "ready" ? (currentLocation == ShopScene ? "pawnshop" : "afterhours") : "transition",
+                ["tool_region"] = status == Picker ? "destination_selection" : status == "ready" ? (currentLocation == ShopScene ? "pawnshop" : "afterhours") : "transition",
                 ["destination"] = destination, ["destination_title"] = destinationTitle,
                 ["slot"] = PlayerStore.HasInstance && status != "waiting_for_load" ? (JToken)PlayerStore.Instance.saveSlotId : JValue.CreateNull(),
                 ["last_transition"] = lastJourney?.DeepClone(),
-                ["message"] = status == "ready" ? "目前位於" + currentTitle :
+                ["message"] = status == Picker ? "正在選擇夜間目的地" : status == "ready" ? "目前位於" + currentTitle :
                     status == "transitioning" ? (destinationTitle == null ? "正在轉場" : "前往" + destinationTitle) : "等待讀檔"
-            });
+            };
+            if (status == Picker) receipt["travel_options"] = travelOptions;
+            Write("scene.json", receipt);
         }
 
         private void StartTravel(string target)
@@ -65,7 +74,7 @@ namespace WhiteDragon.Ledger
             var map = MapUIManager.Instance;
             if (map == null)
             {
-                if (sceneStatus == "ready") ResetScene();
+                if (sceneStatus != "waiting_for_load") ResetScene();
                 return false;
             }
             if (map.IsInTransit)
@@ -80,6 +89,18 @@ namespace WhiteDragon.Ledger
                 if (fade != null && fade.gameObject.activeInHierarchy) return false;
             }
             var outside = map.Current;
+            if (TransitUI.IsOpen && sceneStatus != "transitioning")
+            {
+                var options = TravelOptions.Read(ref firstTravelCard, travelOptions);
+                if (options != travelOptions)
+                {
+                    currentLocation = outside == null ? ShopScene : outside.Id;
+                    currentTitle = outside == null ? "當鋪" : outside.GetTitle();
+                    travelOptions = options;
+                    PublishScene(Picker);
+                }
+                return false;
+            }
             if (outside != null)
             {
                 if (destination != null && destination != outside.Id) return false;

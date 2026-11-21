@@ -22,8 +22,8 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
             folder = Path(temp)
             database = folder / "account.sqlite3"
-            def publish(revision, status, location):
-                record = dict(session="test", revision=revision, status=status, location=location)
+            def publish(revision, status, location, **details):
+                record = dict(session="test", revision=revision, status=status, location=location, **details)
                 temp_file = folder / "scene.tmp"
                 temp_file.write_text(json.dumps(record), encoding="utf-8")
                 temp_file.replace(folder / "scene.json")
@@ -42,12 +42,26 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("pay_info_receipt", tools)
                 self.assertIn("get_phone_contacts", tools)
                 self.assertIn("query_inventory", tools)
-                publish(2, "transitioning", "pawnshop")
-                await asyncio.wait_for(changes.get(), 4)
+                self.assertNotIn("get_travel_options", tools)
                 common = {"get_scene", "wait_for_scene"}
+                options = {"destinations": [{"id": "forest", "available": True}], "selected_id": None}
+                publish(2, "selecting_destination", "pawnshop", travel_options=options)
+                await asyncio.wait_for(changes.get(), 4)
+                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common | {"get_travel_options"})
+                async def read(name, **args):
+                    result = await client.call_tool(name, args)
+                    self.assertFalse(result.isError, result.content)
+                    return json.loads(result.content[0].text)
+                self.assertEqual((await read("get_travel_options"))["options"], options)
+                self.assertNotIn("travel_options", await read("get_scene"))
+                self.assertEqual((await read("query_inventory"))["tool_status"], "unavailable_in_scene")
+                self.assertEqual((await read("wait_for_scene", session="test", after_revision=1, timeout=0))["wait_result"], "timeout")
+                publish(3, "transitioning", "pawnshop")
+                await asyncio.wait_for(changes.get(), 4)
+                self.assertEqual((await read("get_travel_options"))["tool_status"], "unavailable_in_scene")
                 self.assertEqual({t.name for t in (await client.list_tools()).tools}, common)
                 waiter = asyncio.create_task(client.call_tool("wait_for_scene", {"session":"test", "after_revision":2}))
-                publish(3, "ready", "dumping_ground")
+                publish(4, "ready", "dumping_ground")
                 arrival = await waiter
                 self.assertFalse(arrival.isError, arrival.content)
                 arrived = json.loads(arrival.content[0].text)
@@ -59,6 +73,6 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(json.loads(reply.content[0].text)["tool_status"], "unavailable_in_scene")
                 self.assertFalse(database.exists())
                 self.assertEqual({t.name for t in (await client.list_tools()).tools}, common)
-                publish(4, "ready", "pawnshop")
+                publish(5, "ready", "pawnshop")
                 await asyncio.wait_for(changes.get(), 4)
                 self.assertEqual({t.name for t in (await client.list_tools()).tools}, tools)

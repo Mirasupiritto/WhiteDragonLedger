@@ -18,9 +18,12 @@ def interrupted_shop_call(folder):
     return None
 
 
-def read_scene(folder: Path):
+def read_scene(folder: Path, *, include_options=False):
     try:
-        return json.loads((folder / "scene.json").read_text(encoding="utf-8-sig"))
+        scene = json.loads((folder / "scene.json").read_text(encoding="utf-8-sig"))
+        if not include_options:
+            scene.pop("travel_options", None)
+        return scene
     except FileNotFoundError:
         return {"status": "waiting_for_scene_observer", "message": "請載入已啟用場景觀察的模組"}
     except (PermissionError, json.JSONDecodeError):
@@ -36,6 +39,15 @@ def register_scene_tools(server, folder):
     def get_scene() -> dict:
         """Read the current location, transition destination, and most recent journey."""
         return read_scene(folder)
+
+    @server.tool()
+    def get_travel_options() -> dict:
+        """Read the displayed destination cards, selected location and departure button."""
+        scene = read_scene(folder, include_options=True)
+        options = scene.pop("travel_options", None)
+        if scene.get("status") != "selecting_destination":
+            return {**scene, "tool_status": "unavailable_in_scene"}
+        return {**scene, "options": options}
 
     @server.tool()
     async def wait_for_scene(session: str, after_revision: int, timeout: float = 20) -> dict:

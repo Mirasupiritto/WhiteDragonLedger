@@ -1,12 +1,12 @@
 # 白龍店帳 MCP 工具索引
 
-用途是讓接手的助手知道眼前能做什麼、哪一步交給玩家，以及開發下一個工具時可沿用哪個遊戲入口。本文件記錄白龍店帳 **0.9.4**、遊戲內部版本 **0.46D**。舊版以白龍當鋪 **0.1.0**（`white_dragon_pawnshop`）啟用 SQLite 的完整工具集為準，兩個帳本工具只在啟用帳本時註冊。
+用途是讓接手的助手知道眼前能做什麼、哪一步交給玩家，以及開發下一個工具時可沿用哪個遊戲入口。本文件記錄白龍店帳 **0.9.5**、遊戲內部版本 **0.46D**。舊版以白龍當鋪 **0.1.0**（`white_dragon_pawnshop`）啟用 SQLite 的完整工具集為準，兩個帳本工具只在啟用帳本時註冊。
 
 ## 接手營業時怎麼查
 
-| 當下要做的事 | 0.9.4 可呼叫的工具 |
+| 當下要做的事 | 0.9.5 可呼叫的工具 |
 |---|---|
-| 先看人在哪裡 | `get_scene`。轉場時用 `wait_for_scene` 等待抵達。當鋪以外目前只提供這兩個工具，拾荒時不查店況。 |
+| 先看人在哪裡 | `get_scene`。轉場時用 `wait_for_scene` 等待抵達。選地時另有 `get_travel_options` 查當頁地點、事件、選中項及出發按鈕；轉場和拾荒地點只提供兩個場景工具。 |
 | 看現金、收租、垃圾桶、當晚費用 | `get_shop_status`，只查桶內明細可用 `get_trash`。日曆的 `event_scans` 是本次讀檔共重建幾次兩週日曆。 |
 | 按名稱、位置、歸屬找貨，或查批發回款 | `query_inventory`、`query_purchase_lots`。批發回款以原批次核算。 |
 | 歇業或晨間搬貨、看昨晚的淨水器 | `move_item`、`move_items`、`inspect_purifiers`、`put_purifier_bottle`、`take_purifier_bottle`。取瓶與驗水分開。 |
@@ -28,13 +28,13 @@
 
 ## 舊版逐項對照
 
-42 個舊工具中，**13 個已接、18 個部分接上、9 個待接、2 個歸玩家協作**。按舊工具的操作範圍逐列統計，改名或拆成多個 MCP 工具都算在原來那一列。「已接」表示新版有對應的主要操作；實機與回放的驗證範圍見 [README](README.md#開發與驗證)。
+42 個舊工具中，**13 個已接、19 個部分接上、8 個待接、2 個歸玩家協作**。按舊工具的操作範圍逐列統計，改名或拆成多個 MCP 工具都算在原來那一列。「已接」表示新版有對應的主要操作；實機與回放的驗證範圍見 [README](README.md#開發與驗證)。
 
 右欄的「原生」表示已有遊戲方法或可見 UI 動作可呼叫，仍要接 MCP 和驗證結果。`ModHelper`、`ModHook` 是模組介面；其餘具名的管理器、按鈕與槽位屬於 **0.46D 遊戲實作**，升級時核對簽名和行為。「組合」表示須把幾個原生來源串成可操作流程；帳本、差異摘要、訂單與圖片回執則由橋接端負責。
 
 ### 查帳與交易
 
-| 舊版 MCP 工具 | 0.9.4 | 新版入口與差異 | 遊戲入口及橋接工作 |
+| 舊版 MCP 工具 | 0.9.5 | 新版入口與差異 | 遊戲入口及橋接工作 |
 |---|---|---|---|
 | `get_shop_ledger` | 部分 | `query_inventory` 依名稱、貨區、歸屬找貨；`query_purchase_lots` 查批次。舊帳還能離線列未完單與計畫。 | 自寫帳本。按存檔與來客保存原單、逐項結果及最後確認步驟。 |
 | `dismiss_trade_ticket` | 待接 | 新版可用原參數查部分動作的既有回執，沒有列單後依單號及版本結案的工具。 | 自寫帳本。核對單號與版本後只結案，不重送遊戲動作。 |
@@ -48,7 +48,7 @@
 
 ### 櫃檯、對話與日結
 
-| 舊版 MCP 工具 | 0.9.4 | 新版入口與差異 | 遊戲入口及橋接工作 |
+| 舊版 MCP 工具 | 0.9.5 | 新版入口與差異 | 遊戲入口及橋接工作 |
 |---|---|---|---|
 | `open_shop` | 已接 | `open_shop` 只在可開門的早晨操作，回執確認營業階段與人數。 | 原生 `StoreShutterButton.OnClick`。 |
 | `call_next_customer` | 已接 | `ring_customer` 在空櫃檯按一次鈴並等開場，使用眼前隊列人數。 | 原生 `StoreBell.RingBell`。 |
@@ -64,7 +64,7 @@
 
 ### 貨區、物品與機台
 
-| 舊版 MCP 工具 | 0.9.4 | 新版入口與差異 | 遊戲入口及橋接工作 |
+| 舊版 MCP 工具 | 0.9.5 | 新版入口與差異 | 遊戲入口及橋接工作 |
 |---|---|---|---|
 | `move_item` | 部分 | `move_item`、`move_items` 支援晨間或歇業時自有貨在庫存與展示櫃互搬；前櫃與交易櫃的任意單件搬運未開放。 | 原生 `ModHelper` 搬貨及 `GraphUtils.TryAcceptOnce`，加貨區與交易歸屬核對。 |
 | `container_move` | 部分 | `take_purifier_bottle` 能把淨水器的瓶取回庫存；`put_purifier_bottle` 可從庫存或展示櫃直接放瓶。其他自有容器可用通用內容視窗與槽位；限庫存和展示櫃的頂層容器，巢狀容器尚未接入。 | 原生 `MachineHelper.GetBodyStorage`、`GraphUtils.TryAcceptOnce`；回執核對來源與目標槽。 |
@@ -81,15 +81,15 @@
 
 ### 電話、人脈與場景
 
-| 舊版 MCP 工具 | 0.9.4 | 新版入口與差異 | 遊戲入口及橋接工作 |
+| 舊版 MCP 工具 | 0.9.5 | 新版入口與差異 | 遊戲入口及橋接工作 |
 |---|---|---|---|
 | `phone_call` | 已接 | 先 `get_phone_contacts`，再 `dial_contact` 撥可見聯絡人。通話本身和選業務是兩個動作。 | 原生 `PhoneUIManager.OpenUI/AutoCall`；核對聯絡人與 `phone_token`。 |
 | `phone_advance` | 已接 | `advance_phone_dialogue` 僅翻可前進的普通電話頁。 | 原生 `DialoguePhoneUIManager.OnAdvancePressed`。 |
 | `phone_choice` | 已接 | `choose_phone_service` 選可見且可用的通話選項。獨立人脈服務視窗另見下一列。 | 原生對話按鈕搭配當頁 `phone_token`。 |
 | `wild_network` | 待接 | 可撥電話進入喬的人脈業務；缺人脈視窗的分頁、選取、購買與關閉。 | 組合 `WildNetworkUI` 視窗、目前選項、費用與原生按鈕。付款後核對實扣和升級。 |
 | `phone_dial` | 部分 | `dial_contact` 限清單上的號碼；缺按遊戲電話鍵盤逐位輸入其他已知號碼。 | 原生 `PhoneUIManager.PressNumber`。 |
-| `activity` | 部分 | `dial_contact` 會打開電話，`get_scene` 可見轉場。缺獨立開關電話、關報告／地圖、出門選包、拾荒與返店動作。 | 依場景組合 `StoreDoor.OnClick`、`ScavHelper.CanScavenge`、`MapUIManager.ScavengeButtonClick`、`ModHelper.ReturnFromAfterhour` 與各視窗開關。 |
-| `travel` | 待接 | `get_scene`、`wait_for_scene` 能確認去向與抵達；缺列出已發現地點並主動出發。 | 原生 `AfterhourLocation.GetDiscovered`、`MapUIManager.Travel`。核對名稱和可前往狀態，沿用場景回執。 |
+| `activity` | 部分 | `dial_contact` 會打開電話，`get_travel_options` 可讀夜間選地頁，`get_scene` 可見轉場。缺獨立開關電話、關報告／地圖、出門選包、拾荒與返店動作。 | 依場景組合 `StoreDoor.OnClick`、`ScavHelper.CanScavenge`、`MapUIManager.ScavengeButtonClick`、`ModHelper.ReturnFromAfterhour` 與各視窗開關。 |
+| `travel` | 部分 | `get_travel_options` 可讀當頁地點與出發按鈕，`get_scene`、`wait_for_scene` 可確認去向與抵達。選地與出發動作待接。 | 原生 `AfterhourLocation.GetDiscovered`、`MapUIManager.Travel`。核對名稱和可前往狀態，沿用場景回執。 |
 | `move_exploration` | 待接 | 缺外出時地面、左右口袋與背包裝備槽的搬運。 | 組合夜間貨區與 `GraphUtils.TryAcceptOnce`；建立該場景的物品位置回執。 |
 | `exploration_container` | 待接 | 缺外出背包的開關、存入和取出。 | 組合原生容器、容量規則與 `GraphUtils.TryAcceptOnce`；區分內嵌格子和獨立背包視窗。 |
 | `shotgun` | 待接 | 舊版有遊戲內的拿起、收回和對眼前來客確認操作。新版未提供。 | 原生遊戲互動與角色狀態已有，橋接需核對來客與玩家的明確選擇。 |
@@ -98,9 +98,13 @@
 
 物品編號跟著讀檔重新分配，以下編號只用來識別當次實測。接手新會話時先確認存檔和場景。
 
+0.9.5 第 4 欄第 10 天試營業，26 號基礎水實收 58，買家剩 38，店款從 218 到 276。下一客拒喝幽靈水，25 號退回展示櫃。兩張售單的 `load_scans` 都是 1。當次暫停在最後一位年輕星際客，尚未打烊。
+
 | 功能 | 最近一次證據 | 下次需要的場景或條件 |
 |---|---|---|
 | 水務操作 | 0.9.2 回放覆蓋倒水、龍頭與排水、配給、藥片、攜帶式淨水器成功及提示、商人換客與試紙歸瓶。預覽零消耗，重送同一操作沿用原回執。 | 各耗材與設施待實機。第 4 欄第一瓶由玩家親手驗，這次只驗下列面板；之後另找適合的水瓶驗工具動作。 |
+| 血袋拾荒者的以物易物報價 | 第 4 欄第 10 天，玩家看見三個交換報價。MCP 讀到「我有些东西可以拿来交换」與「我只要一样东西」，櫃檯回執為 `not_selling`，沒有三個選項，也未成交。 | 待接選項讀取及選擇。下次遇到先保留來客，逐項對照玩家看到的報價，再決定是否交換。 |
+| 夜間選擇目的地 | 0.9.5 回放覆蓋開選單、已選／不可選地點、翻頁、取消、出發與工具清單切換。 | 第 4 欄 0.9.4 開啟選地時仍回「當鋪」。0.9.5 待同頁對照地名、當晚事件和出發按鈕。 |
 | 試紙面板、更新瓶貼與關閉 | 0.9.1 回放確認商人瓶可讀、自有瓶更新到指定瓶號、換瓶拒絕舊操作，試紙餘量相同。 | 0.9.4 第 4 欄第 10 天，玩家親驗拾荒客的 43 號大瓶。面板回瓶號 43，實測與瓶貼均為基礎水，純度 98.23%，商人所有，試紙剩 5 張，與晨檢工具一致。MCP 關閉同瓶面板成功。自有瓶實際改貼及庫存增量仍待驗。 |
 | 情報商報價與付款 | 0.9.0 遊戲端回放已驗。開價 13、現金 100，付款回執實扣 13、餘額 87；重送只扣一次。 | 待第 4 欄自然遇到情報商，聽完讀價。若決定購買，再對照實扣與遊戲上的剩餘現金。 |
 | 固定檔案箱開關與文件往返 | 0.8.1 第 4 欄早晨。5 號情報紙條（存檔 ID 285）從庫存進 28 號箱，再回庫存。回執各報一件增減。續查無差異，已關箱，盤點 1 次。 | 已實機驗收。 |
@@ -113,7 +117,7 @@
 
 ## 維護這份索引
 
-- 工具註冊以 [pawnshop_tools.py](pawnshop_tools.py)、[shop_day.py](shop_day.py)、[scene.py](scene.py) 為準。0.9.4 共 33 個，當鋪就緒時全數列出。場景工具的可見性由 [scene_server.py](scene_server.py) 控制。
+- 工具註冊以 [pawnshop_tools.py](pawnshop_tools.py)、[shop_day.py](shop_day.py)、[scene.py](scene.py) 為準。0.9.5 共註冊 34 個，當鋪就緒列出 33 個，選地時列出 3 個，途中與抵達拾荒地點列出 2 個。場景工具的可見性由 [scene_server.py](scene_server.py) 控制。
 - 原生入口按責任查找。讀檔與貨區變動看 [LedgerMod.cs](mod/LedgerMod.cs)，搬貨與取瓶看 [Move.cs](mod/Move.cs)，日曆看 [Calendar.cs](mod/Calendar.cs)，垃圾桶與睡覺看 [ShopDay.cs](mod/ShopDay.cs)，轉場看 [Scenes.cs](mod/Scenes.cs)。
 - 櫃檯、訂單與人脈分別看 [Counter.cs](mod/Counter.cs)、[SaleOrder.cs](mod/SaleOrder.cs)、[Phone.cs](mod/Phone.cs)。情報商收據在 [InformationReceipt.cs](mod/InformationReceipt.cs)。批發及晨檢觀察在 [ShopDesk.cs](mod/ShopDesk.cs)，SQLite 庫存查詢在 [ledger.py](ledger.py)。
 - 舊版依據為白龍當鋪 0.1.0 的 `probably_stolen_mcp.py:create_server`。本機封存的 `local-0.12.2.13` 註冊了同名 42 項；更早的 `backups/before-local-0.12.2.1` 有 32 項，均包含在表內。這裡記錄工具行為與遊戲入口，供新版獨立實作。

@@ -28,8 +28,10 @@ namespace WhiteDragon.Ledger
             Expect(CanObserveStore(), "initial loaded store may prepare baseline");
             MarkSceneReady(ShopScene,"當鋪");
             int before = sequence;
+            ReplayTravelOptions();
             map.IsInTransit=true;
             Expect(!CanObserveStore() && sceneStatus=="transitioning", "early travel suspends store before destination is known");
+            TransitUI.IsOpen=false;
             OnArriveEarly("dumping_ground");
             Expect(destination=="dumping_ground" && (string)lastJourney["from"]==ShopScene, "named departure");
             map.IsInTransit=false;
