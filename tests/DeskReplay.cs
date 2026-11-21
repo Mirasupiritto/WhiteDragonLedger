@@ -68,7 +68,7 @@ namespace WhiteDragon.Ledger {
     public static class ItemConditionList {
         public static ItemCondition CreateBaseWater() => new ItemCondition { display="base water" };
     }
-    public class GameItem {
+    public partial class GameItem {
         public PixelWindow contentWindow;
         public ItemFeature waterLabel;
         public ItemFeature FindItemFeatureByCategory(string category) => waterLabel;
@@ -80,9 +80,9 @@ namespace WhiteDragon.Ledger {
         public string GetDisplayName(bool custom) => identifier;
         public bool MayRemove() => true;
         public long GetNegociatedValue() => price;
-        public bool IsTag(string key) => key=="LIQUID_CONTAINER_TAG" && identifier=="bottle";
+        public bool IsTag(string key) => (key=="LIQUID_CONTAINER_TAG" && identifier=="bottle") || waterTags.Contains(key);
         public GameItem GetTagReadonly(string key) => this;
-        public int GetInt() => 0;
+        public int GetInt() => associatedId;
         public List<GameItem> FindAllChildItems() => new List<GameItem>();
         public void To(GameInventory target) {
             if (parentInventory is GameSlotInventory oldSlot) oldSlot.childItem = null;
@@ -183,7 +183,7 @@ namespace WhiteDragon.Ledger {
         public static bool CanPower(GameItem item,GameSlotInventory power) => power.childItem!=null;
     }
     public static class PowerHelper { public const string POWER_SOURCE_ITEM_ENERGY="power", POWER_SOURCE_ITEM_MAX_ENERGY="max"; }
-    public static class WaterTestHelper { public const string IS_SPENT="used"; }
+    public static class WaterTestHelper { public const string IS_SPENT="used", ASSOCIATED_ITEM_ID="associated"; }
     public static class ModHelper {
         static Dictionary<string,string> data=new Dictionary<string,string>();
         public static List<int> placed=new List<int>();
@@ -217,6 +217,7 @@ namespace WhiteDragon.Ledger {
         private void Run() {
             areas.Add(EmporiumEntry.Instance.invElement,"inventory");
             areas.Add(EmporiumEntry.Instance.showcaseElement,"showcase");
+            areas.Add(EmporiumEntry.Instance.frontInvinvElement,"front");
             areas.Add(EmporiumEntry.Instance.backInvinvElement,"back");
             LoadDesk();
             var water=new GameItem[4];
@@ -380,6 +381,7 @@ namespace WhiteDragon.Ledger {
             ReplayReception();
             ReplayWorkstation();
             ReplayWaterPanel();
+            ReplayWaterUse();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }

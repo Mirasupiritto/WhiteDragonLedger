@@ -20,6 +20,32 @@ class CounterFlow(unittest.TestCase):
 
     @patch("counter.exchange")
     @patch("counter.context")
+    def test_water_use_replays_original_receipt_without_another_dispatch(self, context, exchange):
+        import json
+        import tempfile
+        context.return_value = dict(self.view, phase="MORNING")
+        args = dict(source_id=11, target_id=12, mode="apply", use_token="preview")
+        with tempfile.TemporaryDirectory() as name:
+            folder = Path(name)
+            def apply():
+                return counter.command(folder, "water_use", self.generation, 2, **args)
+            self.assertEqual(apply()["status"], "reload_updated_mod")
+            exchange.assert_not_called()
+            context.return_value["water_use_protocol"] = 1
+            def dispatch(folder, inbox, plan, read):
+                token = plan["command_id"]
+                result = dict(status="sample_taken", command_id=token, generation=self.generation,
+                              source_id=11, target_id=12, available_strips=5)
+                (folder / f"receipt-{token}.json").write_text(json.dumps(result), encoding="utf-8")
+                return read()
+            exchange.side_effect = dispatch
+            first = apply()
+            self.assertEqual(first["available_strips"], 5)
+            self.assertEqual(apply(), first)
+            exchange.assert_called_once()
+
+    @patch("counter.exchange")
+    @patch("counter.context")
     def test_water_panel_in_morning_or_during_trade(self, context, exchange):
         for phase in ("MORNING", "OPEN", "CLOSED"):
             context.return_value = dict(self.view, phase=phase, water_panel_protocol=1)

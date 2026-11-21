@@ -92,6 +92,22 @@ def register_pawnshop_tools(server, folder, database):
                                window_token=window_token, label=label)
 
     @server.tool()
+    def water_use(source_id: int, target_id: int | Literal["faucet", "drain"], generation: str, revision: int,
+                  mode: Literal["preview", "apply"] = "preview", use_token: str | None = None) -> dict:
+        """Preview a water interaction without using supplies. Sources include bottles, rations, tablets, portable purifiers and fresh strips.
+        To perform it once, submit the same two IDs with mode=apply and the preview token. Recover the receipt with identical arguments.
+        A seller's offered bottle permits testing only. Only the visible test panel supplies a water-quality result."""
+        if source_id < 1 or (isinstance(target_id, int) and (target_id < 1 or target_id == source_id)):
+            raise ValueError("Choose a source and a distinct water target from the current observation")
+        if mode == "preview":
+            return counter.command(folder, "water_use", generation, revision, source_id=source_id,
+                                   target_id=target_id, mode=mode, read_id=uuid4().hex)
+        if not use_token:
+            raise ValueError("Use the token from the water_use preview")
+        return counter.command(folder, "water_use", generation, revision, source_id=source_id,
+                               target_id=target_id, mode=mode, use_token=use_token)
+
+    @server.tool()
     def water_panel(generation: str, revision: int, mode: Literal["read", "match", "close"] = "read",
                     panel_token: str | None = None, bottle_id: int | None = None) -> dict:
         """Read an already open test-strip panel, including tested bottle, displayed result and unused strip count.

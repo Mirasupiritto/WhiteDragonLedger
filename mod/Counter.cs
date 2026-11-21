@@ -80,7 +80,7 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["water_use_protocol"] = 1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (stage == "advance_required")
             {
@@ -137,6 +137,7 @@ namespace WhiteDragon.Ledger
             if (action == "inspect_window" || action == "transfer_slot" || action == "press_control" ||
                 action == "inspect_archive" || action == "close_archive")
                 return WorkstationAction(request, receipt);
+            if (action == "water_use") return WaterUseAction(request, receipt);
             if (action == "water_panel") return WaterPanelAction(request, receipt);
             if (action == "sleep") return SubmitSleep(request, receipt);
             if (action == "open_shop")

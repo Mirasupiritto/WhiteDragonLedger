@@ -65,6 +65,7 @@ namespace WhiteDragon.Ledger
             ResetCalendar();
             workstations.Clear();
             observedWaterPanel = null;
+            waterPlan = null;
             autoReceiveDay = 0;
             receptionToken = null;
             DetachTrash();
