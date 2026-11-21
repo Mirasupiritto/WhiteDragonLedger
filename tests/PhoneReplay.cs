@@ -30,7 +30,7 @@ namespace WhiteDragon.Ledger {
         public bool ShownInPhoneBook()=>listed;
         public string GetLocalizedDisplayName()=>dialogFuncId;
     }
-    public static class LocHelper { public static string GetLocalizedDialoguePhone(string key)=>key; }
+    public static class LocHelper { public static string GetLocalizedUI(string key) => key; public static string GetLocalizedDialoguePhone(string key)=>key; }
     public class PhoneUIManager {
         public static PhoneUIManager Instance=new PhoneUIManager();
         public Window phonePanel=new Window(); public StorePhoneClient currentPhoneClient;

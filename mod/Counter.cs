@@ -59,12 +59,14 @@ namespace WhiteDragon.Ledger
                 return "awaiting_opening";
             if (merchant.isBusinessComplete) return "business_complete";
             if (NegociationUIManager.IsTradeLocked()) return "trade_locked";
-            if (!merchant.IsClientSelling()) return "not_selling";
+            bool dealer = merchant.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER;
+            if (dealer && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
+            if (!dealer && !merchant.IsClientSelling()) return "not_selling";
             var ui = NegociationUIManager.Instance;
             if (ui == null || !ui.IsOpen) return "tablet_closed";
             var frame = UnityEngine.Object.FindObjectOfType<NegotiationTabletFrame>();
             if (frame != null && frame.confirmRoot != null && frame.confirmRoot.activeInHierarchy) return "confirmation_required";
-            return "ready";
+            return dealer ? "information" : "ready";
         }
 
         private bool CanOpenShop()
@@ -78,7 +80,7 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (stage == "advance_required")
             {
@@ -89,6 +91,10 @@ namespace WhiteDragon.Ledger
             }
             else { lastPage = null; pageToken = null; }
             if (phase == "OPEN") view["waiting"] = store.GetClientInQueueCount();
+            if (stage == "information")
+                ObserveInformationReceipt(view);
+            else
+                informationToken = null;
             if (stage != "ready") { offerSnapshot = null; return view; }
 
             var rows = new JArray();
@@ -159,6 +165,7 @@ namespace WhiteDragon.Ledger
                 return visitId == null ? "ring_unconfirmed" : "called";
             }
             if (visitId == null || (string)request["visit"] != visitId) return "visit_changed";
+            if (action == "pay_info") return PayInformationReceipt(request, receipt);
             string stage = CounterStage();
             if (action == "advance")
             {

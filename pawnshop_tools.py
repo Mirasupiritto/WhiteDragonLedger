@@ -128,7 +128,7 @@ def register_pawnshop_tools(server, folder, database):
 
     @server.tool()
     def get_counter() -> dict:
-        """Read shop phase, waiting count, opening lines, and the merchant's visible batch and total."""
+        """Read shop phase, waiting count, opening lines, and visible merchandise or the information dealer's receipt and price."""
         view = shopdesk.published(folder)
         if view["status"] != "observed" or view.get("counter_protocol") != 2:
             return counter.context(folder)
@@ -153,6 +153,14 @@ def register_pawnshop_tools(server, folder, database):
             raise ValueError("Expected a non-negative batch price limit")
         return counter.command(folder, "buy", generation, revision, visit=visit,
                                offer_token=offer_token, max_total=max_total)
+
+    @server.tool()
+    def pay_info_receipt(generation: str, revision: int, visit: str, receipt_token: str, price: int) -> dict:
+        """Buy information at the exact visible price. Returns actual paid and cash_after. Repeat identical inputs for the receipt."""
+        if price < 0 or price > 2147483647:
+            raise ValueError("Expected a game credit amount")
+        return counter.command(folder, "pay_info", generation, revision, visit=visit,
+                               receipt_token=receipt_token, price=price)
 
     @server.tool()
     def open_shop(generation: str, revision: int) -> dict:

@@ -93,6 +93,10 @@ namespace WhiteDragon.Ledger {
         }
     }
     public class StoreClient {
+        public enum ClientIntent { MERCHANT, INFORMATION_DEALER }
+        public ClientIntent clientIntent;
+        public bool isIntroduced;
+        public int serviceCost;
         public string displayName="喬治奧", identifier="georgio";
         public bool isOfferWholesale, useClientBudget=true, isBusinessComplete;
         public int budget=5;
@@ -113,6 +117,7 @@ namespace WhiteDragon.Ledger {
         public static PlayerStore Instance=new PlayerStore();
         public StoreClientInstance currentClientInstance=new StoreClientInstance();
         public int playerCash=100;
+        public bool CanPay(int price) => playerCash >= price;
         public int lockNextBellFlag;
         public int waiting = 1;
         public int GetClientInQueueCount() => waiting;
@@ -128,6 +133,8 @@ namespace WhiteDragon.Ledger {
     public class NegociationUIManager {
         public static NegociationUIManager Instance=new NegociationUIManager();
         public bool IsOpen=true;
+        public ReceiptElements uiObject = new ReceiptElements();
+        public int extraFee, paymentCalls;
         public void OpenUI() { IsOpen=true; }
         public void OnWholesaleClick() { Purchase(true); }
         public void OnBuyAllClick() { Purchase(false); }
@@ -148,8 +155,14 @@ namespace WhiteDragon.Ledger {
         public static bool IsTradeLocked() => false;
         public void OnOfferAcceptClick() {
             var store=PlayerStore.Instance;
-            var item=store.GetCurrentlyNegociatedItem();
             var client=store.currentClientInstance.client;
+            if (client.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER) {
+                ++paymentCalls;
+                store.playerCash -= client.serviceCost + extraFee;
+                client.isBusinessComplete = true;
+                return;
+            }
+            var item=store.GetCurrentlyNegociatedItem();
             client.budget-=item.price;
             client.onItemBought?.Invoke(item,item.price);
             store.playerCash+=item.price;
@@ -360,6 +373,7 @@ namespace WhiteDragon.Ledger {
             Expect(ActAtCounter(buy,outcome)=="shop_closed","bell never opens the shop");
             phase="OPEN"; PlayerStore.Instance.currentClientInstance=null; ObserveVisit();
             Expect(ActAtCounter(buy,outcome)=="called" && outcome["visit"]!=null,"one new visit");
+            ReplayInformation();
             ReplayPhone();
             ReplayScenes();
             ReplayDay();

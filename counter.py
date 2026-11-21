@@ -70,6 +70,8 @@ def command(folder, action, generation, revision, **args):
             return {"status":"sleep_requires_closed_shop", "phase":view["phase"]}
     elif not phone_action and view["phase"] != "OPEN":
         return {"status": "shop_closed"}
+    if action == "pay_info" and view.get("information_protocol") != 1:
+        return {"status": "reload_updated_mod"}
     if action in {"auto_receive", "close_shop"} and "reception" not in view:
         return {"status": "reload_updated_mod"}
     return exchange(folder, folder/f"counter-{generation}.json", dict(plan, command_id=token), receipt)
@@ -84,7 +86,7 @@ def wait_opening(folder, generation, visit, timeout=25):
         if view["generation"] != generation or view["visit"] != visit:
             return {"status": "visit_changed"}
         stage = view["stage"]
-        if stage not in {"arriving", "awaiting_opening", "speaking", "advance_required", "tablet_closed", "no_goods"}:
+        if stage not in {"arriving", "awaiting_opening", "speaking", "advance_required", "tablet_closed", "no_goods", "awaiting_information_receipt"}:
             return view
         if time.monotonic() >= deadline:
             return {**view, "status": "still_waiting"}
@@ -92,7 +94,10 @@ def wait_opening(folder, generation, visit, timeout=25):
             action = "advance" if stage == "advance_required" else "tablet"
             extra = {"page": view["page"]} if action == "advance" else {}
             result = command(folder, action, generation, view["revision"], visit=visit, **extra)
-            if result["status"] not in {"advanced", "tablet_requested", "page_changed", "stale_observation", "ready", "speaking", "awaiting_opening", "choice_required"}:
+            if result["status"] not in {
+                "advanced", "tablet_requested", "page_changed", "stale_observation", "ready", "speaking",
+                "awaiting_opening", "choice_required", "information", "awaiting_information_receipt",
+            }:
                 return result
         time.sleep(0.2)
 

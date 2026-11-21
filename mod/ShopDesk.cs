@@ -46,6 +46,7 @@ namespace WhiteDragon.Ledger
             visit = null;
             merchant = null;
             visitId = null;
+            informationToken = null;
         }
 
         private void BoughtFromMerchant(GameItem item, int unitQuote)

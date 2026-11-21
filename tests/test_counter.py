@@ -97,6 +97,42 @@ class CounterFlow(unittest.TestCase):
         self.assertEqual(len(result["lines"]), 2)
         command.assert_not_called()
 
+    @patch("counter.time.sleep")
+    @patch("counter.command")
+    @patch("counter.context")
+    def test_information_dealer_waits_for_visible_receipt_without_payment(self, context, command, sleep):
+        quote = dict(price=12, receipt_token="q", can_pay=True)
+        context.side_effect = [dict(self.view, stage="speaking"),
+                               dict(self.view, stage="awaiting_information_receipt"),
+                               dict(self.view, stage="information_quote", info_receipt=quote)]
+        self.assertEqual(counter.wait_opening(self.folder, self.generation, self.visit)["info_receipt"], quote)
+        command.assert_not_called()
+
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_information_payment_requires_new_mod_and_replays_receipt(self, context, exchange):
+        import json
+        import tempfile
+        context.return_value = self.view
+        args = dict(visit=self.visit, receipt_token="q", price=12)
+        with tempfile.TemporaryDirectory() as folder_name:
+            folder = Path(folder_name)
+            def pay():
+                return counter.command(folder, "pay_info", self.generation, 2, **args)
+            self.assertEqual(pay()["status"], "reload_updated_mod")
+            exchange.assert_not_called()
+            context.return_value = dict(self.view, information_protocol=1)
+            def submit(folder, inbox, plan, receipt):
+                token = plan["command_id"]
+                result = dict(command_id=token, generation=self.generation, status="information_purchased", paid=12, cash_after=88)
+                (folder/f"receipt-{token}.json").write_text(json.dumps(result), encoding="utf-8")
+                return receipt()
+            exchange.side_effect = submit
+            first = pay()
+            self.assertEqual(first["cash_after"], 88)
+            self.assertEqual(pay(), first)
+            exchange.assert_called_once()
+
     @patch("counter.command")
     @patch("counter.context")
     def test_wait_does_not_follow_different_visit(self, context, command):

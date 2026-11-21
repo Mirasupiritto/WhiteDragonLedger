@@ -2,7 +2,7 @@
 
 讓 AI 助手透過 MCP 在《深空當鋪》查帳、搬貨和做生意。開門前，助手能從一張店況回執讀到現金、收租倒數和日曆事件。開門後，它能等客人說完需求，核對貨單和預算，再決定怎麼交易。
 
-目前版本 **0.8.1**，對應 Windows 遊戲版本 **0.46D**。白龍店帳仍在早期開發階段，現階段優先支援店內查帳、搬貨和櫃檯交易，後續版本會逐步補上其他玩法。
+目前版本 **0.9.0**，對應 Windows 遊戲版本 **0.46D**。白龍店帳仍在早期開發階段，現階段優先支援店內查帳、搬貨和櫃檯交易，後續版本會逐步補上其他玩法。
 
 ## 第一次連線可以先查什麼？
 
@@ -98,6 +98,12 @@ $python = "$work/venv/Scripts/python.exe"
 
 櫃檯空著時，用 `close_shop` 帶入相同三個欄位。隊列為空就直接打烊；還有人時會暫停本工具的自動接客，回傳 `confirm_early_close`、剩餘人數 `waiting` 和更新的 `reception.token`。決定提前結束才用新 token、回執的 revision 和 `confirm_remaining=waiting` 再呼叫一次。人數或狀態改變時重新讀取；成功回執會列出放棄的人數 `forfeited`。
 
+## 情報商收據
+
+情報商說完開場白、平板顯示購買鍵和價格後，`ring_customer`、`wait_for_opening` 或 `get_counter` 會回傳 `stage=information_quote`。看 `info_receipt.price`、`info_receipt.can_pay` 和當前現金 `cash`，再決定是否買情報。只看報價不會扣款。
+
+決定購買時，把同張報價的 `generation`、`revision`、`visit`、`receipt_token` 和 `price` 傳給 `pay_info_receipt`。成功回執 `information_purchased` 列出開價 `quote`、實扣 `paid` 和付款後現金 `cash_after`。改價要重新看單；付款後若結果未能核對，保留原參數查回執。
+
 ## 電話聯絡人
 
 `get_phone_contacts()` 是唯讀查詢。在電話簿與店內自有名片中找到的聯絡人會合併為一列，附上來源、號碼、業務概述、是否會接聽，以及冷卻天數。`service_summary` 說明聯絡人通常能辦的事；當次實際可選的業務以通話選單為準。
@@ -140,6 +146,8 @@ $python = "$work/venv/Scripts/python.exe"
 若收到 `stale_observation`，先重查目前的版本和位置。若提交後回執中斷，請保留原參數，單件搬貨可在送出前指定 `command_id`，批次搬貨與買貨則可用同一組參數讀回既有結果。
 
 ## 開發與驗證
+
+0.9.0 已用遊戲 0.46D 組件編譯，27 項 Python 測試與遊戲端回放通過。情報收據已回放驗證開場等待、改價、餘額不足、實扣核對及重送。第 4 欄待自然遇到情報商時實測。
 
 0.8.1 已在第 4 欄把 5 號情報紙條存入固定檔案箱再取回，用存檔 ID 285 核對同一物品；兩次回執各只列該文件的增減。各項功能的實測範圍與待驗場景見 [AGENTS.md 驗收表](AGENTS.md#實機驗收表)。
 
