@@ -168,32 +168,54 @@ namespace WhiteDragon.Ledger
 
         private string WorkstationAction(JObject request, JObject receipt)
         {
-            int id = (int)request["owner_id"];
             string action = (string)request["action"];
-            if (!itemsById.TryGetValue(id, out var owner) || owner.parentInventory == null ||
-                !areas.TryGetValue(owner.parentInventory, out var area) || (area != "inventory" && area != "showcase") ||
-                !GeneralHelper.IsItemOwned(owner)) return "owner_unavailable";
+            var shop = EmporiumEntry.Instance;
+            bool archiveRequest = action == "inspect_archive" || action == "close_archive";
+            GameItem owner;
+            if (archiveRequest) owner = shop.dossier;
+            else if (!itemsById.TryGetValue((int)request["owner_id"], out owner)) return "owner_unavailable";
+            if (owner == null) return "owner_unavailable";
+            bool archive = owner == shop.dossier;
+            if (archive)
+            {
+                if (shop.docInvWindow == null || !shop.docInvWindow.IsVisible() || shop.docInvElement?.childItem != owner)
+                    return "archive_unavailable";
+                receipt["fixture"] = "archive";
+            }
+            else if (owner.parentInventory == null || !areas.TryGetValue(owner.parentInventory, out var area) ||
+                (area != "inventory" && area != "showcase") || !GeneralHelper.IsItemOwned(owner)) return "owner_unavailable";
+            int id = LocalId(owner);
+            bool inspecting = action == "inspect_window" || action == "inspect_archive";
+            receipt["owner_id"] = id;
             var window = owner.contentWindow;
             if (window == null) return "no_content_window";
             if (!window.IsVisible())
             {
                 workstations.Remove(id);
-                if (action != "inspect_window" || (bool?)request["open_if_closed"] != true) return "window_closed";
-                if (phase == "OPEN" || GeneralHelper.IsItemLocked(owner) || Interactable.isPaused ||
+                if (!inspecting || (bool?)request["open_if_closed"] != true) return "window_closed";
+                if (phase == "OPEN" || window.isLocked || (!archive && GeneralHelper.IsItemLocked(owner)) || Interactable.isPaused ||
                     ItemMouseDoubleClickHandler.current == null) return "opening_unavailable";
                 ItemMouseDoubleClickHandler.current.OpenContentAction(owner, (Vector2)Input.mousePosition);
                 if (!window.IsVisible()) return "window_closed";
             }
             var read = ReadWindow(owner);
             workstations.TryGetValue(id, out var prior);
-            if (action == "inspect_window")
+            if (inspecting)
             {
                 bool continueView = prior != null && prior.Token == (string)request["since_token"];
                 PublishWindow(id, read, receipt, continueView ? prior : null);
                 return "observed";
             }
             if (phase != "MORNING" && phase != "CLOSED") return "shop_open";
-            if (window.isLocked || GeneralHelper.IsItemLocked(owner) || Interactable.isPaused) return "locked";
+            if (window.isLocked || (!archive && GeneralHelper.IsItemLocked(owner)) || Interactable.isPaused) return "locked";
+            if (action == "close_archive")
+            {
+                if (prior == null || prior.Token != (string)request["window_token"] || prior.Window != window)
+                    return "window_changed";
+                window.Hide();
+                workstations.Remove(id);
+                return window.IsVisible() ? "close_unconfirmed" : "window_closed";
+            }
             string control = (string)request["control"];
             if (prior == null || prior.Token != (string)request["window_token"] ||
                 prior.Window != window || !DecisionControls(prior).SequenceEqual(DecisionControls(read), JToken.EqualityComparer) ||
@@ -228,9 +250,13 @@ namespace WhiteDragon.Ledger
             bool retrieve = source == "slot";
             if (!retrieve && source != "inventory" && source != "showcase") return "invalid_source";
             int id = (int)request["item_id"];
-            if (!itemsById.TryGetValue(id, out var item) || item == owner || GeneralHelper.IsDisplayOnly(item) ||
-                !GeneralHelper.IsItemEffectivelyOwned(item)) return "item_unavailable";
             var shop = EmporiumEntry.Instance;
+            bool archive = owner == shop.dossier;
+            if (!itemsById.TryGetValue(id, out var item) || item == owner || GeneralHelper.IsDisplayOnly(item))
+                return "item_unavailable";
+            // A fixed filing box is a fixture. Verify the document's ownership and its actual source slot.
+            if (!(retrieve && archive ? GeneralHelper.IsItemOwned(item) : GeneralHelper.IsItemEffectivelyOwned(item)))
+                return "item_unavailable";
             GameInventory origin = retrieve ? storage : source == "inventory" ? shop.invElement : shop.showcaseElement;
             GameInventory target = retrieve ? (GameInventory)shop.invElement : storage;
             if (item.parentInventory != origin) return "source_changed";
@@ -250,6 +276,11 @@ namespace WhiteDragon.Ledger
             receipt["requested_quantity"] = before;
             receipt["observed_quantity"] = arrived;
             receipt["same_item_at_destination"] = item.parentInventory == target;
+            if (archive && item.parentInventory == target)
+            {
+                receipt["name"] = item.GetDisplayName(true);
+                receipt["actual_area"] = retrieve ? "inventory" : "archive";
+            }
             if (left != arrived || arrived < 0 || arrived > before) return "outcome_unknown";
             if (arrived == 0) return "not_moved";
             return arrived == before ? "moved" : "partial";

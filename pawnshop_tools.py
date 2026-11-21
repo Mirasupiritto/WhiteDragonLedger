@@ -65,6 +65,18 @@ def register_pawnshop_tools(server, folder, database):
                                open_if_closed=open_if_closed, since_token=since_token, read_id=uuid4().hex)
 
     @server.tool()
+    def inspect_archive(generation: str, revision: int, mode: Literal["read", "open", "close"] = "read",
+                        window_token: str | None = None) -> dict:
+        """Read the fixed filing box, or explicitly open/close it before or after business.
+        For changes only pass the previous window token. Store/retrieve with transfer_slot_item using the returned owner and control."""
+        if mode == "close":
+            if not window_token:
+                raise ValueError("Use the current archive window token to close it")
+            return counter.command(folder, "close_archive", generation, revision, window_token=window_token)
+        return counter.command(folder, "inspect_archive", generation, revision, open_if_closed=mode=="open",
+                               since_token=window_token, read_id=uuid4().hex)
+
+    @server.tool()
     def transfer_slot_item(owner_id: int, control: str, window_token: str, item_id: int,
                            source: Literal["inventory", "showcase", "slot"], generation: str, revision: int) -> dict:
         """Move owned goods into a visible slot, or from that slot into inventory. Reports observed quantity and changed controls."""

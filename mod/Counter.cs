@@ -78,7 +78,7 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["workstation_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (stage == "advance_required")
             {
@@ -128,7 +128,8 @@ namespace WhiteDragon.Ledger
             if ((long)request["expires_ms"] < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) return "expired";
             if ((string)request["generation"] != generation || (int)request["revision"] != sequence) return "stale_observation";
             string action = (string)request["action"];
-            if (action == "inspect_window" || action == "transfer_slot" || action == "press_control")
+            if (action == "inspect_window" || action == "transfer_slot" || action == "press_control" ||
+                action == "inspect_archive" || action == "close_archive")
                 return WorkstationAction(request, receipt);
             if (action == "sleep") return SubmitSleep(request, receipt);
             if (action == "open_shop")

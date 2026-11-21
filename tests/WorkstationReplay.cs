@@ -8,12 +8,18 @@ namespace UnityEngine {
 }
 namespace WhiteDragon.Ledger {
     public interface PixelElement {}
+    public partial class EmporiumEntry {
+        public GameItem dossier;
+        public PixelWindow docInvWindow = new PixelWindow();
+        public GameSlotInventory docInvElement = new GameSlotInventory();
+    }
     public class MachineryLabel { public string GetText() => "label"; }
     public class PixelWindow {
         public PixelElement childElement;
         public string titleString="Fixture";
         public bool isLocked, visible;
         public bool IsVisible() => visible;
+        public void Hide() { visible=false; }
     }
     public class ItemMouseDoubleClickHandler {
         public static ItemMouseDoubleClickHandler current=new ItemMouseDoubleClickHandler();
@@ -101,6 +107,35 @@ namespace WhiteDragon.Ledger {
             reply=new JObject();
             Expect(WorkstationAction(request,reply)=="pressed" && button.presses==1 && (float)reply["window_delta"]["controls_updated"][0]["value"]==0.5f,"one native press despite meter tick");
             Expect(WorkstationAction(request,new JObject())=="window_changed" && button.presses==1,"no duplicate press");
+            ReplayArchive();
+        }
+
+        private void ReplayArchive()
+        {
+            var shop=EmporiumEntry.Instance;
+            var box=new GameItem {identifier="dossier",owned=false,contentWindow=new PixelWindow { childElement=new GameInventory() }};
+            shop.dossier=box;
+            box.To(shop.docInvElement);
+            var paper=Item(825,"slip",0);
+            var request=new JObject { ["action"]="inspect_archive" };
+            var receipt=new JObject();
+            Expect(WorkstationAction(request,receipt)=="archive_unavailable","fixture must be accessible");
+            shop.docInvWindow.visible=true;
+            Expect(WorkstationAction(request,receipt)=="window_closed","read does not open filing box");
+            request["open_if_closed"]=true;
+            Expect(WorkstationAction(request,receipt)=="observed","open real fixture");
+            request=new JObject { ["action"]="transfer_slot", ["owner_id"]=receipt["owner_id"],
+                ["control"]="content", ["source"]="inventory", ["item_id"]=LocalId(paper), ["window_token"]=receipt["window_token"] };
+            receipt=new JObject();
+            Expect(WorkstationAction(request,receipt)=="moved" && (string)receipt["actual_area"]=="archive" &&
+                (int)receipt["window_delta"]["controls_updated"][0]["items_updated"][0]["id"]==LocalId(paper),"filed document delta");
+            request["source"]="slot";
+            request["window_token"]=receipt["window_token"];
+            receipt=new JObject();
+            Expect(WorkstationAction(request,receipt)=="moved" && (string)receipt["actual_area"]=="inventory" &&
+                (int)receipt["window_delta"]["controls_updated"][0]["items_removed"][0]==LocalId(paper),"same document returned");
+            request=new JObject { ["action"]="close_archive", ["window_token"]=receipt["window_token"] };
+            Expect(WorkstationAction(request,new JObject())=="window_closed" && !box.contentWindow.visible,"close filing box");
         }
     }
 }
