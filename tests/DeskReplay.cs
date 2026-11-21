@@ -124,7 +124,9 @@ namespace WhiteDragon.Ledger {
         public bool CanEndDay() => true;
         public void TryCallNextClient() { if (CanNextClient()) { waiting--; currentClientInstance=new StoreClientInstance(); } }
         public bool CanNextClient() => currentClientInstance==null && waiting>0;
-        public bool isClientArrived=true;
+        public bool isClientArrived=true, dismissable=true, interceptDismiss;
+        public bool IsClientDimissable() => currentClientInstance != null && dismissable;
+        public void TryPlayerDismissCurrentClient(bool callHooks) { if (!interceptDismiss) currentClientInstance=null; }
         public int GetWholesalePrice() => 9;
         public GameItem GetCurrentlyNegociatedItem() => EmporiumEntry.Instance.backInvinvElement.childItems[0];
         public bool CanSellThisItem(GameItem item, bool ignoreBudget) => ignoreBudget || item.price<=currentClientInstance.client.budget;
@@ -383,9 +385,33 @@ namespace WhiteDragon.Ledger {
             ReplayWaterPanel();
             ReplayWaterUse();
             ReplaySaleResume();
+            ReplayDismiss();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }
+        private void ReplayDismiss()
+        {
+            var store=PlayerStore.Instance;
+            store.currentClientInstance=new StoreClientInstance();
+            ObserveVisit();
+            DialogUIManager.Instance=new DialogUIManager();
+            var req=new JObject { ["action"]="dismiss",["generation"]=generation,["revision"]=sequence,["visit"]=visitId,
+                ["expires_ms"]=DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds() };
+            var receipt=new JObject();
+            store.dismissable=false;
+            Expect(ActAtCounter(req,receipt)=="dismiss_unavailable","native dismissal locked");
+            store.dismissable=true;
+            EmporiumEntry.Instance.backInvinvElement.childItems.Clear();
+            int waiting=store.waiting;
+            store.interceptDismiss=true;
+            Expect(ActAtCounter(req,receipt)=="dismiss_intercepted","intercept keeps original visit");
+            store.interceptDismiss=false;
+            Expect(ActAtCounter(req,receipt)=="dismissed" && visitId==null && store.waiting==waiting,"dismiss never calls next");
+            store.currentClientInstance=new StoreClientInstance();
+            ObserveVisit();
+            Expect(ActAtCounter(req,receipt)=="visit_changed" && store.currentClientInstance!=null,"old visit cannot dismiss new arrival");
+        }
+
         private void ReplayReception()
         {
             var store=PlayerStore.Instance;

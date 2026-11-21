@@ -168,6 +168,7 @@ namespace WhiteDragon.Ledger
             }
             if (visitId == null || (string)request["visit"] != visitId) return "visit_changed";
             if (action == "pay_info") return PayInformationReceipt(request, receipt);
+            if (action == "dismiss") return DismissCustomer(receipt);
             string stage = CounterStage();
             if (action == "advance")
             {

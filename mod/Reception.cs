@@ -22,6 +22,32 @@ namespace WhiteDragon.Ledger
                 store.CanEndDay();
         }
 
+        private bool CanDismissCustomer(PlayerStore store)
+        {
+            if (phase != "OPEN" || visit == null || store.currentClientInstance != visit ||
+                !store.isClientArrived || store.lockNextBellFlag > 0 || !store.IsClientDimissable() ||
+                Interactable.isPaused || order != null || store.isClientBeingArrested || store.isHandlingShootout)
+                return false;
+            var dialog = DialogUIManager.Instance;
+            if (dialog != null && (dialog.GetCurrentDialog() != null || dialog.IsChoice() ||
+                dialog.HasPausedConversation || dialog.isWaitingForManualAdvance)) return false;
+            return !StoreUIManager.Instance.isAboutToStartMainDialog && !NegociationUIManager.IsTradeLocked() &&
+                !EmporiumEntry.Instance.backInvinvElement.childItems.Exists(GeneralHelper.IsItemOwned);
+        }
+
+        private string DismissCustomer(JObject receipt)
+        {
+            var store = PlayerStore.Instance;
+            if (!CanDismissCustomer(store)) return "dismiss_unavailable";
+            var departing = visit;
+            receipt["visit"] = visitId;
+            receipt["customer"] = merchant.displayName;
+            store.TryPlayerDismissCurrentClient(true);
+            ObserveVisit();
+            receipt["waiting"] = store.GetClientInQueueCount();
+            return store.currentClientInstance != departing ? "dismissed" : "dismiss_intercepted";
+        }
+
         private JObject ReceptionView()
         {
             var store = PlayerStore.Instance;
@@ -38,7 +64,7 @@ namespace WhiteDragon.Ledger
                 receptionToken = Guid.NewGuid().ToString("N");
             }
             return new JObject { ["token"]=receptionToken, ["waiting"]=waiting, ["auto_receive"]=automatic,
-                ["close_prompt"]=prompt, ["can_close_shop"]=available };
+                ["close_prompt"]=prompt, ["can_close_shop"]=available, ["can_dismiss"]=CanDismissCustomer(store) };
         }
 
         private void TickReception()

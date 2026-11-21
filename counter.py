@@ -76,6 +76,8 @@ def command(folder, action, generation, revision, **args):
             return {"status":"sleep_requires_closed_shop", "phase":view["phase"]}
     elif not phone_action and view["phase"] != "OPEN":
         return {"status": "shop_closed"}
+    if action == "dismiss" and "can_dismiss" not in view.get("reception", {}):
+        return {"status": "reload_updated_mod"}
     if action == "pay_info" and view.get("information_protocol") != 1:
         return {"status": "reload_updated_mod"}
     if action in {"auto_receive", "close_shop"} and "reception" not in view:

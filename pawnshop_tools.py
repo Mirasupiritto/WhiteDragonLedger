@@ -197,6 +197,11 @@ def register_pawnshop_tools(server, folder, database):
         return counter.command(folder, "open_shop", generation, revision)
 
     @server.tool()
+    def dismiss_customer(generation: str, revision: int, visit: str) -> dict:
+        """Dismiss this visit when reception.can_dismiss is true. Repeat identical arguments to read its receipt."""
+        return counter.command(folder, "dismiss", generation, revision, visit=visit)
+
+    @server.tool()
     def set_auto_receive(enabled: bool, generation: str, revision: int, reception_token: str) -> dict:
         """Enable or disable automatic admission for this open day. Only an empty counter can take the next guest."""
         return counter.command(folder, "auto_receive", generation, revision, enabled=enabled, reception_token=reception_token)
