@@ -17,6 +17,7 @@ namespace WhiteDragon.Ledger {
     public class StoreUIManager {
         public static StoreUIManager Instance = new StoreUIManager();
         public SceneFade blackscreen;
+        public StoreCalendar storeCalendar = new StoreCalendar();
         public bool isAboutToStartMainDialog;
     }
     public class DialogUIManager {

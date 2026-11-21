@@ -9,10 +9,37 @@ namespace WhiteDragon.Ledger
     }
     public partial class EmporiumEntry { public GameInventory trashcanInvElement=new GameInventory(); }
     public class StoreService { public bool unlocked=true,isUsing=true; public int cost; }
-    public class StoreEvent { public string GetDisplayName()=>"calendar entry"; }
-    public class StoreEventManager { public List<StoreEvent> GetActiveEventOnDay(int d,bool include,bool known)=>new List<StoreEvent>(); }
+    public class StoreCalendar { public string GetDayOfWeek() => "local weekday"; }
+    public static class StartingPerk { public static bool IsUnsubscribed() => false; }
+    public class StoreEvent
+    {
+        public enum EventType { Normal }
+        public EventType eventType = EventType.Normal;
+        public bool IsKnown;
+        public int startDay = 10, totalDuration = 1;
+        public string GetDisplayName() => "calendar entry";
+    }
+    public class StoreEventManager
+    {
+        private List<StoreEvent> activeEvents = new List<StoreEvent>();
+        public List<StoreEvent> futurEvents = new List<StoreEvent>();
+        public List<int> futurEventsDay = new List<int>();
+        public int calls;
+        public List<StoreEvent> GetActiveEvents() => new List<StoreEvent>(activeEvents);
+        public void Activate(StoreEvent entry) => activeEvents.Add(entry);
+        public List<StoreEvent> GetActiveEventOnDay(int date, bool include, bool known)
+        {
+            calls++;
+            var visible = activeEvents.FindAll(entry => entry.IsKnown && date >= entry.startDay && date < entry.startDay + entry.totalDuration);
+            for (int i = 0; i < futurEvents.Count; i++)
+                if (futurEvents[i].IsKnown && date == StoreStation.Instance.dayCounter + futurEventsDay[i])
+                    visible.Add(futurEvents[i]);
+            return visible;
+        }
+    }
     public partial class StoreStation { public StoreEventManager storeEventManager=new StoreEventManager(); }
     public partial class PlayerStore {
+        public const int DAY_IN_WEEK = 7;
         public bool IsPropertyPaid,isPayingMortgage;
         public int mortgageWeeklyPayment=20,garbageLevel;
         public List<StoreService> storeService=new List<StoreService>();
@@ -30,7 +57,32 @@ namespace WhiteDragon.Ledger
             var store=PlayerStore.Instance;
             var station=StoreStation.Instance;
             station.dayCounter=10;
+            ResetCalendar();
+            var manager = station.storeEventManager;
+            int before = manager.calls;
             var day=DayView();
+            DayView();
+            store.playerCash = 1;
+            var calendar = DayView()["calendar"];
+            Expect(manager.calls-before == 14 && (int)calendar["event_scans"] == 1 &&
+                (int)calendar["event_day_reads"] == 14 && (int)calendar["cash_shortfall"] == 99 &&
+                (string)calendar["weekday"] == "local weekday", "three reads reuse native calendar, cash stays live");
+            var upcoming = new StoreEvent { IsKnown = true };
+            manager.futurEvents.Add(upcoming);
+            manager.futurEventsDay.Add(2);
+            calendar = DayView()["calendar"];
+            Expect((int)calendar["event_scans"] == 2 && (int)calendar["scheduled_events"][0]["day"] == 12, "new future event");
+            manager.futurEventsDay[0] = 3;
+            Expect((int)DayView()["calendar"]["scheduled_events"][0]["day"] == 13, "event rescheduled");
+            upcoming.IsKnown = false;
+            Expect(!DayView()["calendar"]["scheduled_events"].HasValues, "disclosure changed in place");
+            manager.Activate(new StoreEvent { IsKnown = true });
+            Expect((int)DayView()["calendar"]["scheduled_events"][0]["day"] == 10, "same-day active event");
+            station.dayCounter++;
+            Expect((int)DayView()["calendar"]["event_scans"] == 6, "new day");
+            station.dayCounter=10;
+            ResetCalendar();
+            Expect((int)DayView()["calendar"]["event_day_reads"] == 14, "new load resets native counts");
             Expect((int)day["calendar"]["days_until_due"]==4 && (int)day["calendar"]["due_day"]==14,"rent due");
             var bin=EmporiumEntry.Instance.trashcanInvElement;
             var piece=Item(1378,"waste",0);

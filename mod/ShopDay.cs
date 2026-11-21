@@ -60,28 +60,6 @@ namespace WhiteDragon.Ledger
                 ["stacks"]=trashItems.Count, ["garbage_level"]=PlayerStore.Instance.garbageLevel };
         }
 
-        private static JObject CalendarView(int day)
-        {
-            var store = PlayerStore.Instance;
-            int daysLeft = store.GetRentDayCounter();
-            string type = store.IsPropertyPaid ? "paid_off" : store.isPayingMortgage ? "mortgage" : "rent";
-            int amount = type == "rent" ? store.GetRentValue() : type == "mortgage" ? store.mortgageWeeklyPayment : 0;
-            int monday = day - (day-1)%7;
-            var events = new JArray();
-            var manager = StoreStation.Instance.storeEventManager;
-            for (int date=monday; date<monday+14; ++date)
-            {
-                var names = new JArray();
-                foreach (var entry in manager.GetActiveEventOnDay(date, true, true))
-                    names.Add(entry.GetDisplayName());
-                if (names.Count > 0) events.Add(new JObject { ["day"]=date, ["events"]=names });
-            }
-            return new JObject { ["day"]=day, ["weekday"]=new[]{"星期日","星期一","星期二","星期三","星期四","星期五","星期六"}[day%7],
-                ["period_days"]=7, ["payment_type"]=type, ["due_day"]=type=="paid_off" ? JValue.CreateNull() : (JToken)(day+daysLeft),
-                ["days_until_due"]=type=="paid_off" ? JValue.CreateNull() : (JToken)daysLeft, ["amount"]=amount,
-                ["cash_shortfall"]=Math.Max(0,amount-store.playerCash), ["scheduled_events"]=events };
-        }
-
         private static int ServiceCost()
         {
             int total=0;

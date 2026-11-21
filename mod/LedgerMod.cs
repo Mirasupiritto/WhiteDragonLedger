@@ -62,6 +62,7 @@ namespace WhiteDragon.Ledger
         private void ResetLoad()
         {
             ResetScene();
+            ResetCalendar();
             DetachTrash();
             trashVersion = trashDay = sleepSubmittedDay = 0;
             trashDirty = true;
