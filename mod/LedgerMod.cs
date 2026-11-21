@@ -63,6 +63,7 @@ namespace WhiteDragon.Ledger
         {
             ResetScene();
             ResetCalendar();
+            workstations.Clear();
             autoReceiveDay = 0;
             receptionToken = null;
             DetachTrash();

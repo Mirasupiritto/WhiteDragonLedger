@@ -19,6 +19,17 @@ class CounterFlow(unittest.TestCase):
         self.assertEqual(counter.context(self.folder), {"status": "reload_updated_mod", "slot": 4})
 
     @patch("counter.exchange")
+    @patch("counter.context")
+    def test_workstation_read_and_action_gates(self, context, exchange):
+        context.return_value = self.view
+        self.assertEqual(counter.command(self.folder, "inspect_window", self.generation, 2)["status"], "reload_updated_mod")
+        context.return_value = dict(self.view, workstation_protocol=1)
+        self.assertEqual(counter.command(self.folder, "press_control", self.generation, 2)["status"], "shop_open")
+        exchange.assert_not_called()
+        exchange.return_value = {"status": "observed"}
+        self.assertEqual(counter.command(self.folder, "inspect_window", self.generation, 2, owner_id=8), exchange.return_value)
+
+    @patch("counter.exchange")
     @patch("counter.phone_context")
     def test_phone_actions_use_current_menu_even_in_morning(self, context, exchange):
         context.return_value = dict(self.view, phase="MORNING", phone_token="current")

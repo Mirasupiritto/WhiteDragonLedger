@@ -55,6 +55,11 @@ def command(folder, action, generation, revision, **args):
             return {"status": "reload_updated_mod"}
         if not view["can_open_shop"]:
             return {"status": "shutter_unavailable", "phase": view["phase"]}
+    elif action in {"inspect_window", "transfer_slot", "press_control"}:
+        if view.get("workstation_protocol") != 1:
+            return {"status": "reload_updated_mod"}
+        if action != "inspect_window" and view["phase"] == "OPEN":
+            return {"status": "shop_open"}
     elif action == "sleep":
         if view["phase"] != "CLOSED":
             return {"status":"sleep_requires_closed_shop", "phase":view["phase"]}

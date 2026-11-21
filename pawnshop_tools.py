@@ -1,5 +1,6 @@
 """MCP tools available inside the pawnshop."""
 from typing import Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 import shopdesk
@@ -54,6 +55,29 @@ def register_pawnshop_tools(server, folder, database):
         """Look up wholesale lots by seller, product or exact lot ID. Report paid, recovered and stock.
         Gross profit is shown only for fully sold lots with a confirmed payment."""
         return shopdesk.purchase_lots(folder, database, supplier, product, lot_id)
+
+    @server.tool()
+    def inspect_item_window(owner_id: int, generation: str, revision: int, open_if_closed: bool = False,
+                            since_token: str | None = None) -> dict:
+        """Inspect one owned inventory or showcase item's content window. Optionally open it while closed.
+        First read returns visible slots, text and controls. Pass the last token as since_token for changes only."""
+        return counter.command(folder, "inspect_window", generation, revision, owner_id=owner_id,
+                               open_if_closed=open_if_closed, since_token=since_token, read_id=uuid4().hex)
+
+    @server.tool()
+    def transfer_slot_item(owner_id: int, control: str, window_token: str, item_id: int,
+                           source: Literal["inventory", "showcase", "slot"], generation: str, revision: int) -> dict:
+        """Move owned goods into a visible slot, or from that slot into inventory. Reports observed quantity and changed controls."""
+        return counter.command(folder, "transfer_slot", generation, revision, owner_id=owner_id, control=control,
+                               window_token=window_token, item_id=item_id, source=source)
+
+    @server.tool()
+    def press_machine_button(owner_id: int, control: str, label: str, window_token: str,
+                             generation: str, revision: int) -> dict:
+        """Press one visible enabled machinery button by observed label and token. May consume supplies or start production.
+        Returns the native press result and changed controls if the window stays visible."""
+        return counter.command(folder, "press_control", generation, revision, owner_id=owner_id, control=control,
+                               window_token=window_token, label=label)
 
     @server.tool()
     def inspect_purifiers() -> dict:

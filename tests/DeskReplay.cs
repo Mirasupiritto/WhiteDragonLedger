@@ -14,6 +14,8 @@ namespace WhiteDragon.Ledger {
     public class StoreBell { public void RingBell() { PlayerStore.Instance.currentClientInstance = new StoreClientInstance(); } }
     public static class Interactable { public static bool isPaused; }
     public static class GraphUtils {
+        public static bool CanAccept(GameInventory slot, GameItem item) => !slot.IsInsertLocked();
+        public static int TryAcceptOnce(GameInventory slot, GameItem item) { item.To(slot); return 0; }
         public static bool CanAccept(GameSlotInventory slot, GameItem item) => slot.childItem == null && item.identifier == "bottle";
         public static int TryAcceptOnce(GameSlotInventory slot, GameItem item) { item.To(slot); return 1; }
     }
@@ -41,7 +43,7 @@ namespace WhiteDragon.Ledger {
         public bool IsLineStillDisplaying(object d) => typing;
     }
     public partial class StoreStation { public static StoreStation Instance = new StoreStation(); public int dayCounter=10; }
-    public partial class GameInventory {
+    public partial class GameInventory : PixelElement {
         public List<GameItem> childItems = new List<GameItem>();
         public bool IsInsertLocked() => false;
         public bool IsRemoveLocked() => false;
@@ -67,6 +69,7 @@ namespace WhiteDragon.Ledger {
         public static ItemCondition CreateBaseWater() => new ItemCondition { display="base water" };
     }
     public class GameItem {
+        public PixelWindow contentWindow;
         public ItemFeature waterLabel;
         public ItemFeature FindItemFeatureByCategory(string category) => waterLabel;
         public string identifier;
@@ -154,7 +157,12 @@ namespace WhiteDragon.Ledger {
             item.To(null);
         }
     }
-    public static class GeneralHelper { public static bool IsItemOwned(GameItem item) => item.owned; }
+    public static class GeneralHelper {
+        public static bool IsItemOwned(GameItem item) => item.owned;
+        public static bool IsItemEffectivelyOwned(GameItem item) => item.owned;
+        public static bool IsDisplayOnly(GameItem item) => false;
+        public static bool IsItemLocked(GameItem item) => false;
+    }
     public static class MachineHelper {
         public static GameSlotInventory container=new GameSlotInventory(), battery=new GameSlotInventory();
         public static object GetBodyStorage(GameItem item,int index) => index==2 ? container : null;
@@ -356,6 +364,7 @@ namespace WhiteDragon.Ledger {
             ReplayScenes();
             ReplayDay();
             ReplayReception();
+            ReplayWorkstation();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }
