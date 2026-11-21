@@ -94,3 +94,7 @@ $measure = @('--journal', $journal, '--database', "$work/state/account.sqlite3",
 ## 來源
 
 用 MCP 操作當鋪的構想受 Yideng 與貢獻者的 *Probably Stolen MCP Bridge* 啟發。白龍店帳依店務需求及本機遊戲介面獨立撰寫，建置時引用玩家已安裝的遊戲程序集。
+
+## 授權
+
+白龍店帳的原始碼與文件採用 [MIT License](LICENSE)。
