@@ -95,7 +95,7 @@ namespace WhiteDragon.Ledger {
         public StoreClient client=new StoreClient();
         public StoreClient GetClientBlueprint() => client;
     }
-    public class PlayerStore {
+    public partial class PlayerStore {
         public static PlayerStore Instance=new PlayerStore();
         public StoreClientInstance currentClientInstance=new StoreClientInstance();
         public int playerCash=100;
@@ -320,6 +320,7 @@ namespace WhiteDragon.Ledger {
             Expect(ActAtCounter(buy,outcome)=="shop_closed","bell never opens the shop");
             phase="OPEN"; PlayerStore.Instance.currentClientInstance=null; ObserveVisit();
             Expect(ActAtCounter(buy,outcome)=="called" && outcome["visit"]!=null,"one new visit");
+            ReplayPhone();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }

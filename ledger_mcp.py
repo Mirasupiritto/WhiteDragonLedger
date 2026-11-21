@@ -109,6 +109,31 @@ def main():
         return counter.command(args.journal, "buy", generation, revision, visit=visit,
                                offer_token=offer_token, max_total=max_total)
 
+    @server.tool()
+    def open_shop(generation: str, revision: int) -> dict:
+        """Open the observed morning shutter once. Does not ring or close the shop."""
+        return counter.command(args.journal, "open_shop", generation, revision)
+
+    @server.tool()
+    def get_phone_contacts() -> dict:
+        """Read known phonebook and owned business-card contacts, services, answerability and visible call choices. Never dials."""
+        return counter.phone_context(args.journal)
+
+    @server.tool()
+    def dial_contact(number: int, generation: str, revision: int, phone_token: str) -> dict:
+        """Dial exactly one observed contact. Starting the native call does not select a menu option."""
+        return counter.command(args.journal, "dial", generation, revision, phone_token=phone_token, number=number)
+
+    @server.tool()
+    def choose_phone_service(choice_id: int, generation: str, revision: int, phone_token: str) -> dict:
+        """Click one enabled choice from the current phone menu. May place an order or change service."""
+        return counter.command(args.journal, "phone_choice", generation, revision, phone_token=phone_token, choice_id=choice_id)
+
+    @server.tool()
+    def advance_phone_dialogue(generation: str, revision: int, phone_token: str) -> dict:
+        """Turn one finished ordinary phone page when can_advance is true. Never chooses a service."""
+        return counter.command(args.journal, "phone_advance", generation, revision, phone_token=phone_token)
+
     server.run()
 
 

@@ -67,11 +67,18 @@ namespace WhiteDragon.Ledger
             return "ready";
         }
 
+        private bool CanOpenShop()
+        {
+            var store = PlayerStore.Instance;
+            return store.storeState == PlayerStore.StoreState.MORNING && StoreShutterButton.Instance != null &&
+                store.lockShutterButtonFlag <= 0 && !store.isClientBeingArrested && !store.isHandlingShootout && store.CanStartDay();
+        }
+
         private JObject CounterView()
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["can_open_shop"] = CanOpenShop(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (stage == "advance_required")
             {
@@ -120,9 +127,20 @@ namespace WhiteDragon.Ledger
         {
             if ((long)request["expires_ms"] < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) return "expired";
             if ((string)request["generation"] != generation || (int)request["revision"] != sequence) return "stale_observation";
+            string action = (string)request["action"];
+            if (action == "open_shop")
+            {
+                if (!CanOpenShop()) return "shutter_unavailable";
+                StoreShutterButton.Instance.OnClick();
+                var opened = PlayerStore.Instance.storeState == PlayerStore.StoreState.OPEN;
+                receipt["phase"] = PlayerStore.Instance.storeState.ToString();
+                if (opened) receipt["waiting"] = PlayerStore.Instance.GetClientInQueueCount();
+                return opened ? "opened" : "open_unconfirmed";
+            }
+            if (action == "dial" || action == "phone_choice" || action == "phone_advance")
+                return ActOnPhone(request, receipt);
             if (phase != "OPEN") return "shop_closed";
             var store = PlayerStore.Instance;
-            string action = (string)request["action"];
             if (action == "ring")
             {
                 if (store.currentClientInstance != null) return "occupied";

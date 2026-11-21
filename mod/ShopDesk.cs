@@ -220,7 +220,7 @@ namespace WhiteDragon.Ledger
                 ["name"] = merchant.displayName, ["remaining"] = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
             var doc = new JObject { ["generation"] = generation, ["slot"] = slot, ["revision"] = sequence,
                 ["phase"] = phase, ["day"] = StoreStation.Instance.dayCounter, ["customer"] = customer,
-                ["counter_protocol"] = 2, ["counter"] = CounterView(), ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["last_night"] = night.DeepClone() };
+                ["phone"] = PhoneView(), ["counter_protocol"] = 2, ["counter"] = CounterView(), ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["last_night"] = night.DeepClone() };
             var text = doc.ToString(Formatting.None);
             if (text == previousView) return;
             ModHelper.WriteModDataFileText(ModId, deskFile, text);

@@ -62,6 +62,9 @@ namespace WhiteDragon.Ledger
             payments.Clear();
             purifiers.Clear();
             stripSupplies.Clear();
+            phoneCards.Clear();
+            previousPhone = null;
+            previousPhonePage = null;
             order = completedOrder = line = null;
             staged = null;
             DetachAreas();
@@ -104,6 +107,7 @@ namespace WhiteDragon.Ledger
 
         private JObject Row(GameItem item, string area)
         {
+            if (CardNumber(item.identifier) != 0) phoneCards.Add(item);
             if (item.identifier == "water_purifier") purifiers.Add(item);
             if (item.identifier == "water_test_strip" || item.identifier == "water_test_container") stripSupplies.Add(item);
             var row = new JObject { ["id"] = LocalId(item), ["save_id"] = item.uniqueId, ["name"] = item.GetDisplayName(true),
@@ -198,6 +202,7 @@ namespace WhiteDragon.Ledger
                     bottles.Remove(item);
                     purifiers.Remove(item);
                     stripSupplies.Remove(item);
+                    phoneCards.Remove(item);
                     removed.Add(id);
                 }
             }

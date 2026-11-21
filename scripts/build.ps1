@@ -28,7 +28,7 @@ if ($TestDesk) {
     $testRefs = 'mscorlib.dll','System.dll','System.Core.dll','netstandard.dll','Newtonsoft.Json.dll' |
         ForEach-Object { '/reference:' + (Join-Path $managed $_) }
     $exe = Join-Path $test 'DeskReplay.exe'
-    $testSources = 'mod/ShopDesk.cs','mod/SaleOrder.cs','mod/Move.cs','mod/Counter.cs','tests/DeskReplay.cs' | ForEach-Object { Join-Path $root $_ }
+    $testSources = 'mod/ShopDesk.cs','mod/SaleOrder.cs','mod/Move.cs','mod/Counter.cs','mod/Phone.cs','tests/PhoneReplay.cs','tests/DeskReplay.cs' | ForEach-Object { Join-Path $root $_ }
     & dotnet $compiler /nologo /nostdlib+ /target:exe "/out:$exe" $testRefs $testSources
     if ($LASTEXITCODE) { throw 'Desk replay compilation failed' }
     Copy-Item -LiteralPath (Join-Path $managed 'Newtonsoft.Json.dll') -Destination $test -Force

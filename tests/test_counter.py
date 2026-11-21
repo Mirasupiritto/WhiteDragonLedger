@@ -19,6 +19,29 @@ class CounterFlow(unittest.TestCase):
         self.assertEqual(counter.context(self.folder), {"status": "reload_updated_mod", "slot": 4})
 
     @patch("counter.exchange")
+    @patch("counter.phone_context")
+    def test_phone_actions_use_current_menu_even_in_morning(self, context, exchange):
+        context.return_value = dict(self.view, phase="MORNING", phone_token="current")
+        reply = counter.command(self.folder, "phone_choice", self.generation, 2, phone_token="old", choice_id=1)
+        self.assertEqual(reply["status"], "phone_changed")
+        exchange.assert_not_called()
+        exchange.return_value = {"status": "connected"}
+        reply = counter.command(self.folder, "dial", self.generation, 2, phone_token="current", number=123)
+        self.assertEqual(reply["status"], "connected")
+        self.assertEqual(exchange.call_args.args[2]["action"], "dial")
+
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_open_requires_observed_available_morning_shutter(self, context, exchange):
+        context.return_value = dict(self.view, can_open_shop=False)
+        self.assertEqual(counter.command(self.folder, "open_shop", self.generation, 2)["status"], "shutter_unavailable")
+        exchange.assert_not_called()
+        context.return_value = dict(self.view, phase="MORNING", can_open_shop=True)
+        exchange.return_value = {"status": "opened"}
+        self.assertEqual(counter.command(self.folder, "open_shop", self.generation, 2)["status"], "opened")
+        self.assertEqual(exchange.call_args.args[2]["action"], "open_shop")
+
+    @patch("counter.exchange")
     @patch("counter.context")
     def test_closed_and_stale_never_submit(self, context, exchange):
         context.return_value = dict(self.view, phase="MORNING")

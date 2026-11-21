@@ -17,6 +17,15 @@ def context(folder):
     return {**{key: view[key] for key in ("status", "generation", "revision", "slot", "phase")}, **view["counter"]}
 
 
+def phone_context(folder):
+    view = published(folder)
+    if view["status"] != "observed":
+        return view
+    if "phone" not in view:
+        return {"status": "reload_updated_mod", "slot": view["slot"]}
+    return {**{key: view[key] for key in ("status", "generation", "revision", "slot", "phase")}, **view["phone"]}
+
+
 def command(folder, action, generation, revision, **args):
     if not re.fullmatch("[0-9a-f]{32}", generation) or revision < 1:
         raise ValueError("Expected generation and revision from get_counter")
@@ -33,12 +42,20 @@ def command(folder, action, generation, revision, **args):
     result = receipt()
     if result is not None:
         return result
-    view = context(folder)
+    phone_action = action in {"dial", "phone_choice", "phone_advance"}
+    view = phone_context(folder) if phone_action else context(folder)
     if view["status"] != "observed":
         return view
     if view["generation"] != generation or view["revision"] != revision:
         return {"status": "stale_observation"}
-    if view["phase"] != "OPEN":
+    if phone_action and view["phone_token"] != args["phone_token"]:
+        return {"status": "phone_changed"}
+    if action == "open_shop":
+        if "can_open_shop" not in view:
+            return {"status": "reload_updated_mod"}
+        if not view["can_open_shop"]:
+            return {"status": "shutter_unavailable", "phase": view["phase"]}
+    elif not phone_action and view["phase"] != "OPEN":
         return {"status": "shop_closed"}
     return exchange(folder, folder/f"counter-{generation}.json", dict(plan, command_id=token), receipt)
 
