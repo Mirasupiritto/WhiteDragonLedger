@@ -51,10 +51,18 @@ namespace WhiteDragon.Ledger
 
             ModHook.OnGameLoadedInit += ResetLoad;
             ModHook.OnGameLoadedLate += Ready;
+            ModHook.OnGoingSleepEarly += BeforeSleep;
         }
 
         private void ResetLoad()
         {
+            DisconnectVisit();
+            received.Clear();
+            payments.Clear();
+            purifiers.Clear();
+            stripSupplies.Clear();
+            order = completedOrder = line = null;
+            staged = null;
             DetachAreas();
             ids.Clear();
             itemsById.Clear();
@@ -94,12 +102,9 @@ namespace WhiteDragon.Ledger
 
         private JObject Row(GameItem item, string area)
         {
-            if (!ids.TryGetValue(item, out var id))
-            {
-                ids[item] = id = ++nextId;
-                itemsById.Add(id, item);
-            }
-            return new JObject { ["id"] = id, ["name"] = item.GetDisplayName(true),
+            if (item.identifier == "water_purifier") purifiers.Add(item);
+            if (item.identifier == "water_test_strip" || item.identifier == "water_test_container") stripSupplies.Add(item);
+            return new JObject { ["id"] = LocalId(item), ["save_id"] = item.uniqueId, ["name"] = item.GetDisplayName(true),
                 ["kind"] = item.identifier, ["area"] = area, ["owned"] = GeneralHelper.IsItemOwned(item),
                 ["quantity"] = item.unitCount };
         }
@@ -108,7 +113,7 @@ namespace WhiteDragon.Ledger
         {
             int revision = sequence + 1;
             Write(generation + "-" + revision + ".json", record);
-            Write("head.json", new JObject { ["status"] = "observed", ["move_protocol"] = 1, ["generation"] = generation,
+            Write("head.json", new JObject { ["status"] = "observed", ["move_protocol"] = 1, ["desk_protocol"] = 1, ["generation"] = generation,
                 ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
                 ["full_scans"] = fullScans, ["load_scans"] = loadScans });
             sequence = revision;
@@ -134,7 +139,9 @@ namespace WhiteDragon.Ledger
                     known.Add(ids[item], row);
                     rows.Add(row);
                 }
+            LoadDesk();
             Publish(new JObject { ["op"] = "baseline", ["items"] = rows });
+            RefreshDesk();
         }
 
         private void LateUpdate()
@@ -149,8 +156,11 @@ namespace WhiteDragon.Ledger
                 return;
             }
             if (generation == null || !PlayerStore.HasInstance) return;
+            CloseTransactions();
             FlushChanges();
+            RefreshDesk();
             CheckMove();
+            CheckOrder();
         }
 
         private void FlushChanges()
@@ -171,7 +181,11 @@ namespace WhiteDragon.Ledger
                     upserts.Add(row);
                 }
                 else if (ids.TryGetValue(item, out var id) && known.Remove(id))
+                {
+                    purifiers.Remove(item);
+                    stripSupplies.Remove(item);
                     removed.Add(id);
+                }
             }
             changed.Clear();
             if (upserts.Count == 0 && removed.Count == 0 && phase == currentPhase) return;
@@ -185,6 +199,8 @@ namespace WhiteDragon.Ledger
 
             ModHook.OnGameLoadedInit -= ResetLoad;
             ModHook.OnGameLoadedLate -= Ready;
+            ModHook.OnGoingSleepEarly -= BeforeSleep;
+            DisconnectVisit();
         }
     }
 }

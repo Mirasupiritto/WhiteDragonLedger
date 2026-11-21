@@ -39,6 +39,11 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     if head["phase"] not in ("CLOSED", "MORNING"):
         return {"status": "shop_open", "command_id": command}
     inbox = folder / f"move-{generation}.json"
+    return exchange(folder, inbox, request, read_receipt, previous_command)
+
+
+def exchange(folder, inbox, request, read_receipt, previous_command=None):
+    command = request["command_id"]
     fd, name = tempfile.mkstemp(dir=folder, prefix="posting-", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -73,7 +78,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
             return result
         time.sleep(0.075)
     return {"status": "unconfirmed", "command_id": command,
-            "detail": "Use the same command_id to check the receipt and query inventory before another move."}
+            "detail": "Check the receipt with the original arguments before another action."}
 
 
 def move_items(folder: Path, item_ids, source, destination, generation, revision):

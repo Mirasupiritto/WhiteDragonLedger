@@ -20,7 +20,7 @@ def read_head(folder):
             time.sleep(0.025)
 
 
-def lookup(folder: Path, database: Path, name=None, area=None, owned=None):
+def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, save_ids=None):
     database.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(database, timeout=8)) as db, db:
         db.row_factory = sqlite3.Row
@@ -35,6 +35,9 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None):
             raise ValueError("Invalid game ledger head")
         db.execute("CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY, generation TEXT, revision INTEGER)")
         db.execute("CREATE TABLE IF NOT EXISTS stock (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, area TEXT, owned INTEGER, quantity INTEGER)")
+        if "save_id" not in {row["name"] for row in db.execute("PRAGMA table_info(stock)")}:
+            db.execute("ALTER TABLE stock ADD COLUMN save_id INTEGER")
+            db.execute("CREATE INDEX IF NOT EXISTS stock_save_id ON stock(save_id)")
         previous = db.execute("SELECT generation, revision FROM checkpoint WHERE id=1").fetchone()
         cursor = previous["revision"] if previous and previous["generation"] == generation else 0
         if cursor > revision:
@@ -49,7 +52,8 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None):
                 rows = event["upsert"]
             else:
                 raise ValueError(f"Unexpected game journal event at {number}")
-            db.executemany("INSERT OR REPLACE INTO stock VALUES(:id,:name,:kind,:area,:owned,:quantity)", rows)
+            db.executemany("INSERT OR REPLACE INTO stock(id,name,kind,area,owned,quantity,save_id) VALUES(:id,:name,:kind,:area,:owned,:quantity,:save_id)",
+                           ({"save_id":None, **row} for row in rows))
         if cursor != revision:
             db.execute("INSERT OR REPLACE INTO checkpoint VALUES(1,?,?)", (generation, revision))
         filters, values = [], []
@@ -60,8 +64,13 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None):
             if value is not None:
                 filters.append(field + " = ?")
                 values.append(value)
+        if save_ids is not None:
+            filters.append("save_id IN (SELECT value FROM json_each(?))")
+            values.append(json.dumps(sorted(save_ids)))
         condition = " WHERE " + " AND ".join(filters) if filters else ""
         items = [dict(row) for row in db.execute("SELECT * FROM stock" + condition + " ORDER BY id", values)]
         for item in items:
             item["owned"] = bool(item["owned"])
+            if not item["save_id"]:
+                del item["save_id"]
         return {**head, "applied_records": revision - cursor, "items": items}

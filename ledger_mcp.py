@@ -4,8 +4,15 @@ from pathlib import Path
 from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
+from pydantic import BaseModel, Field
+import shopdesk
 from ledger import lookup
 from moves import move_item as submit_move, move_items as submit_batch
+
+
+class SaleLine(BaseModel):
+    item_id: int = Field(gt=0)
+    min_price: int = Field(ge=0)
 
 
 def main():
@@ -43,6 +50,31 @@ def main():
         and game scan counters. Stops at the first unconfirmed or rejected item. The original
         arguments recover completed lines and can continue pending lines."""
         return submit_batch(args.journal, item_ids, source, destination, generation, revision)
+
+    @server.tool()
+    def query_purchase_lots(supplier: str | None = None, product: str | None = None, lot_id: str | None = None) -> dict:
+        """Look up wholesale lots by seller, product or exact lot ID. Report paid, recovered and stock.
+        Gross profit is shown only for fully sold lots with a confirmed payment."""
+        return shopdesk.purchase_lots(args.journal, database, supplier, product, lot_id)
+
+    @server.tool()
+    def inspect_purifiers() -> dict:
+        """Compare last night's and current bottle IDs and read battery, extraction and test-strip availability."""
+        return shopdesk.machines(args.journal)
+
+    @server.tool()
+    def get_buyer_context() -> dict:
+        """Read the current customer's visit token, remaining budget and revision before submitting an order."""
+        return shopdesk.buyer(args.journal)
+
+    @server.tool()
+    def sell_order(lines: list[SaleLine], generation: str, revision: int, visit: str,
+                   stop_same_kind_on_budget: bool = False) -> dict:
+        """Sell only the listed owned items, each with its own minimum. Opt in to skipping the same
+        native item kind after a budget rejection has been returned. Other kinds stay in order.
+        Reuse identical arguments to recover the receipt of a submitted order."""
+        return shopdesk.sell_order(args.journal, [line.model_dump() for line in lines],
+                                  generation, revision, visit, stop_same_kind_on_budget)
 
     server.run()
 
