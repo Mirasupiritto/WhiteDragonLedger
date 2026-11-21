@@ -145,6 +145,14 @@ namespace WhiteDragon.Ledger
             return id;
         }
 
+        private static string BottleLabel(GameItem item)
+        {
+            if (!item.IsTag("LIQUID_CONTAINER_TAG")) return null;
+            // Match the label shown by the scanner, without creating a feature on the item.
+            var feature = item.IsTag("WINE_CONTAINER_TAG") ? null : item.FindItemFeatureByCategory("CATEGORY_WATER_PURITY");
+            return (feature == null ? ItemConditionList.CreateBaseWater() : feature.GetCurrentItemCondition()).display;
+        }
+
         private JArray MachineRows()
         {
             var result = new JArray();
@@ -165,6 +173,7 @@ namespace WhiteDragon.Ledger
                         EmporiumEntry.Instance.invElement.TryFindOneValidInventorySlot(bottle) != null,
                     ["bottle_id"] = bottle == null ? JValue.CreateNull() : (JToken)LocalId(bottle),
                     ["bottle_key"] = bottle == null ? JValue.CreateNull() : (JToken)bottle.GetUniqueID() };
+                if (bottle != null && BottleLabel(bottle) is string label) row["bottle_label"] = label;
                 if (battery != null && battery.IsTag(PowerHelper.POWER_SOURCE_ITEM_ENERGY))
                     row["energy_kj"] = battery.GetTagReadonly(PowerHelper.POWER_SOURCE_ITEM_ENERGY).GetInt();
                 if (battery != null && battery.IsTag(PowerHelper.POWER_SOURCE_ITEM_MAX_ENERGY))
@@ -203,6 +212,7 @@ namespace WhiteDragon.Ledger
                 lotsChanged = false;
             }
             ObserveVisit();
+            ObserveOpening();
             if (Time.realtimeSinceStartup < nextView) return;
             nextView = Time.realtimeSinceStartup + 1f;
             var machines = MachineRows();
@@ -210,7 +220,7 @@ namespace WhiteDragon.Ledger
                 ["name"] = merchant.displayName, ["remaining"] = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
             var doc = new JObject { ["generation"] = generation, ["slot"] = slot, ["revision"] = sequence,
                 ["phase"] = phase, ["day"] = StoreStation.Instance.dayCounter, ["customer"] = customer,
-                ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["last_night"] = night.DeepClone() };
+                ["counter_protocol"] = 2, ["counter"] = CounterView(), ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["last_night"] = night.DeepClone() };
             var text = doc.ToString(Formatting.None);
             if (text == previousView) return;
             ModHelper.WriteModDataFileText(ModId, deskFile, text);

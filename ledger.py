@@ -35,7 +35,10 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
             raise ValueError("Invalid game ledger head")
         db.execute("CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY, generation TEXT, revision INTEGER)")
         db.execute("CREATE TABLE IF NOT EXISTS stock (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, area TEXT, owned INTEGER, quantity INTEGER)")
-        if "save_id" not in {row["name"] for row in db.execute("PRAGMA table_info(stock)")}:
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(stock)")}
+        if "bottle_label" not in columns:
+            db.execute("ALTER TABLE stock ADD COLUMN bottle_label TEXT")
+        if "save_id" not in columns:
             db.execute("ALTER TABLE stock ADD COLUMN save_id INTEGER")
             db.execute("CREATE INDEX IF NOT EXISTS stock_save_id ON stock(save_id)")
         previous = db.execute("SELECT generation, revision FROM checkpoint WHERE id=1").fetchone()
@@ -52,8 +55,8 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
                 rows = event["upsert"]
             else:
                 raise ValueError(f"Unexpected game journal event at {number}")
-            db.executemany("INSERT OR REPLACE INTO stock(id,name,kind,area,owned,quantity,save_id) VALUES(:id,:name,:kind,:area,:owned,:quantity,:save_id)",
-                           ({"save_id":None, **row} for row in rows))
+            db.executemany("INSERT OR REPLACE INTO stock(id,name,kind,area,owned,quantity,save_id,bottle_label) VALUES(:id,:name,:kind,:area,:owned,:quantity,:save_id,:bottle_label)",
+                           ({"save_id": None, "bottle_label": None, **row} for row in rows))
         if cursor != revision:
             db.execute("INSERT OR REPLACE INTO checkpoint VALUES(1,?,?)", (generation, revision))
         filters, values = [], []
@@ -71,6 +74,8 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
         items = [dict(row) for row in db.execute("SELECT * FROM stock" + condition + " ORDER BY id", values)]
         for item in items:
             item["owned"] = bool(item["owned"])
+            if item["bottle_label"] is None:
+                del item["bottle_label"]
             if not item["save_id"]:
                 del item["save_id"]
         return {**head, "applied_records": revision - cursor, "items": items}

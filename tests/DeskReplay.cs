@@ -6,20 +6,30 @@ using Newtonsoft.Json.Linq;
 namespace UnityEngine {
     public static class Time { public static float realtimeSinceStartup = 1; }
     public static class Debug { public static void LogException(Exception e) { throw e; } }
-    public class Object { public static T FindObjectOfType<T>() where T:class { return null; } }
+    public class Object { public static T FindObjectOfType<T>() where T:class { return typeof(T)==typeof(WhiteDragon.Ledger.StoreBell)?new WhiteDragon.Ledger.StoreBell() as T:null; } }
 }
 namespace WhiteDragon.Ledger {
     public class Label { public string text; }
+    public class Bubble { public Window gameObject; public Label textfield; }
+    public class StoreBell { public void RingBell() { PlayerStore.Instance.currentClientInstance = new StoreClientInstance(); } }
     public class Window { public bool activeInHierarchy; }
     public class NegotiationTabletFrame { public Window confirmRoot; }
+    public class StoreUIManager {
+        public static StoreUIManager Instance = new StoreUIManager();
+        public bool isAboutToStartMainDialog;
+    }
     public class DialogUIManager {
         public static DialogUIManager Instance;
         public Label clientNameTMP;
+        public Bubble clientBubble;
+        public void OnAdvancePressed() { isWaitingForManualAdvance=false; }
         public bool isWaitingForManualAdvance;
-        public bool IsChoice() => false;
-        public object GetCurrentDialog() => null;
+        public bool choice, typing, HasPausedConversation;
+        public object current;
+        public bool IsChoice() => choice;
+        public object GetCurrentDialog() => current;
         public bool IsCurrentDialogEnd() => true;
-        public bool IsLineStillDisplaying(object d) => false;
+        public bool IsLineStillDisplaying(object d) => typing;
     }
     public class StoreStation { public static StoreStation Instance = new StoreStation(); public int dayCounter=10; }
     public class GameInventory {
@@ -31,9 +41,25 @@ namespace WhiteDragon.Ledger {
     public class GameSlotInventory:GameInventory { public GameItem childItem; }
     public class EmporiumEntry {
         public static EmporiumEntry Instance = new EmporiumEntry();
+        public List<GameItem> GetAllNonOwnedItem() {
+            var result=frontInvinvElement.childItems.FindAll(i=>!i.owned);
+            result.AddRange(backInvinvElement.childItems.FindAll(i=>!i.owned));
+            return result;
+        }
+        public GameInventory frontInvinvElement=new GameInventory();
         public GameInventory invElement=new GameInventory(), backInvinvElement=new GameInventory(), showcaseElement=new GameInventory();
     }
+    public class ItemCondition { public string display; }
+    public class ItemFeature {
+        public ItemCondition label;
+        public ItemCondition GetCurrentItemCondition() => label;
+    }
+    public static class ItemConditionList {
+        public static ItemCondition CreateBaseWater() => new ItemCondition { display="base water" };
+    }
     public class GameItem {
+        public ItemFeature waterLabel;
+        public ItemFeature FindItemFeatureByCategory(string category) => waterLabel;
         public string identifier;
         public int uniqueId, price, unitCount=1;
         public bool owned=true;
@@ -42,7 +68,7 @@ namespace WhiteDragon.Ledger {
         public string GetDisplayName(bool custom) => identifier;
         public bool MayRemove() => true;
         public long GetNegociatedValue() => price;
-        public bool IsTag(string key) => false;
+        public bool IsTag(string key) => key=="LIQUID_CONTAINER_TAG" && identifier=="bottle";
         public GameItem GetTagReadonly(string key) => this;
         public int GetInt() => 0;
         public List<GameItem> FindAllChildItems() => new List<GameItem>();
@@ -60,6 +86,9 @@ namespace WhiteDragon.Ledger {
         public int budget=5;
         public Action<GameItem,int> onItemSold, onItemBought;
         public int GetBudget() => budget;
+        public object mainDialogue;
+        public bool isMainDialogueStarted, isRegularSellDisable, isMultiBuyDisabled;
+        public bool IsClientSelling() => true;
         public bool IsClientBuying() => true;
     }
     public class StoreClientInstance {
@@ -70,6 +99,9 @@ namespace WhiteDragon.Ledger {
         public static PlayerStore Instance=new PlayerStore();
         public StoreClientInstance currentClientInstance=new StoreClientInstance();
         public int playerCash=100;
+        public int lockNextBellFlag;
+        public int GetClientInQueueCount() => 1;
+        public bool CanNextClient() => currentClientInstance==null;
         public bool isClientArrived=true;
         public int GetWholesalePrice() => 9;
         public GameItem GetCurrentlyNegociatedItem() => EmporiumEntry.Instance.backInvinvElement.childItems[0];
@@ -79,6 +111,23 @@ namespace WhiteDragon.Ledger {
     public class NegociationUIManager {
         public static NegociationUIManager Instance=new NegociationUIManager();
         public bool IsOpen=true;
+        public void OpenUI() { IsOpen=true; }
+        public void OnWholesaleClick() { Purchase(true); }
+        public void OnBuyAllClick() { Purchase(false); }
+        private void Purchase(bool wholesale) {
+            var store=PlayerStore.Instance;
+            var batch=EmporiumEntry.Instance.GetAllNonOwnedItem();
+            int sum=0;
+            foreach(var item in batch) sum+=item.price;
+            store.playerCash-=wholesale?store.GetWholesalePrice():sum;
+            var client=store.currentClientInstance.client;
+            foreach(var item in batch) {
+                client.onItemSold?.Invoke(item,item.price);
+                item.owned=true;
+                item.To(EmporiumEntry.Instance.invElement);
+            }
+            client.isOfferWholesale=false;
+        }
         public static bool IsTradeLocked() => false;
         public void OnOfferAcceptClick() {
             var store=PlayerStore.Instance;
@@ -193,10 +242,13 @@ namespace WhiteDragon.Ledger {
             var purifier=Item(300,"water_purifier",0);
             purifiers.Add(purifier);
             var bottle=Item(301,"bottle",0);
+            bottle.waterLabel=new ItemFeature { label=new ItemCondition { display="label before" } };
             bottle.To(MachineHelper.container);
             BeforeSleep();
             MachineHelper.battery.childItem=Item(302,"battery",0);
+            bottle.waterLabel.label.display="label after";
             var now=MachineRows();
+            Expect((string)now[0]["bottle_label"]=="label after" && (string)night[0]["bottle_label"]=="label before","visible bottle labels");
             Expect((int)now[0]["bottle_key"]==(int)night[0]["bottle_key"] && (bool)now[0]["can_power"],"overnight bottle and power");
             phase="MORNING";
             for(int i=0;i<6;i++) stripSupplies.Add(Item(501+i,"water_test_strip",0));
@@ -213,7 +265,62 @@ namespace WhiteDragon.Ledger {
             Expect((string)extracted["status"]=="moved" && (string)extracted["actual_area"]=="inventory" &&
                    (bool)extracted["source_slot_empty"] && (int)extracted["available_strips"]==6 &&
                    (int)extracted["bottle_key"]==301 && (int)extracted["machine_key"]==300 &&
-                   (int)extracted["load_scans"]==1 && extracted["name"]==null,"extraction receipt");
+                   (string)extracted["bottle_label"]=="label after" && (int)extracted["load_scans"]==1 && extracted["name"]==null,"extraction receipt");
+            phase="OPEN";
+            var product=Item(901,"ore",12);
+            product.owned=false;
+            product.To(EmporiumEntry.Instance.frontInvinvElement);
+            merchant.isOfferWholesale=true;
+            var buy=new JObject { ["action"]="buy",["generation"]=generation,["revision"]=sequence,["visit"]=visitId,
+                ["expires_ms"]=DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(),["max_total"]=8 };
+            var outcome=new JObject();
+            var dialog=new DialogUIManager();
+            DialogUIManager.Instance=dialog;
+            merchant.mainDialogue=new object();
+            StoreUIManager.Instance.isAboutToStartMainDialog=true;
+            PlayerStore.Instance.isClientArrived=false;
+            Expect((string)CounterView()["stage"]=="arriving" && CounterView()["offer"]==null,"walk-in with stock");
+            PlayerStore.Instance.isClientArrived=true;
+            Expect((string)CounterView()["stage"]=="awaiting_opening" && CounterView()["offer"]==null,"greeting scheduled");
+            StoreUIManager.Instance.isAboutToStartMainDialog=false;
+            Expect(ActAtCounter(buy,outcome)=="awaiting_opening" && !product.owned,"stock cannot unlock purchase before greeting");
+            merchant.isMainDialogueStarted=true;
+            dialog.current=merchant.mainDialogue;
+            dialog.typing=true;
+            Expect((string)CounterView()["stage"]=="speaking" && CounterView()["offer_token"]==null,"final line typing");
+            dialog.typing=false;
+            dialog.choice=true;
+            Expect((string)CounterView()["stage"]=="choice_required","choice never becomes an offer");
+            dialog.choice=false;
+            Expect(ActAtCounter(buy,outcome)=="speaking" && CounterView()["offer"]==null,"last line typed, conversation still active");
+            dialog.current=null;
+            dialog.HasPausedConversation=true;
+            Expect((string)CounterView()["stage"]=="conversation_paused" && CounterView()["offer"]==null,"paused opening");
+            dialog.HasPausedConversation=false;
+            buy["offer_token"]=CounterView()["offer_token"];
+            Expect(buy["offer_token"].Type==JTokenType.String,"offer after conversation end");
+            int cash=PlayerStore.Instance.playerCash;
+            Expect(ActAtCounter(buy,outcome)=="over_limit" && !product.owned && cash==PlayerStore.Instance.playerCash,"purchase cap");
+            buy["max_total"]=9;
+            DialogUIManager.Instance=new DialogUIManager { isWaitingForManualAdvance=true };
+            Expect(ActAtCounter(buy,outcome)=="advance_required" && !product.owned,"opening unfinished");
+            DialogUIManager.Instance=dialog;
+            buy["offer_token"]="stale";
+            Expect(ActAtCounter(buy,outcome)=="offer_changed" && !product.owned,"stale offer");
+            buy["offer_token"]=CounterView()["offer_token"];
+            Expect(ActAtCounter(buy,outcome)=="purchased" && product.owned && (int)outcome["paid"]==9,"confirmed wholesale");
+            Expect((string)CounterView()["stage"]=="no_goods" && CounterView()["offer"]==null,"no zero-price empty offer");
+            var regular=Item(902,"soap",3); regular.owned=false; regular.To(EmporiumEntry.Instance.frontInvinvElement);
+            buy["revision"]=sequence;
+            buy["offer_token"]=CounterView()["offer_token"];
+            Expect(ActAtCounter(buy,outcome)=="purchased" && regular.owned && (int)outcome["paid"]==3,"normal batch");
+            buy["action"]="ring"; buy["revision"]=sequence; buy["waiting"]=1;
+            Expect(ActAtCounter(buy,outcome)=="occupied","bell never dismisses current visit");
+            phase="MORNING";
+            Expect(ActAtCounter(buy,outcome)=="shop_closed","bell never opens the shop");
+            phase="OPEN"; PlayerStore.Instance.currentClientInstance=null; ObserveVisit();
+            Expect(ActAtCounter(buy,outcome)=="called" && outcome["visit"]!=null,"one new visit");
+            Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }
         public static void Main() { new InventoryObserver().Run(); }

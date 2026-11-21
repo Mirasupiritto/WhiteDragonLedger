@@ -122,6 +122,7 @@ namespace WhiteDragon.Ledger
                 result["name"] = item.GetDisplayName(true);
                 result["kind"] = item.identifier;
             }
+            if (BottleLabel(item) is string label) result["bottle_label"] = label;
             result["actual_area"] = observed;
             result["quantity"] = item.unitCount;
             return result;

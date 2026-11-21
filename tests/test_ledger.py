@@ -47,6 +47,16 @@ class LedgerReplay(unittest.TestCase):
         self.assertEqual(moved["items"][0]["id"], 7)
         self.assertEqual(len(self.read(area="inventory")["items"]), 1)
 
+    def test_label_change_at_same_location(self):
+        self.event(1, op="baseline", items=[dict(self.bottle, bottle_label="鐵鏽水")])
+        self.head(1)
+        self.assertEqual(self.read()["items"][0]["bottle_label"], "鐵鏽水")
+        self.event(2, op="delta", upsert=[dict(self.bottle, bottle_label="新瓶貼")], remove=[])
+        self.head(2)
+        receipt = self.read()
+        self.assertEqual(receipt["items"], [dict(self.bottle, bottle_label="新瓶貼")])
+        self.assertEqual(receipt["load_scans"], 1)
+
     def test_reload_and_interrupted_publication(self):
         self.event(1, op="baseline", items=[self.bottle])
         self.head(1)

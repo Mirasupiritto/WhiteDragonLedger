@@ -1,76 +1,96 @@
-# 白龍店帳
+# 白龍店帳 · White Dragon Ledger
 
-《深空當鋪》0.46D 的本機 Mod 與 stdio MCP。店帳觀察庫存、展示櫃、前櫃和後櫃。遊戲模組使用公開讀檔及貨區回呼，MCP 從 SQLite 查詢最後一份已發布的店帳。
+讓 AI 助手透過 MCP 在《深空當鋪》查帳、搬貨和做生意。遊戲模組讀取櫃檯台詞、商品和機台狀態，透過文字回執告訴助手發生了什麼。支援 stdio MCP 的宿主就能使用，包含沒有 Computer Use 的環境。
 
-## 查帳
+目前版本 **0.4.1**，對應 Windows 遊戲版本 **0.46D**。
 
-`query_inventory` 支援品名子字串、位置與歸屬交叉篩選。位置可填 `inventory`、`showcase`、`front`、`back`。例如 `{"name":"水","area":"showcase","owned":true}`。兩瓶同名的水各有自己的編號，編號跟隨該物品直到下次讀檔。同欄位重讀也會得到新的 `generation`。
+## 一張貨單怎麼用
 
-讀檔完成後，模組列舉四個貨區一次，寫出基準。放入、取出或堆疊數量變更時，模組在該幀結束前只讀取收到通知的物品。跨幀拖曳可能先移出、再放入。SQLite 一次交易會依序套用上次查帳後尚未匯入的記錄。遊戲退出後，查到的是最後發布的狀態。這一版只追蹤頂層物品，歸屬及顯示名在觀察到該物品時取樣。
+一次實機交易裡，拾荒客進門後先說「我正在囤水」，接著說自己有 149 信用點。他擺出一瓶小瓶水和一瓶標準水，瓶貼都是「沟渠水」，整批開價 9。助手把買入上限設為 9，成交回執確認實付 9、店家現金從 218 變成 209。兩瓶都進了庫存，遊戲端的完整盤點次數仍是 1。
 
-| 回執欄位 | 如何解讀 |
-|---|---|
-| `load_scans` | 模組這次讀檔實際完整盤點的次數，由遊戲端盤點入口計數 |
-| `full_scans` | 這個模組實例啟動以來的完整盤點次數 |
-| `revision` | 這次讀檔最新發布的庫存或營業階段記錄編號 |
-| `applied_records` | 本次查詢新匯入 SQLite 的記錄數 |
-| `phase` | 遊戲原生營業階段，`MORNING` 為尚未開門，`CLOSED` 為歇業 |
+1. 玩家開門後，呼叫 `get_counter()` 看排隊人數。櫃檯空著時，把回執裡的 `generation`、`revision`、`waiting` 傳給 `ring_customer`。
+2. **0.4.1 起，貨單要等開場對話結束才成立。** 即使貨已擺好，入場動畫、台詞打字和最後一句仍在顯示時，都不會發出購買憑證。普通翻頁會接續，遇到選項或對話暫停則交回控制。若回執為 `still_waiting`，用 `wait_for_opening(generation, visit)` 繼續等同一位客人。
+3. 讀取貨單上的品名、逐件編號、數量、可見瓶貼和整批開價。把這張單的 `generation`、`revision`、`visit`、`offer_token` 與自訂的 `max_total` 傳給 `buy_merchant_batch`。普通商人按整批成交價加總，批發商採用遊戲的折扣總價。
+4. 收到 `purchased` 後，從 `paid` 看實付、`cash_after` 看餘額。模組會核對現金差額和每件貨的歸屬。貨單變動、超過上限或餘額不足時會停手。
 
-## 歇業搬貨
+## 安裝與第一次查帳
 
-0.2.0 新增 `move_item`。從 `query_inventory` 取這次讀檔的 `generation`、最新 `revision` 和物品編號，填入 `item_id`、`source`、`destination` 即可搬動一件自有物品。庫存（`inventory`）和展示櫃（`showcase`）可雙向移動。遊戲處於 `MORNING` 或 `CLOSED` 時才會執行。
-
-遊戲在主執行緒呼叫原生搬貨方法，更新逐件帳本，再核對該物品的實際貨區和數量。`status="moved"` 表示已確認抵達，回執內的 `actual_area`、`revision`、`load_scans` 和 `full_scans` 直接來自這次操作。讀檔的完整盤點次數可從回執直接查看。
-
-每次命令有獨立的 `command_id`。客戶端可以預先指定 UUID 的 32 位小寫十六進位字串，以便連線中斷後用原參數查回執。收到 `unconfirmed` 時先用原命令編號核對；收到 `stale_observation` 時重新查當前位置和版本。已送出而延遲的命令有六秒有效期。現有遊戲程序升級後需重啟並重新載入存檔。
-
-### 一次搬多件
-
-`move_items` 接受依序排列的 `item_ids`（例如 `[25,26]`），其餘參數與單件搬貨相同。一次 MCP 呼叫會取得一張回執；每列包含物品編號、結果和遊戲確認的 `actual_area`。回執的 `load_scans` 為本次讀檔的盤點次數，`full_scans` 為模組本次啟動的累計值。
-
-每件使用上一件回執的版本號。遇到拒絕或結果未確認時，已搬的物品留在目的地，後續項目標記為 `not_attempted`。用完全相同的欄位與原始版本重送，可取回已完成項目的回執，並接續尚可執行的項目。
-
-## 批發回本、淨水器與櫃檯訂單（0.3.0）
-
-- `query_purchase_lots(supplier, product, lot_id)` 按商人、品名或批次查詢。Windows 可用繁體或簡體搜尋。遊戲完成批發時記一次整批實扣金額，再依每件物品的存檔識別碼累計零售實收。同一商人的多次進貨分列。四件花 9，第一件賣 10，回執為 `paid=9, recovered=10, in_stock=3`；四件共賣 40 才出現 `gross_profit=31`。找不到的未售件另列 `unlocated`，扣款未核實則顯示 `payment_status=unconfirmed`。資料隨遊戲存檔保存與回退，從新版觀察到的批發開始記錄。
-- `inspect_purifiers()` 讀取自有標準淨水器的容器槽與電池槽。晚上記一次機台與瓶子的存檔識別碼，晨檢附當前可操作瓶號、是否同一瓶、電力、可否取出、庫存空間與可用試紙數。晨檢固定顯示「全店可用試紙剩 N 張」，每台的 `available_strips` 都是同一份全店餘量，包含散裝與試劑盒裡尚未使用的試紙。第一次安裝若沒有昨晚的記錄，`same_bottle_as_last_night` 為空。晨檢只讀取機台狀態。
-- 0.3.1 新增 `take_purifier_bottle(machine_id, bottle_id, generation, revision)`。歇業時可用晨檢回傳的機台、瓶號與版本，將這一瓶取回庫存。`moved` 回執須同時確認實際貨區為 `inventory` 和原槽已空（`source_slot_empty=true`），並附上存檔識別碼、盤點次數與可用試紙張數。驗水留給玩家。
-- 先用 `get_buyer_context()` 讀來訪編號、預算與版本，搭配 `query_inventory` 選貨，再呼叫 `sell_order`。訂單以 `lines=[{"item_id":25,"min_price":10},{"item_id":26,"min_price":10},{"item_id":12,"min_price":3}]` 逐件指定底價，另傳 `generation`、`revision`、`visit`。可選的 `stop_same_kind_on_budget=true` 只影響這張單。首件因預算不足且已回到原貨區時，餘下相同遊戲品種跳過，在原位等候；後續不同品種繼續。逐件回執列出實收或退回原因及剩餘預算。換人、櫃檯被改動或成交待確認時會停單。購買批次的成本不參與售價決策。
-
-## 建置與安裝
-
-從專案根目錄執行以下 PowerShell 命令。需要 Windows、.NET SDK、Python 3.11 以上及自己的遊戲安裝。下例將建置、測試、快取和執行環境放在倉庫外。
+需要已安裝的遊戲、Windows、.NET SDK、Python 3.11 以上，以及支援 stdio 的 MCP 宿主。在倉庫根目錄開啟 PowerShell，將 `$game` 改成自己的 Steam 安裝路徑。下例把編譯產物和 Python 環境放在倉庫旁邊。
 
 ```powershell
-$work = 'D:/workspace/WhiteDragonLedger-products'
 $game = 'E:/SteamLibrary/steamapps/common/Probably Stolen'
+$work = Join-Path (Split-Path -Parent (Get-Location).Path) 'WhiteDragonLedger-products'
 ./scripts/build.ps1 -GameDir $game -OutputDir "$work/build"
 python -m venv "$work/venv"
 $python = "$work/venv/Scripts/python.exe"
 & $python -m pip --cache-dir "$work/pip-cache" install -r requirements.txt
 ```
 
-將外部建置目錄裡的 `white_dragon_ledger` 放進遊戲的 `Mods`，啟用「白龍店帳」並載入存檔。遊戲觀察記錄寫在遊戲自己的 `ModData/white_dragon_ledger`。模組使用獨立 ID，無須開網路連線。
+1. 將 `$work/build/white_dragon_ledger` 資料夾複製到遊戲的 `Mods` 裡。確認 `Mods/white_dragon_ledger/` 直接包含 `manifest.xml` 和 `WhiteDragonLedger.dll`。
+2. 啟動遊戲，啟用「白龍店帳 · White Dragon Ledger」並載入存檔。升級模組後請重啟遊戲再讀檔。
+3. 在 MCP 宿主新增 stdio 服務。以下為採用 `mcpServers` 格式的設定範例，請替換兩個絕對路徑。其他宿主使用相同的命令和參數。
 
-在 MCP 宿主新增 stdio 服務，命令為上述 Python，參數依序為 `-B`、本倉庫 `ledger_mcp.py` 的絕對路徑。可用 `--database` 指定倉庫外的 SQLite 檔，預設為 `%LOCALAPPDATA%/WhiteDragonLedger/account.sqlite3`。用 `--journal` 可指定其他遊戲觀察資料夾。
+```json
+{
+  "mcpServers": {
+    "white-dragon-ledger": {
+      "command": "D:/tools/WhiteDragonLedger-products/venv/Scripts/python.exe",
+      "args": ["-B", "D:/tools/WhiteDragonLedger/ledger_mcp.py"]
+    }
+  }
+}
+```
 
-## 重跑驗收
+第一次可在歇業時呼叫 `query_inventory(name="水", owned=true)`。回執中的 `slot` 是存檔欄位，`phase` 是營業階段，`items` 列出符合條件的物品。帳本預設位於 `%LOCALAPPDATA%/WhiteDragonLedger/account.sqlite3`。進階設定可用 `--database` 指定帳本，或用 `--journal` 指向遊戲的 `ModData/white_dragon_ledger` 觀察目錄。
+
+## 其他店務工具
+
+| 想做的事 | MCP 工具 | 回執能確認什麼 |
+|---|---|---|
+| 按品名、貨區或歸屬找貨 | `query_inventory` | 逐件編號、數量、位置和可見瓶貼。四個貨區為庫存、展示櫃、前櫃及後櫃的頂層。 |
+| 歇業時搬一件或一批貨 | `move_item`、`move_items` | 在庫存與展示櫃間移動自有物品。批次回執逐件列出實際位置，遇到未確認的動作就停。 |
+| 晨檢、從淨水器取瓶 | `inspect_purifiers`、`take_purifier_bottle` | 瓶號、瓶貼、電力、與昨晚是否同一瓶、可否取出，以及全店可用試紙數。取瓶會核對原槽已空、瓶子已到庫存。 |
+| 分批賣貨給買家 | `get_buyer_context`、`sell_order` | 先讀剩餘預算，再逐件設底價。`stop_same_kind_on_budget=true` 可在首件因預算不足退回時收起餘下同款，其他品種繼續談。 |
+| 查一批進貨收回多少 | `query_purchase_lots` | 按供應商、品名或批次查整批實付、累計回款及在庫件數。整批售完才列毛利。 |
+
+批發帳依物品的存檔識別碼追蹤。舉例來說，四件共花 9，賣出第一件收 10 時，回執為 `paid=9`、`recovered=10`、`in_stock=3`。若最後共收 40，整批毛利就是 31。未能核實的付款會標成 `payment_status=unconfirmed`；未售且目前找不到的物品另列為 `unlocated`。
+
+## 為什麼連查三次只盤點一次
+
+讀檔時，遊戲端列舉四個貨區一次，寫下庫存基準。之後按物品變動發布增減記錄。MCP 查帳時只將尚未匯入的記錄寫入 SQLite，再從本機帳本查詢。即使換了 AI 會話，也可以接著讀同一份帳。遊戲退出後，查到的是最後發布的狀態。
+
+| 欄位 | 用途 |
+|---|---|
+| `generation`、`revision` | 分別識別本次讀檔和觀察版本。重新讀檔後，請從新回執取得物品編號。 |
+| `load_scans`、`full_scans` | 分別是本次讀檔和本次模組啟動以來，遊戲實際完整盤點的次數。 |
+| `applied_records` | 本次查帳新匯入 SQLite 的記錄數。 |
+| `phase` | `MORNING` 為尚未開門，`OPEN` 為營業中，`CLOSED` 為歇業。 |
+
+若收到 `stale_observation`，先重查目前的版本和位置。若提交後回執中斷，請保留原參數，單件搬貨可在送出前指定 `command_id`，批次搬貨與買貨則可用同一組參數讀回既有結果。
+
+## 開發與驗證
+
+庫存增量、搬貨、晨檢、取瓶及普通商人限價購買已用遊戲存檔實測。0.4.1 的開場完成判定已通過流程回放，仍待新版實機確認。批發回本和同款預算退貨也有回放測試。
+
+沿用安裝步驟的 PowerShell 變數即可重跑測試。
 
 ```powershell
 $env:LEDGER_TEST_TEMP = "$work/tests"
 New-Item -ItemType Directory -Force $env:LEDGER_TEST_TEMP | Out-Null
 & $python -B -m unittest discover -s tests -p 'test_*.py'
+./scripts/build.ps1 -GameDir $game -OutputDir "$work/build" -TestDesk
+```
+
+要量遊戲端的盤點次數，先載入歇業測試檔，執行以下兩步，中途手動將一瓶自有的水移到另一個貨區。`before` 連查三次，`after` 核對同一瓶的位置變更及盤點計數。證據檔寫入指定的外部目錄。
+
+```powershell
 $journal = Join-Path $env:USERPROFILE 'AppData/LocalLow/Questing Goose Studio/Probably Stolen/ModData/white_dragon_ledger'
 $measure = @('--journal', $journal, '--database', "$work/state/account.sqlite3", '--output', "$work/tests/live")
 & $python -X utf8 -B tests/measure.py before @measure
-# 在遊戲裡手動把一瓶自有的瓶裝水挪到另一個貨區。
+# 在遊戲裡移動一瓶水後再執行下一行
 & $python -X utf8 -B tests/measure.py after @measure
 ```
 
-用 `./scripts/build.ps1 -GameDir $game -OutputDir "$work/build" -TestDesk` 可執行原生批發、晨檢與預算退貨回放。
-
-第一步發出三次 MCP 查詢，核對篩選結果和遊戲端計數。第二步比對整份前後庫存，檢查只有同一瓶水的位置改變，並再次核對盤點計數。兩份實測回執寫在 `--output` 指定的位置。
-
 ## 來源
 
-用 MCP 操作當鋪的構想受 Yideng 與貢獻者的 Probably Stolen MCP Bridge 啟發。本倉庫依店務需求及本機遊戲介面獨立撰寫，建置時引用玩家安裝的遊戲程序集。
+用 MCP 操作當鋪的構想受 Yideng 與貢獻者的 *Probably Stolen MCP Bridge* 啟發。白龍店帳依店務需求及本機遊戲介面獨立撰寫，建置時引用玩家已安裝的遊戲程序集。

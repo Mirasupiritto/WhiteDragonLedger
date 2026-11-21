@@ -6,6 +6,7 @@ from typing import Literal
 from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 import shopdesk
+import counter
 from ledger import lookup
 from moves import move_item as submit_move, move_items as submit_batch
 
@@ -84,6 +85,29 @@ def main():
         Reuse identical arguments to recover the receipt of a submitted order."""
         return shopdesk.sell_order(args.journal, [line.model_dump() for line in lines],
                                   generation, revision, visit, stop_same_kind_on_budget)
+
+    @server.tool()
+    def get_counter() -> dict:
+        """Read shop phase, waiting count, opening lines, and the merchant's visible batch and total."""
+        return counter.context(args.journal)
+
+    @server.tool()
+    def ring_customer(generation: str, revision: int, waiting: int) -> dict:
+        """Ring once at an empty open counter. Wait for the greeting, stopping at choices."""
+        return counter.ring(args.journal, generation, revision, waiting)
+
+    @server.tool()
+    def wait_for_opening(generation: str, visit: str) -> dict:
+        """Continue waiting for this visit, turning finished ordinary pages and opening the trade tablet."""
+        return counter.wait_opening(args.journal, generation, visit)
+
+    @server.tool()
+    def buy_merchant_batch(generation: str, revision: int, visit: str, offer_token: str, max_total: int) -> dict:
+        """Buy the observed entire offer at or below max_total. Reuse identical inputs to recover a receipt."""
+        if max_total < 0:
+            raise ValueError("Expected a non-negative batch price limit")
+        return counter.command(args.journal, "buy", generation, revision, visit=visit,
+                               offer_token=offer_token, max_total=max_total)
 
     server.run()
 

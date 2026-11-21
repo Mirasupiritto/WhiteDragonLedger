@@ -109,7 +109,7 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
                             previous_command=previous_command)
         row = {"item_id": item_id, "status": receipt["status"], "from": source,
                "actual_area": receipt.get("actual_area")}
-        for field in ("name", "kind", "quantity", "revision"):
+        for field in ("name", "kind", "quantity", "bottle_label", "revision"):
             if field in receipt:
                 row[field] = receipt[field]
         result["items"].append(row)

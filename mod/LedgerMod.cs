@@ -31,6 +31,7 @@ namespace WhiteDragon.Ledger
         private readonly HashSet<GameItem> changed = new HashSet<GameItem>();
         private readonly Dictionary<int, JObject> known = new Dictionary<int, JObject>();
 
+        private readonly HashSet<GameItem> bottles = new HashSet<GameItem>();
         private string generation;
         private int sequence, fullScans, loadScans, nextId, slot;
         private bool pending;
@@ -68,6 +69,7 @@ namespace WhiteDragon.Ledger
             itemsById.Clear();
             changed.Clear();
             known.Clear();
+            bottles.Clear();
             pending = false;
             generation = null;
             nextId = sequence = loadScans = 0;
@@ -104,9 +106,15 @@ namespace WhiteDragon.Ledger
         {
             if (item.identifier == "water_purifier") purifiers.Add(item);
             if (item.identifier == "water_test_strip" || item.identifier == "water_test_container") stripSupplies.Add(item);
-            return new JObject { ["id"] = LocalId(item), ["save_id"] = item.uniqueId, ["name"] = item.GetDisplayName(true),
+            var row = new JObject { ["id"] = LocalId(item), ["save_id"] = item.uniqueId, ["name"] = item.GetDisplayName(true),
                 ["kind"] = item.identifier, ["area"] = area, ["owned"] = GeneralHelper.IsItemOwned(item),
                 ["quantity"] = item.unitCount };
+            if (BottleLabel(item) is string label)
+            {
+                bottles.Add(item);
+                row["bottle_label"] = label;
+            }
+            return row;
         }
 
         private void Publish(JObject record)
@@ -157,10 +165,15 @@ namespace WhiteDragon.Ledger
             }
             if (generation == null || !PlayerStore.HasInstance) return;
             CloseTransactions();
+            if (Time.realtimeSinceStartup >= nextView)
+                foreach (var bottle in bottles)
+                    if (bottle != null && BottleLabel(bottle) != (string)known[ids[bottle]]["bottle_label"])
+                        changed.Add(bottle);
             FlushChanges();
             RefreshDesk();
             CheckMove();
             CheckOrder();
+            CheckCounter();
         }
 
         private void FlushChanges()
@@ -182,6 +195,7 @@ namespace WhiteDragon.Ledger
                 }
                 else if (ids.TryGetValue(item, out var id) && known.Remove(id))
                 {
+                    bottles.Remove(item);
                     purifiers.Remove(item);
                     stripSupplies.Remove(item);
                     removed.Add(id);
