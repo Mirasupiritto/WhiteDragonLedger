@@ -31,17 +31,51 @@ namespace WhiteDragon.Ledger
             order = null;
         }
 
-        private bool CheckBuyer()
+        private string saleStage;
+        private int saleSceneRevision, stagedQuantity;
+        private object advancedSalePage;
+
+        private void ReportSaleStage(string stage)
         {
+            if (saleStage == stage) return;
+            saleStage = stage;
+            Write("sale-progress-" + generation + ".json", new JObject {
+                ["status"]="sale_pending", ["stage"]=stage, ["command_id"]=order["command_id"],
+                ["generation"]=generation, ["visit"]=visitId, ["slot"]=slot, ["revision"]=sequence,
+                ["item_id"]=order["lines"][index]["item_id"], ["min_price"]=order["lines"][index]["min_price"]
+            });
+        }
+
+        private bool SaleTabletReady()
+        {
+            string stage = CounterStage(sellingToBuyer: true);
+            if (stage != "advance_required") advancedSalePage = null;
+            if (stage == "ready") return true;
             var dialog = DialogUIManager.Instance;
-            var ui = NegociationUIManager.Instance;
-            var frame = UnityEngine.Object.FindObjectOfType<NegotiationTabletFrame>();
-            return phase == "OPEN" && visitId == (string)order["visit"] && merchant != null &&
-                merchant.IsClientBuying() && !merchant.isBusinessComplete && PlayerStore.Instance.isClientArrived &&
-                ui != null && ui.IsOpen && !NegociationUIManager.IsTradeLocked() &&
-                (frame == null || frame.confirmRoot == null || !frame.confirmRoot.activeInHierarchy) &&
-                (dialog == null || (!dialog.isWaitingForManualAdvance && !dialog.IsChoice() &&
-                (dialog.GetCurrentDialog() == null || (dialog.IsCurrentDialogEnd() && !dialog.IsLineStillDisplaying(dialog.GetCurrentDialog())))));
+            if (stage == "advance_required")
+            {
+                var page = dialog.GetCurrentDialog();
+                if (page != null && page != advancedSalePage)
+                {
+                    advancedSalePage = page;
+                    dialog.OnAdvancePressed();
+                }
+            }
+            else if (stage == "tablet_closed" && stage != saleStage)
+            {
+                var ui = NegociationUIManager.Instance;
+                if (ui == null) { StopLine("tablet_unavailable"); return false; }
+                ui.OpenUI();
+            }
+            else if (stage != "speaking" && stage != "awaiting_opening" && stage != "trade_locked" &&
+                     stage != "choice_required" && stage != "confirmation_required" &&
+                     stage != "conversation_paused" && stage != "tablet_closed")
+            {
+                StopLine("buyer_or_ui_changed");
+                return false;
+            }
+            ReportSaleStage(stage);
+            return false;
         }
 
         private void StopLine(string reason)
@@ -59,14 +93,21 @@ namespace WhiteDragon.Ledger
 
         private void OrderStep()
         {
-            if (orderRevision != sequence) { StopLine("state_changed"); return; }
-            if (!CheckBuyer()) { StopLine("buyer_or_ui_changed"); return; }
+            if (saleSceneRevision != sceneRevision || (staged == null && orderRevision != sequence))
+            { StopLine("state_changed"); return; }
+            if (phase != "OPEN" || visitId != (string)order["visit"] || merchant == null ||
+                !merchant.IsClientBuying() || merchant.isBusinessComplete || !PlayerStore.Instance.isClientArrived)
+            { StopLine("buyer_or_ui_changed"); return; }
             var rows = (JArray)order["lines"];
             var table = EmporiumEntry.Instance.backInvinvElement;
+            if (staged != null && (table.childItems.Count != 1 || table.childItems[0] != staged ||
+                staged.parentInventory != table || staged.unitCount != stagedQuantity || !GeneralHelper.IsItemOwned(staged)))
+            { StopLine("counter_changed"); return; }
+            if (!SaleTabletReady()) return;
             if (staged == null)
             {
                 int id = (int)rows[index]["item_id"];
-                line = new JObject { ["item_id"] = id };
+                line = new JObject { ["item_id"] = id, ["min_price"] = rows[index]["min_price"] };
                 if (!itemsById.TryGetValue(id, out var item) || !GeneralHelper.IsItemOwned(item) ||
                     item.parentInventory == null || !areas.TryGetValue(item.parentInventory, out var area) ||
                     (area != "inventory" && area != "showcase")) { StopLine("source_changed"); return; }
@@ -82,15 +123,16 @@ namespace WhiteDragon.Ledger
                 { StopLine("counter_unavailable"); return; }
                 original = item.parentInventory;
                 staged = item;
+                stagedQuantity = item.unitCount;
                 ModHelper.MoveItemToBackCounter(item);
                 FlushChanges();
                 orderRevision = sequence;
                 if (item.parentInventory != table) StopLine("placement_failed");
+                else ReportSaleStage("staged");
                 return;
             }
 
-            if (table.childItems.Count != 1 || table.childItems[0] != staged ||
-                PlayerStore.Instance.GetCurrentlyNegociatedItem() != staged)
+            if (PlayerStore.Instance.GetCurrentlyNegociatedItem() != staged)
             { StopLine("counter_changed"); return; }
 
             var store = PlayerStore.Instance;
@@ -124,6 +166,7 @@ namespace WhiteDragon.Ledger
             line["status"] = "sold";
             line["actual_area"] = "buyer";
             line["received"] = observedRevenue;
+            line["cash_after"] = store.playerCash;
             FinishLine();
         }
 
@@ -131,6 +174,7 @@ namespace WhiteDragon.Ledger
         {
             line["budget_after"] = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull();
             results.Add(line);
+            saleStage = null;
             line = null;
             staged = null;
             orderRevision = sequence;
@@ -144,6 +188,8 @@ namespace WhiteDragon.Ledger
             {
                 Write("receipt-" + (string)completedOrder["command_id"] + ".json", completedOrder);
                 ModHelper.DeleteModDataFile(ModId, inbox);
+                if (ModHelper.ModDataFileExists(ModId, "sale-progress-" + generation + ".json"))
+                    ModHelper.DeleteModDataFile(ModId, "sale-progress-" + generation + ".json");
                 completedOrder = null;
                 return;
             }
@@ -162,6 +208,9 @@ namespace WhiteDragon.Ledger
                 line = null;
                 index = 0;
                 blockedKinds.Clear();
+                saleStage = null;
+                advancedSalePage = null;
+                saleSceneRevision = sceneRevision;
                 orderRevision = (int)order["revision"];
                 if ((string)order["generation"] != generation || DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() > (long)order["expires_ms"])
                 { EndOrder("expired"); return; }

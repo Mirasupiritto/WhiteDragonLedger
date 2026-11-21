@@ -37,7 +37,7 @@ namespace WhiteDragon.Ledger
                 openingLines.Add(text);
         }
 
-        private string CounterStage()
+        private string CounterStage(bool sellingToBuyer = false)
         {
             if (phase != "OPEN") return "shop_closed";
             var store = PlayerStore.Instance;
@@ -61,7 +61,7 @@ namespace WhiteDragon.Ledger
             if (NegociationUIManager.IsTradeLocked()) return "trade_locked";
             bool dealer = merchant.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER;
             if (dealer && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
-            if (!dealer && !merchant.IsClientSelling()) return "not_selling";
+            if (!sellingToBuyer && !dealer && !merchant.IsClientSelling()) return "not_selling";
             var ui = NegociationUIManager.Instance;
             if (ui == null || !ui.IsOpen) return "tablet_closed";
             var frame = UnityEngine.Object.FindObjectOfType<NegotiationTabletFrame>();
@@ -80,7 +80,7 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["water_use_protocol"] = 1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (stage == "advance_required")
             {

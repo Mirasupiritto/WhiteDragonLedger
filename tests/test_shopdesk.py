@@ -56,6 +56,25 @@ class ShopDeskReplay(unittest.TestCase):
         for member in self.members: member["sale"]=10
         self.assertNotIn("gross_profit",summarize(self.lot,set()))
 
+    def test_pending_sale_can_be_read_with_original_revision(self):
+        from uuid import NAMESPACE_URL, uuid5
+        from unittest.mock import patch
+        visit = "d"*32
+        plan = dict(lines=[dict(item_id=25, min_price=25)], generation=self.gen, revision=7,
+                    visit=visit, stop_same_kind_on_budget=True)
+        token = uuid5(NAMESPACE_URL, "white-dragon/sell-order/"+json.dumps(plan, sort_keys=True)).hex
+        waiting = dict(command_id=token, generation=self.gen, visit=visit, revision=8,
+                       item_id=25, min_price=25, status="sale_pending", stage="speaking")
+        self.put(f"sale-progress-{self.gen}.json", waiting)
+        snap = dict(status="observed", phase="OPEN", generation=self.gen, revision=8, customer=dict(visit=visit))
+        with patch("shopdesk.buyer", return_value=snap), patch("shopdesk.exchange") as send:
+            self.assertEqual(sell_order(self.folder, **plan), waiting)
+            self.assertEqual(sell_order(self.folder, **dict(plan, lines=[dict(item_id=25, min_price=1)]))["status"], "stale_order")
+            done = dict(waiting, status="finished", remaining_budget=62, items=[dict(item_id=25, received=40)])
+            self.put(f"receipt-{token}.json", done)
+            self.assertEqual(sell_order(self.folder, **plan), done)
+            send.assert_not_called()
+
     def test_morning_keeps_unknown_water_unknown(self):
         machine=dict(machine_key=90,bottle_key=301,bottle_id=26,can_remove_bottle=True,inventory_has_room=True,
                      can_power=False,battery_present=True,energy_kj=0)

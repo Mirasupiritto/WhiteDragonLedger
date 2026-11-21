@@ -136,12 +136,29 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
     previous = receipt()
     if previous is not None:
         return previous
+
+    def progress():
+        try:
+            data = json.loads((folder/f"sale-progress-{generation}.json").read_text(encoding="utf-8-sig"))
+        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+            return None
+        if (data["command_id"], data["generation"], data["visit"]) == (command, generation, visit):
+            return data
+        return None
+
     context = buyer(folder)
     if context["status"] != "observed":
         return context
     if context["phase"] != "OPEN":
         return {"status":"shop_closed"}
+    if (context["generation"], (context["customer"] or {}).get("visit")) == (generation, visit):
+        pending = progress()
+        if pending:
+            return receipt() or pending
     if (context["generation"],context["revision"],(context["customer"] or {}).get("visit")) != (generation,revision,visit):
         return {"status":"stale_order"}
     request = dict(plan, command_id=command)
-    return exchange(folder, folder/f"sale-{generation}.json", request, receipt)
+    result = exchange(folder, folder/f"sale-{generation}.json", request, receipt)
+    if result["status"] == "unconfirmed":
+        return receipt() or progress() or result
+    return result

@@ -150,7 +150,8 @@ def register_pawnshop_tools(server, folder, database):
                    stop_same_kind_on_budget: bool = False) -> dict:
         """Sell only the listed owned items, each with its own minimum. Opt in to skipping the same
         native item kind after a budget rejection has been returned. Other kinds stay in order.
-        Reuse identical arguments to recover the receipt of a submitted order."""
+        A staged item waits through dialogue and a closed tablet. Reuse identical arguments (including the original
+        revision) to read sale_pending or the final receipt with actual received and remaining_budget."""
         return shopdesk.sell_order(folder, [line.model_dump() for line in lines],
                                   generation, revision, visit, stop_same_kind_on_budget)
 
