@@ -4,7 +4,17 @@ namespace WhiteDragon.Ledger {
     public class StoreShutterButton {
         public static StoreShutterButton Instance=new StoreShutterButton();
         public int clicks;
-        public void OnClick(){ clicks++;PlayerStore.Instance.storeState=PlayerStore.StoreState.OPEN; }
+        public void OnClick(){
+            clicks++;
+            var store=PlayerStore.Instance;
+            if(store.storeState==PlayerStore.StoreState.MORNING) store.storeState=PlayerStore.StoreState.OPEN;
+            else if(store.waiting>0) StoreUIManager.Instance.closeShutterConfirmationPanel.activeInHierarchy=true;
+            else EndAndClose();
+        }
+        public void EndAndClose(){
+            StoreUIManager.Instance.closeShutterConfirmationPanel.activeInHierarchy=false;
+            PlayerStore.Instance.storeState=PlayerStore.StoreState.CLOSED;
+        }
     }
     public partial class PlayerStore {
         public enum StoreState { MORNING, OPEN, CLOSED }

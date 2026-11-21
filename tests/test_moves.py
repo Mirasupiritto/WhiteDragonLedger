@@ -131,6 +131,14 @@ class MoveMailbox(unittest.TestCase):
         with self.assertRaises(ValueError):
             take(24)
 
+    def test_put_requires_new_native_protocol_and_matching_origin(self):
+        for origin in ("inventory", "showcase"):
+            result = move_item(self.folder, 26, origin, "purifier", self.generation, 2, machine_id=23)
+            self.assertEqual(result["status"], "reload_updated_mod")
+        self.assertFalse(self.inbox.exists())
+        with self.assertRaises(ValueError):
+            move_item(self.folder, 26, "front", "purifier", self.generation, 2, machine_id=23)
+
     def test_unconfirmed_is_not_success(self):
         with patch("moves.time.monotonic", side_effect=[0, 9]):
             result = self.request()

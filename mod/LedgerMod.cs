@@ -63,6 +63,8 @@ namespace WhiteDragon.Ledger
         {
             ResetScene();
             ResetCalendar();
+            autoReceiveDay = 0;
+            receptionToken = null;
             DetachTrash();
             trashVersion = trashDay = sleepSubmittedDay = 0;
             trashDirty = true;
@@ -134,7 +136,7 @@ namespace WhiteDragon.Ledger
         {
             int revision = sequence + 1;
             Write(generation + "-" + revision + ".json", record);
-            Write("head.json", new JObject { ["status"] = "observed", ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["generation"] = generation,
+            Write("head.json", new JObject { ["status"] = "observed", ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
                 ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
                 ["full_scans"] = fullScans, ["load_scans"] = loadScans });
             sequence = revision;
@@ -194,6 +196,7 @@ namespace WhiteDragon.Ledger
             CheckMove();
             CheckOrder();
             CheckCounter();
+            TickReception();
         }
 
         private void FlushChanges()

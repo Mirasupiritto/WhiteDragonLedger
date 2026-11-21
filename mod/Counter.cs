@@ -78,7 +78,7 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["can_open_shop"] = CanOpenShop(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (stage == "advance_required")
             {
@@ -142,6 +142,7 @@ namespace WhiteDragon.Ledger
                 return ActOnPhone(request, receipt);
             if (phase != "OPEN") return "shop_closed";
             var store = PlayerStore.Instance;
+            if (action == "auto_receive" || action == "close_shop") return ActOnReception(request, receipt);
             if (action == "ring")
             {
                 if (store.currentClientInstance != null) return "occupied";

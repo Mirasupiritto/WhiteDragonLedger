@@ -68,14 +68,25 @@ namespace WhiteDragon.Ledger
                 return Receipt(request, "source_changed");
             GameSlotInventory container = null;
             GameItem machine = null;
-            if (source == "purifier")
+            bool loading = destination == "purifier";
+            if (source == "purifier" || loading)
             {
-                if (destination != "inventory" || request["machine_id"] == null) return Receipt(request, "invalid_route");
+                if (request["machine_id"] == null || (loading ? source != "inventory" && source != "showcase" : destination != "inventory"))
+                    return Receipt(request, "invalid_route");
                 if (!itemsById.TryGetValue((int)request["machine_id"], out machine) || !purifiers.Contains(machine) ||
                     machine.parentInventory == null || !areas.ContainsKey(machine.parentInventory) ||
                     !GeneralHelper.IsItemOwned(machine)) return Receipt(request, "machine_changed");
                 container = MachineHelper.GetBodyStorage(machine, 2) as GameSlotInventory;
-                if (container == null || container.childItem != item || item.parentInventory != container)
+                if (container == null) return Receipt(request, "machine_changed");
+                if (loading)
+                {
+                    if (container.childItem != null) return Receipt(request, "purifier_occupied");
+                    if (!areas.TryGetValue(item.parentInventory, out var area) || area != source)
+                        return Receipt(request, "source_changed");
+                    if (!item.IsTag("LIQUID_CONTAINER_TAG") || item.IsTag("WINE_CONTAINER_TAG"))
+                        return Receipt(request, "not_water_bottle");
+                }
+                else if (container.childItem != item || item.parentInventory != container)
                     return Receipt(request, "source_changed");
             }
             else
@@ -88,23 +99,29 @@ namespace WhiteDragon.Ledger
             }
             if (!GeneralHelper.IsItemOwned(item)) return Receipt(request, "not_owned");
             var shop = EmporiumEntry.Instance;
-            var target = destination == "showcase" ? shop.showcaseElement : shop.invElement;
+            GameInventory target = loading ? (GameInventory)container :
+                destination == "showcase" ? shop.showcaseElement : shop.invElement;
             if (item.parentInventory.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove())
                 return Receipt(request, "locked");
 
-            if (container != null && target.TryFindOneValidInventorySlot(item) == null)
+            if (source == "purifier" && shop.invElement.TryFindOneValidInventorySlot(item) == null)
                 return Receipt(request, "inventory_full");
 
             // The native placement routine enforces available space and slot rules.
             int quantityBefore = item.unitCount;
-            if (destination == "showcase") ModHelper.MoveItemToDisplayCase(item);
+            if (loading)
+            {
+                if (!GraphUtils.CanAccept(container, item)) return Receipt(request, "slot_rejected");
+                GraphUtils.TryAcceptOnce(container, item);
+            }
+            else if (destination == "showcase") ModHelper.MoveItemToDisplayCase(item);
             else ModHelper.MoveItemToInventory(item);
             changed.Add(item);
             FlushChanges();
             string observed = null;
             if (item.parentInventory != null) areas.TryGetValue(item.parentInventory, out observed);
             if (container != null && item.parentInventory == container) observed = "purifier";
-            bool sourceCleared = container == null || container.childItem == null;
+            bool sourceCleared = container == null || (loading ? container.childItem == item : container.childItem == null);
             string status = sourceCleared && observed == destination && item.unitCount == quantityBefore ? "moved" :
                 observed == source && item.unitCount == quantityBefore ? "not_moved" : "outcome_unknown";
             var result = Receipt(request, status);
@@ -112,7 +129,13 @@ namespace WhiteDragon.Ledger
             {
                 result["machine_key"] = machine.uniqueId;
                 result["bottle_key"] = item.uniqueId;
-                result["source_slot_empty"] = container.childItem == null;
+                result["bottle_id"] = id;
+                if (loading)
+                {
+                    result["slot_bottle_id"] = container.childItem == null ? JValue.CreateNull() : (JToken)LocalId(container.childItem);
+                    result["machine"] = machine.GetDisplayName(true);
+                }
+                else result["source_slot_empty"] = container.childItem == null;
                 result["available_strips"] = AvailableStrips();
                 nextView = 0;
                 RefreshDesk();

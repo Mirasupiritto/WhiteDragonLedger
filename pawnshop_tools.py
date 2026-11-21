@@ -70,6 +70,13 @@ def register_pawnshop_tools(server, folder, database):
                            command_id, machine_id=machine_id)
 
     @server.tool()
+    def put_purifier_bottle(machine_id: int, bottle_id: int, source: Literal["inventory", "showcase"],
+                            generation: str, revision: int, command_id: str | None = None) -> dict:
+        """Put one owned water bottle directly in an empty purifier. Confirm actual machine and slot bottle IDs."""
+        return submit_move(folder, bottle_id, source, "purifier", generation, revision,
+                           command_id, machine_id=machine_id)
+
+    @server.tool()
     def get_buyer_context() -> dict:
         """Read the current customer's visit token, remaining budget and revision before submitting an order."""
         return shopdesk.buyer(folder)
@@ -115,6 +122,19 @@ def register_pawnshop_tools(server, folder, database):
     def open_shop(generation: str, revision: int) -> dict:
         """Open the observed morning shutter once. Does not ring or close the shop."""
         return counter.command(folder, "open_shop", generation, revision)
+
+    @server.tool()
+    def set_auto_receive(enabled: bool, generation: str, revision: int, reception_token: str) -> dict:
+        """Enable or disable automatic admission for this open day. Only an empty counter can take the next guest."""
+        return counter.command(folder, "auto_receive", generation, revision, enabled=enabled, reception_token=reception_token)
+
+    @server.tool()
+    def close_shop(generation: str, revision: int, reception_token: str, confirm_remaining: int | None = None) -> dict:
+        """Request closing. For early closing read waiting, then submit that exact count and the new reception token."""
+        if confirm_remaining is not None and confirm_remaining < 0:
+            raise ValueError("Expected the displayed remaining queue count")
+        return counter.command(folder, "close_shop", generation, revision, reception_token=reception_token,
+                               confirm_remaining=confirm_remaining)
 
     @server.tool()
     def get_phone_contacts() -> dict:

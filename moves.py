@@ -19,8 +19,10 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     if not re.fullmatch("[a-f0-9]{32}", generation) or not re.fullmatch("[a-f0-9]{32}", command):
         raise ValueError("generation and command_id must be lowercase 32-digit hex values")
     if machine_id is not None:
-        if machine_id < 1 or (source, destination) != ("purifier", "inventory"):
-            raise ValueError("Expected a purifier ID and inventory destination")
+        if machine_id < 1 or (source, destination) not in {
+            ("purifier", "inventory"), ("inventory", "purifier"), ("showcase", "purifier")
+        }:
+            raise ValueError("Expected a stock area and a purifier slot")
     elif {source, destination} != {"inventory", "showcase"}:
         raise ValueError("Expected two different stock areas")
     if item_id < 1 or revision < 1:
@@ -47,6 +49,8 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     head = read_head(folder)
     if head.get("generation") != generation or head.get("revision") != revision:
         return {"status": "stale_observation", "command_id": command}
+    if destination == "purifier" and head.get("purifier_put_protocol") != 1:
+        return {"status": "reload_updated_mod", "command_id": command}
     if head.get("move_protocol") != 1 or (machine_id is not None and head.get("purifier_take_protocol") != 1):
         return {"status": "reload_updated_mod", "command_id": command}
     if head["phase"] not in ("CLOSED", "MORNING"):

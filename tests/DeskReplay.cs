@@ -12,11 +12,18 @@ namespace WhiteDragon.Ledger {
     public class Label { public string text; }
     public class Bubble { public Window gameObject; public Label textfield; }
     public class StoreBell { public void RingBell() { PlayerStore.Instance.currentClientInstance = new StoreClientInstance(); } }
+    public static class Interactable { public static bool isPaused; }
+    public static class GraphUtils {
+        public static bool CanAccept(GameSlotInventory slot, GameItem item) => slot.childItem == null && item.identifier == "bottle";
+        public static int TryAcceptOnce(GameSlotInventory slot, GameItem item) { item.To(slot); return 1; }
+    }
     public class Window { public bool activeInHierarchy; }
     public class NegotiationTabletFrame { public Window confirmRoot; }
     public class StoreUIManager {
         public static StoreUIManager Instance = new StoreUIManager();
         public SceneFade blackscreen;
+        public Window closeShutterConfirmationPanel = new Window();
+        public bool IsTyping() => false;
         public StoreCalendar storeCalendar = new StoreCalendar();
         public bool isAboutToStartMainDialog;
     }
@@ -104,8 +111,11 @@ namespace WhiteDragon.Ledger {
         public StoreClientInstance currentClientInstance=new StoreClientInstance();
         public int playerCash=100;
         public int lockNextBellFlag;
-        public int GetClientInQueueCount() => 1;
-        public bool CanNextClient() => currentClientInstance==null;
+        public int waiting = 1;
+        public int GetClientInQueueCount() => waiting;
+        public bool CanEndDay() => true;
+        public void TryCallNextClient() { if (CanNextClient()) { waiting--; currentClientInstance=new StoreClientInstance(); } }
+        public bool CanNextClient() => currentClientInstance==null && waiting>0;
         public bool isClientArrived=true;
         public int GetWholesalePrice() => 9;
         public GameItem GetCurrentlyNegociatedItem() => EmporiumEntry.Instance.backInvinvElement.childItems[0];
@@ -270,6 +280,24 @@ namespace WhiteDragon.Ledger {
                    (bool)extracted["source_slot_empty"] && (int)extracted["available_strips"]==6 &&
                    (int)extracted["bottle_key"]==301 && (int)extracted["machine_key"]==300 &&
                    (string)extracted["bottle_label"]=="label after" && (int)extracted["load_scans"]==1 && extracted["name"]==null,"extraction receipt");
+            foreach (string source in new[]{"inventory","showcase"})
+            {
+                if (source=="showcase") bottle.To(EmporiumEntry.Instance.showcaseElement);
+                take["item_id"] = LocalId(bottle);
+                take["source"] = source;
+                take["destination"] = "purifier";
+                take["revision"] = sequence;
+                bottle.owned=false;
+                Expect((string)ExecuteMove(take)["status"]=="not_owned","no insertion of someone else's bottle");
+                bottle.owned=true;
+                var inserted=ExecuteMove(take);
+                Expect((string)inserted["status"]=="moved" && (int)inserted["slot_bottle_id"]==LocalId(bottle) &&
+                    (int)inserted["machine_id"]==LocalId(purifier) && bottle.parentInventory==MachineHelper.container,"direct insert from "+source);
+                take["item_id"] = LocalId(Item(610,"bottle",0));
+                take["revision"] = sequence;
+                Expect((string)ExecuteMove(take)["status"]=="purifier_occupied","occupied slot stays intact");
+                bottle.To(EmporiumEntry.Instance.invElement);
+            }
             phase="OPEN";
             var product=Item(901,"ore",12);
             product.owned=false;
@@ -327,9 +355,52 @@ namespace WhiteDragon.Ledger {
             ReplayPhone();
             ReplayScenes();
             ReplayDay();
+            ReplayReception();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }
-        public static void Main() { new InventoryObserver().Run(); }
+        private void ReplayReception()
+        {
+            var store=PlayerStore.Instance;
+            phase="OPEN";
+            store.storeState=PlayerStore.StoreState.OPEN;
+            store.currentClientInstance=null;
+            store.waiting=3;
+            ObserveVisit();
+            EmporiumEntry.Instance.backInvinvElement.childItems.Clear();
+            var request=new JObject { ["action"]="auto_receive", ["enabled"]=true, ["reception_token"]=ReceptionView()["token"] };
+            var receipt=new JObject();
+            Expect(ActOnReception(request,receipt)=="auto_receive_enabled","enable today");
+            DialogUIManager.Instance=null;
+            TickReception();
+            Expect(store.currentClientInstance!=null && store.waiting==2,"receive exactly one guest");
+            UnityEngine.Time.realtimeSinceStartup++;
+            TickReception();
+            Expect(store.waiting==2,"never dismiss occupied counter");
+            store.currentClientInstance=null;
+            ObserveVisit();
+            request["action"]="close_shop";
+            request["reception_token"]=ReceptionView()["token"];
+            Expect(ActOnReception(request,receipt)=="confirm_early_close" && (int)receipt["waiting"]==2 &&
+                store.storeState==PlayerStore.StoreState.OPEN && autoReceiveDay==0,"warn and pause before early close");
+            request["reception_token"]=receipt["reception"]["token"];
+            request["confirm_remaining"]=2;
+            store.waiting=1;
+            Expect(ActOnReception(request,receipt)=="reception_changed" && (int)receipt["waiting"]==1,"queue changes invalidate consent");
+            request["reception_token"]=receipt["reception"]["token"];
+            Expect(ActOnReception(request,receipt)=="confirmation_changed","wrong remaining count");
+            request["confirm_remaining"]=1;
+            Expect(ActOnReception(request,receipt)=="closed" && (int)receipt["forfeited"]==1,"confirmed early close");
+            store.storeState=PlayerStore.StoreState.OPEN;
+            store.waiting=0;
+            request.Remove("confirm_remaining");
+            request["reception_token"]=ReceptionView()["token"];
+            Expect(ActOnReception(request,receipt)=="closed" && (int)receipt["forfeited"]==0,"empty queue closes directly");
+        }
+        public static int Main()
+        {
+            try { new InventoryObserver().Run(); return 0; }
+            catch (Exception error) { Console.Error.WriteLine(error.GetType().Name + ": " + error.Message); return 1; }
+        }
     }
 }

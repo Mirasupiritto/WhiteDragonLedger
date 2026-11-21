@@ -2,7 +2,7 @@
 
 讓 AI 助手透過 MCP 在《深空當鋪》查帳、搬貨和做生意。開門前，助手能從一張店況回執讀到現金、收租倒數和日曆事件。開門後，它能等客人說完需求，核對貨單和預算，再決定怎麼交易。
 
-目前版本 **0.6.1**，對應 Windows 遊戲版本 **0.46D**。白龍店帳仍在早期開發階段，現階段優先支援店內查帳、搬貨和櫃檯交易，後續版本會逐步補上其他玩法。
+目前版本 **0.7.0**，對應 Windows 遊戲版本 **0.46D**。白龍店帳仍在早期開發階段，現階段優先支援店內查帳、搬貨和櫃檯交易，後續版本會逐步補上其他玩法。
 
 ## 第一次連線可以先查什麼？
 
@@ -92,6 +92,12 @@ $python = "$work/venv/Scripts/python.exe"
 
 第一次可在歇業時呼叫 `query_inventory(name="水", owned=true)`。回執中的 `slot` 是存檔欄位，`phase` 是營業階段，`items` 列出符合條件的物品。帳本預設位於 `%LOCALAPPDATA%/WhiteDragonLedger/account.sqlite3`。進階設定可用 `--database` 指定帳本，或用 `--journal` 指向遊戲的 `ModData/white_dragon_ledger` 觀察目錄。
 
+## 自動接客與打烊
+
+開門後呼叫 `get_counter()`，取當次 `generation`、`revision` 和 `reception.token`。用 `set_auto_receive(enabled=true, …)` 啟用當日接客，關閉時傳 `false`。櫃檯空著且可接客時，模組呼叫遊戲的下一客流程。遇到要看圖、選對話或決定價格時，由玩家或助手接手目前這位客人。這個開關只對本次營業生效，讀檔後重設，遊戲選項裡的自動叫號設定由玩家自行管理。
+
+櫃檯空著時，用 `close_shop` 帶入相同三個欄位。隊列為空就直接打烊；還有人時會暫停本工具的自動接客，回傳 `confirm_early_close`、剩餘人數 `waiting` 和更新的 `reception.token`。決定提前結束才用新 token、回執的 revision 和 `confirm_remaining=waiting` 再呼叫一次。人數或狀態改變時重新讀取；成功回執會列出放棄的人數 `forfeited`。
+
 ## 電話聯絡人
 
 `get_phone_contacts()` 是唯讀查詢。在電話簿與店內自有名片中找到的聯絡人會合併為一列，附上來源、號碼、業務概述、是否會接聽，以及冷卻天數。`service_summary` 說明聯絡人通常能辦的事；當次實際可選的業務以通話選單為準。
@@ -104,7 +110,7 @@ $python = "$work/venv/Scripts/python.exe"
 |---|---|---|
 | 按品名、貨區或歸屬找貨 | `query_inventory` | 逐件編號、數量、位置和可見瓶貼。四個貨區為庫存、展示櫃、前櫃及後櫃的頂層。 |
 | 歇業時搬一件或一批貨 | `move_item`、`move_items` | 在庫存與展示櫃間移動自有物品。批次回執逐件列出實際位置，遇到未確認的動作就停。 |
-| 晨檢、從淨水器取瓶 | `inspect_purifiers`、`take_purifier_bottle` | 瓶號、瓶貼、電力、與昨晚是否同一瓶、可否取出，以及全店可用試紙數。取瓶會核對原槽已空、瓶子已到庫存。 |
+| 晨檢、放瓶與取瓶 | `inspect_purifiers`、`put_purifier_bottle`、`take_purifier_bottle` | 晨間或歇業可將自有水瓶從庫存或展示櫃直接放入空槽，成功回執附機號和槽內瓶號。 瓶號、瓶貼、電力、與昨晚是否同一瓶、可否取出，以及全店可用試紙數。取瓶會核對原槽已空、瓶子已到庫存。 |
 | 分批賣貨給買家 | `get_buyer_context`、`sell_order` | 先讀剩餘預算，再逐件設底價。`stop_same_kind_on_budget=true` 可在首件因預算不足退回時收起餘下同款，其他品種繼續談。 |
 | 查一批進貨收回多少 | `query_purchase_lots` | 按供應商、品名或批次查整批實付、累計回款及在庫件數。整批售完才列毛利。 |
 
@@ -124,6 +130,8 @@ $python = "$work/venv/Scripts/python.exe"
 若收到 `stale_observation`，先重查目前的版本和位置。若提交後回執中斷，請保留原參數，單件搬貨可在送出前指定 `command_id`，批次搬貨與買貨則可用同一組參數讀回既有結果。
 
 ## 開發與驗證
+
+0.7.0 在第 4 欄將 27 號鐵鏽水取回庫存，再將展示櫃的 26 號基礎水直接放入 23 號淨水器。`slot_bottle_id=26`，機台複查一致，盤點 1 次、試紙 6 張。庫存放瓶、自動接客與提早打烊的人數確認已通過原生回放。
 
 0.6.1 在第 4 欄第 10 天早晨，每隔 2.5 秒查一次店況，共三次。`event_scans` 三次皆為 1，`event_day_reads` 皆為 14。同日事件新增、改期、可見性改變及跨天重讀另由原生回放驗證。
 

@@ -1,0 +1,99 @@
+using System;
+using Newtonsoft.Json.Linq;
+using UnityEngine;
+
+namespace WhiteDragon.Ledger
+{
+    public sealed partial class InventoryObserver
+    {
+        private int autoReceiveDay;
+        private float nextReceptionCheck;
+        private string receptionToken;
+        private (string load, int day, int waiting, bool prompt, bool available, bool automatic, string visit) receptionState;
+
+        private bool ClosePrompt => StoreUIManager.Instance.closeShutterConfirmationPanel.activeInHierarchy;
+
+        private bool CanCloseShop()
+        {
+            var store = PlayerStore.Instance;
+            return store.storeState == PlayerStore.StoreState.OPEN && StoreShutterButton.Instance != null &&
+                store.lockShutterButtonFlag <= 0 && !store.isClientBeingArrested && !store.isHandlingShootout &&
+                store.currentClientInstance == null && EmporiumEntry.Instance.backInvinvElement.childItems.Count == 0 &&
+                store.CanEndDay();
+        }
+
+        private JObject ReceptionView()
+        {
+            var store = PlayerStore.Instance;
+            int day = StoreStation.Instance.dayCounter;
+            bool open = store.storeState == PlayerStore.StoreState.OPEN;
+            int waiting = open ? store.GetClientInQueueCount() : 0;
+            bool prompt = open && ClosePrompt;
+            bool available = open && CanCloseShop();
+            bool automatic = open && autoReceiveDay == day;
+            var stamp = (generation, day, waiting, prompt, available, automatic, visitId);
+            if (receptionToken == null || !receptionState.Equals(stamp))
+            {
+                receptionState = stamp;
+                receptionToken = Guid.NewGuid().ToString("N");
+            }
+            return new JObject { ["token"]=receptionToken, ["waiting"]=waiting, ["auto_receive"]=automatic,
+                ["close_prompt"]=prompt, ["can_close_shop"]=available };
+        }
+
+        private void TickReception()
+        {
+            if (autoReceiveDay == 0) return;
+            var store = PlayerStore.Instance;
+            if (store.storeState != PlayerStore.StoreState.OPEN || autoReceiveDay != StoreStation.Instance.dayCounter)
+            {
+                autoReceiveDay = 0;
+                return;
+            }
+            if (Time.realtimeSinceStartup < nextReceptionCheck) return;
+            nextReceptionCheck = Time.realtimeSinceStartup + 0.25f;
+            if (ClosePrompt || Interactable.isPaused || StoreUIManager.Instance.IsTyping() ||
+                store.currentClientInstance != null || store.lockNextBellFlag > 0 || !store.CanNextClient() ||
+                StoreUIManager.Instance.isAboutToStartMainDialog || EmporiumEntry.Instance.backInvinvElement.childItems.Count > 0) return;
+            var talk = DialogUIManager.Instance;
+            if (talk != null && (talk.GetCurrentDialog() != null || talk.HasPausedConversation || talk.IsChoice())) return;
+            store.TryCallNextClient();
+            ObserveVisit();
+            nextView = 0;
+        }
+
+        private string ActOnReception(JObject request, JObject receipt)
+        {
+            var view = ReceptionView();
+            int waiting = (int)view["waiting"];
+            receipt["waiting"] = waiting;
+            receipt["reception"] = view;
+            if ((string)request["reception_token"] != receptionToken) return "reception_changed";
+            if ((string)request["action"] == "auto_receive")
+            {
+                bool enable = (bool)request["enabled"];
+                if (enable && ClosePrompt) return "close_prompt_open";
+                autoReceiveDay = enable ? StoreStation.Instance.dayCounter : 0;
+                receipt["reception"] = ReceptionView();
+                return enable ? "auto_receive_enabled" : "auto_receive_disabled";
+            }
+            if (!CanCloseShop()) return "shutter_unavailable";
+            var shutter = StoreShutterButton.Instance;
+            var confirmed = (int?)request["confirm_remaining"];
+            if (confirmed.HasValue && (!ClosePrompt || confirmed.Value != waiting)) return "confirmation_changed";
+            autoReceiveDay = 0;
+            if (confirmed.HasValue)
+                shutter.EndAndClose();
+            else if (!ClosePrompt)
+                shutter.OnClick();
+            receipt["reception"] = ReceptionView();
+            receipt["phase"] = PlayerStore.Instance.storeState.ToString();
+            if (PlayerStore.Instance.storeState == PlayerStore.StoreState.CLOSED)
+            {
+                receipt["forfeited"] = waiting;
+                return "closed";
+            }
+            return ClosePrompt ? "confirm_early_close" : "close_unconfirmed";
+        }
+    }
+}
