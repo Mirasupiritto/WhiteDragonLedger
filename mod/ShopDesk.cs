@@ -47,6 +47,9 @@ namespace WhiteDragon.Ledger
             merchant = null;
             visitId = null;
             observedVariety = false;
+            barterBook = null;
+            barterSource = null;
+            barterToken = null;
             informationToken = null;
         }
 

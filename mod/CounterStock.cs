@@ -10,11 +10,12 @@ namespace WhiteDragon.Ledger
             ObserveVisit();
             if (visitId == null || (string)request["visit"] != visitId) return Receipt(request,"visit_changed");
             string stage = CounterStage(true);
-            if (stage != "ready" || order != null || Interactable.isPaused) return Receipt(request,"trade_unavailable");
+            if ((stage != "ready" && stage != "barter") || order != null || Interactable.isPaused) return Receipt(request,"trade_unavailable");
             if (!areas.TryGetValue(item.parentInventory,out var actual) || actual != source)
                 return Receipt(request,"source_changed");
             var shop = EmporiumEntry.Instance;
             bool owned = GeneralHelper.IsItemOwned(item);
+            if (stage == "barter" && !owned) return Receipt(request,"invalid_route");
             bool stock = source == "inventory" || source == "showcase";
             bool allowed = destination == "back" ? (owned ? stock : source == "front") :
                 source == "back" && (owned ? destination == "inventory" || destination == "showcase" : destination == "front");

@@ -50,7 +50,7 @@ class SceneServer(FastMCP):
             token = shop_visit.set((scene["session"], scene["revision"]))
             try:
                 mutations = {"move_item","move_items","sell_order","trade_batch","confirm_trade","buy_merchant_batch",
-                             "pay_info_receipt","open_shop","close_shop","ring_customer","dismiss_customer",
+                             "barter_offer","pay_info_receipt","open_shop","close_shop","ring_customer","dismiss_customer",
                              "advance_dialogue","choose_dialogue","response_choice","prepare_sleep","night_service",
                              "set_auto_receive","sleep","transfer_slot_item","press_machine_button","put_purifier_bottle",
                              "take_purifier_bottle","water_use","water_panel","dial_contact","phone_keypad","choose_phone_service",

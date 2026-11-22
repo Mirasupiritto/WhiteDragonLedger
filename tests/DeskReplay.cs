@@ -98,8 +98,9 @@ namespace WhiteDragon.Ledger {
         }
     }
     public class StoreClient {
-        public enum ClientIntent { MERCHANT, INFORMATION_DEALER }
+        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER }
         public ClientIntent clientIntent;
+        public BarterOffer barterOffer;
         public bool isIntroduced;
         public int serviceCost;
         public string displayName="喬治奧", identifier="georgio";
@@ -141,7 +142,7 @@ namespace WhiteDragon.Ledger {
         public bool CanSellThisItem(GameItem item, bool ignoreBudget) => ignoreBudget || item.price<=currentClientInstance.client.budget;
         public bool CanSellItemFromTable(bool ignoreBudget) => CanSellThisItem(GetCurrentlyNegociatedItem(),ignoreBudget);
     }
-    public class NegociationUIManager {
+    public partial class NegociationUIManager {
         public static NegociationUIManager Instance=new NegociationUIManager();
         public bool IsOpen=true;
         public ReceiptElements uiObject = new ReceiptElements();
@@ -175,6 +176,7 @@ namespace WhiteDragon.Ledger {
         public void OnOfferAcceptClick() {
             var store=PlayerStore.Instance;
             var client=store.currentClientInstance.client;
+            if (client.clientIntent == StoreClient.ClientIntent.BARTER) { AcceptReplayBarter(client); return; }
             if (client.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER) {
                 ++paymentCalls;
                 store.playerCash -= client.serviceCost + extraFee;
@@ -403,6 +405,7 @@ namespace WhiteDragon.Ledger {
             phase="OPEN"; PlayerStore.Instance.currentClientInstance=null; ObserveVisit();
             Expect(ActAtCounter(buy,outcome)=="called" && outcome["visit"]!=null,"one new visit");
             ReplayInformation();
+            ReplayBarter();
             ReplayPhone();
             ReplayScenes();
             ReplayJourney();

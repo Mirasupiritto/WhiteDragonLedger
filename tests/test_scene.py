@@ -75,6 +75,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("dismiss_customer", tools)
                 self.assertIn("water_panel", tools)
                 self.assertIn("pay_info_receipt", tools)
+                self.assertIn("barter_offer", tools)
                 self.assertIn("get_phone_contacts", tools)
                 self.assertIn("query_inventory", tools)
                 self.assertIn("find_stock", tools)

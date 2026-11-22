@@ -2,7 +2,7 @@
 
 白龍店帳讓 AI 助手透過 MCP 經營《深空當鋪》（Probably Stolen）。玩家載入存檔後，可以直接問「今天要留多少房租？」或「這批貨賣回了多少錢？」。要助手接客時，它能讀客人的原話、看剩餘預算、逐件設底價，成交後從遊戲回執確認實收。
 
-**模組 0.13.1 · Windows · 遊戲版本 0.46D · MIT**。店務透過本機 stdio MCP 提供，宿主支援工具呼叫和文字回執就能使用，無需 Computer Use。物品鑑定、包裝驗偽和通緝照比對留給玩家，日常交易也就省下反覆傳送截圖的影像 token。
+**模組 0.14.0 · Windows · 遊戲版本 0.46D · MIT**。店務透過本機 stdio MCP 提供，宿主支援工具呼叫和文字回執就能使用，無需 Computer Use。物品鑑定、包裝驗偽和通緝照比對留給玩家，日常交易也就省下反覆傳送截圖的影像 token。
 
 ## 先看一筆實際交易
 
@@ -109,7 +109,7 @@ $python = "$work/venv/Scripts/python.exe"
 
 這三個動作工具（`shop_activity`、`travel_menu`、`explore`）都先讀，再帶回同一張回執的 `session`、`revision` 和 `view_token` 操作。重查時帶上 `view_token`，相同畫面只回 `unchanged`。若連線中斷，用原參數重試可查回同一個動作。背包內嵌格直接存取，獨立視窗用 `open_bag` 和 `close_bag`。遊戲內辨認來客仍由玩家協助。
 
-**以物易物。** 血袋拾荒者在遊戲裡會給三個交換報價。0.9.5 實測能讀到他想換食物的台詞，但櫃檯回執是 `not_selling`，缺少各選項要交出及可換回的物品。遇到這位客人，先留在櫃檯讓玩家看報價。交換選項的讀取與選擇待接。
+**血袋拾荒客的以物易物。** 等開場說完，`ring_customer`、`wait_for_opening` 或 `get_trade_context` 會一次列出三頁 `barter.options`。每頁的 `give` 是店家要交的物品條件，`receive` 是桌上實際可換回的品名與數量。首次查詢會透過原生平板翻頁並回到原頁，同一份報價重查時直接讀快取。用 `barter_offer(mode="select")` 挑選報價。決定交換時，用 `move_item` 把一件食品放到後櫃，等客人回應後重查，帶著新的 `barter_token`、選項號與食品編號呼叫 `barter_offer(mode="accept")`。
 
 **喬的人脈網路。** 喬在店內或電話業務開啟人脈視窗時，櫃檯會回 `wild_network`。先用 `wild_network()` 看分頁和當頁服務，傳 `mode="tab"` 切頁或 `mode="select"` 看服務詳情。每次選取後讀回新的 `panel_token`。只有 `mode="buy"` 會付款，須帶選中的服務 ID 和確切總價。回執分列人情點、現金實扣，以及餘額和解鎖狀態。結束瀏覽時用 `mode="close"`。
 

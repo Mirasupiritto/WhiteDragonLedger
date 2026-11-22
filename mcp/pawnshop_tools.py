@@ -223,7 +223,7 @@ def register_pawnshop_tools(server, folder, database):
             return counter.context(folder)
         result = {**{k:view[k] for k in ("status","slot","phase","generation","revision","day")}, **view["counter"], **view["day_info"]}
         result["trash"] = shop_day.trash_contents(folder, database, result)
-        return result
+        return counter.with_barter(folder, result)
 
     @server.tool()
     def ring_customer(generation: str, revision: int, waiting: int) -> dict:
@@ -234,6 +234,16 @@ def register_pawnshop_tools(server, folder, database):
     def wait_for_opening(generation: str, visit: str) -> dict:
         """Continue waiting for this visit, turning finished ordinary pages and opening the trade tablet."""
         return counter.wait_opening(folder, generation, visit)
+
+    @server.tool()
+    def barter_offer(mode: Literal["select", "accept"], option: int, generation: str, revision: int,
+                     visit: str, barter_token: str, payment_item_id: int | None = None) -> dict:
+        """Select a numbered reward bundle from get_trade_context without exchanging anything.
+        To accept, stage one food item with move_item, reread the quote, then supply its payment item ID."""
+        if mode == "accept" and not payment_item_id:
+            return {"status": "payment_item_required"}
+        return counter.command(folder, "barter", generation, revision, visit=visit, mode=mode, option=option,
+                               barter_token=barter_token, payment_item_id=payment_item_id)
 
     @server.tool()
     def buy_merchant_batch(generation: str, revision: int, visit: str, offer_token: str, max_total: int) -> dict:

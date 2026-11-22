@@ -2,7 +2,7 @@
 import json
 import re
 import time
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from command_transport import exchange, read_command_receipt
 import trade_journal
@@ -111,6 +111,13 @@ def command(folder, action, generation, revision, *, database=None, **args):
             return {"status":"visit_changed"}
         if view["revision"] >= revision and not view["reception"]["can_dismiss"]:
             return {"status":"dismiss_unavailable"}
+    if action == "barter":
+        if view.get("barter_protocol") != 1:
+            return {"status": "reload_updated_mod"}
+        if view.get("visit") != args["visit"]:
+            return {"status": "visit_changed"}
+        if view["stage"] != "barter":
+            return {"status": view["stage"]}
     if action == "pay_info" and view.get("information_protocol") != 1:
         return {"status": "reload_updated_mod"}
     if action in {"auto_receive", "close_shop"} and "reception" not in view:
@@ -125,6 +132,16 @@ def command(folder, action, generation, revision, *, database=None, **args):
     return send()
 
 
+def with_barter(folder, view):
+    if view.get("stage") != "barter":
+        return view
+    result = command(folder, "barter", view["generation"], view["revision"], visit=view["visit"],
+                     mode="read", read_id=uuid4().hex)
+    if result.get("status") != "observed":
+        return {**view, "status": result["status"]}
+    return {**view, "revision": result["revision"], "barter": result["barter"]}
+
+
 def wait_opening(folder, generation, visit, timeout=25):
     deadline = time.monotonic() + timeout
     while True:
@@ -135,7 +152,7 @@ def wait_opening(folder, generation, visit, timeout=25):
             return {"status": "visit_changed"}
         stage = view["stage"]
         if stage not in {"arriving", "awaiting_opening", "speaking", "advance_required", "tablet_closed", "no_goods", "awaiting_information_receipt"}:
-            return view
+            return with_barter(folder, view)
         if time.monotonic() >= deadline:
             return {**view, "status": "still_waiting"}
         if stage in {"advance_required", "tablet_closed"}:
@@ -144,7 +161,7 @@ def wait_opening(folder, generation, visit, timeout=25):
             result = command(folder, action, generation, view["revision"], visit=visit, **extra)
             if result["status"] not in {
                 "advanced", "tablet_requested", "page_changed", "stale_observation", "ready", "speaking",
-                "awaiting_opening", "choice_required", "information", "awaiting_information_receipt",
+                "awaiting_opening", "choice_required", "information", "awaiting_information_receipt", "barter",
             }:
                 return result
         time.sleep(0.2)

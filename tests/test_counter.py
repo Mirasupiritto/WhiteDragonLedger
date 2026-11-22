@@ -8,6 +8,19 @@ import counter
 
 
 class CounterFlow(unittest.TestCase):
+    @patch("counter.time.sleep")
+    @patch("counter.command")
+    @patch("counter.context")
+    def test_barter_opening_returns_both_sides_of_all_options(self, context, command, sleep):
+        context.side_effect = [dict(self.view, stage="speaking"), dict(self.view, stage="barter")]
+        offers = [{"give": [{"category": "FOOD", "quantity": 1}], "receive": [{"kind": k, "quantity": n}]}
+                  for k, n in [("blood_bag", 2), ("scrap_metal", 3), ("scratcher", 2)]]
+        command.return_value = {"status": "observed", "revision": 4, "barter": {"options": offers}}
+        result = counter.wait_opening(self.folder, self.generation, self.visit)
+        self.assertEqual((result["revision"], result["barter"]["options"]), (4, offers))
+        self.assertEqual(command.call_count, 1)
+        self.assertEqual(command.call_args.kwargs["mode"], "read")
+
     def setUp(self):
         self.generation = "b" * 32
         self.visit = "a" * 32

@@ -64,12 +64,14 @@ namespace WhiteDragon.Ledger
             if (NegociationUIManager.IsTradeLocked()) return "trade_locked";
             bool dealer = merchant.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER;
             if (dealer && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
-            if (!sellingToBuyer && !dealer && !merchant.IsClientSelling()) return "not_selling";
+            bool barter = IsFoodBarter();
+            if (barter && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
+            if (!sellingToBuyer && !dealer && !barter && !merchant.IsClientSelling()) return "not_selling";
             var ui = NegociationUIManager.Instance;
             if (ui == null || !ui.IsOpen) return "tablet_closed";
             var frame = UnityEngine.Object.FindObjectOfType<NegotiationTabletFrame>();
             if (frame != null && frame.confirmRoot != null && frame.confirmRoot.activeInHierarchy) return "confirmation_required";
-            return dealer ? "information" : "ready";
+            return barter ? "barter" : dealer ? "information" : "ready";
         }
 
         private bool CanOpenShop()
@@ -83,7 +85,7 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (stage == "ready" || stage == "not_selling" || stage == "tablet_closed" || stage == "confirmation_required")
                 view["demand"] = PanelDemand();
@@ -159,6 +161,7 @@ namespace WhiteDragon.Ledger
                 action == "inspect_archive" || action == "close_archive")
                 return WorkstationAction(request, receipt);
             if (action == "visible_windows") return ObserveTradeWindows(receipt);
+            if (action == "barter") return ActOnBarter(request, receipt);
             if (action == "water_use") return WaterUseAction(request, receipt);
             if (action == "water_panel") return WaterPanelAction(request, receipt);
             if (action == "prepare_sleep" || action == "night_service") return ActOnBill(request, receipt);

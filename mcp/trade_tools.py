@@ -82,16 +82,16 @@ def wait_event(folder, event, timeout):
             reason = "no_customers_waiting"
         elif event != "next_customer_available" and not identity[2]:
             reason = "no_current_customer"
-        elif event == "goods_offered" and desk.get("offer", {}).get("items"):
+        elif event == "goods_offered" and (stage == "barter" or desk.get("offer", {}).get("items")):
             reason = event
-        elif event == "opening_finished" and (desk.get("quote_ready") or stage in {"ready","not_selling","business_complete","whole_batch_unavailable"}):
+        elif event == "opening_finished" and (desk.get("quote_ready") or stage in {"ready","barter","not_selling","business_complete","whole_batch_unavailable"}):
             reason = event
         elif time.monotonic() >= deadline:
             reason = "timeout"
         else:
             time.sleep(min(.2, max(0, deadline-time.monotonic())))
             continue
-        return {**context(view), "reason":reason}
+        return {**counter.with_barter(folder, context(view)), "reason":reason}
 
 
 class Updates:
@@ -165,7 +165,7 @@ def register(server, folder, database):
     @server.tool()
     def get_trade_context() -> dict:
         """Read the customer, budget, tablet requirements, quote, offered water and any page awaiting a choice."""
-        return context(shopdesk.published(folder))
+        return counter.with_barter(folder, context(shopdesk.published(folder)))
 
     @server.tool()
     def wait_for_shop_event(event: Literal["goods_offered","next_customer_available","opening_finished"],
