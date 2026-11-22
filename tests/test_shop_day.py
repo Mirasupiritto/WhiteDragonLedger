@@ -2,8 +2,10 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import sys
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 from shop_day import trash_contents
 
 

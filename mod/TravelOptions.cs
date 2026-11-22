@@ -14,7 +14,30 @@ namespace WhiteDragon.Ledger
         private static readonly FieldInfo Cards = typeof(TransitUI).GetField("cards", PrivateStatic);
         private static readonly FieldInfo Selected = typeof(TransitUI).GetField("selected", PrivateStatic);
         private static readonly FieldInfo Page = typeof(TransitUI).GetField("page", PrivateStatic);
-        private static bool Enabled(Button button) => button.isActiveAndEnabled && button.IsInteractable();
+
+        internal static string Act(string action, string id, JObject receipt)
+        {
+            var frame = TransitUI.Root.GetComponent<TransitFrame>();
+            var map = MapUIManager.Instance;
+            if (action == "close") { map.CloseUI(); return "close_requested"; }
+            var cards = (List<TransitCardView>)Cards.GetValue(null);
+            if (action == "select" || action == "depart")
+            {
+                var card = cards.Find(c => c.location.Id == id && c.available && c.location.IsAvailable());
+                if (card == null) return "destination_unavailable";
+                if (action == "select") { TransitUI.Select(card.location); return "selection_submitted"; }
+                if (Selected.GetValue(null) != card.location || !NativeButton.Enabled(frame.travelButton)) return "selection_changed";
+                string title = card.location.GetTitle();
+                frame.travelButton.onClick.Invoke();
+                receipt["destination"] = id;
+                receipt["destination_title"] = title;
+                return "departure_requested";
+            }
+            var button = action == "next" ? frame.nextButton : action == "previous" ? frame.prevButton : null;
+            if (button == null || !NativeButton.Enabled(button)) return "page_unavailable";
+            button.onClick.Invoke();
+            return "page_requested";
+        }
 
         internal static JObject Read(ref TransitCardView firstCard, JObject previous)
         {
@@ -25,9 +48,9 @@ namespace WhiteDragon.Ledger
             var selected = (AfterhourLocation)Selected.GetValue(null);
             var first = cards.Count == 0 ? null : cards[0];
             var page = (int)Page.GetValue(null) + 1;
-            bool depart = Enabled(frame.travelButton);
-            bool back = Enabled(frame.prevButton);
-            bool next = Enabled(frame.nextButton);
+            bool depart = NativeButton.Enabled(frame.travelButton);
+            bool back = NativeButton.Enabled(frame.prevButton);
+            bool next = NativeButton.Enabled(frame.nextButton);
             if (previous != null && firstCard == first && (int)previous["page"] == page &&
                 (string)previous["selected_id"] == selected?.Id && (bool)previous["can_depart"] == depart &&
                 (bool)previous["has_previous_page"] == back && (bool)previous["has_next_page"] == next)

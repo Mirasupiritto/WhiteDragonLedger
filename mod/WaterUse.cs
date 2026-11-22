@@ -11,14 +11,10 @@ namespace WhiteDragon.Ledger
 
         private string WaterArea(GameItem item)
         {
-            var parent = item?.parentInventory;
-            if (parent == null) return null;
-            if (areas.TryGetValue(parent, out var area)) return area;
-            var owner = parent.GetParentItem();
-            if (owner?.parentInventory == null || !areas.ContainsKey(owner.parentInventory) ||
-                !GeneralHelper.IsItemOwned(owner) || GeneralHelper.IsItemLocked(owner) ||
-                owner.contentWindow == null || !owner.contentWindow.IsVisible() || owner.contentWindow.isLocked) return null;
-            return ReadWindow(owner).Controls.Values.Any(control => ReferenceEquals(control, parent)) ? "container/" + LocalId(owner) : null;
+            var location = StockLocation(item);
+            if (location == null) return null;
+            var parents = (JArray)location["containers"];
+            return parents.Count == 0 ? (string)location["area"] : "container/" + (int)parents.Last["owner_id"];
         }
 
         private static string WaterOperation(GameItem source)
@@ -117,8 +113,7 @@ namespace WhiteDragon.Ledger
             {
                 if (notice?.panel != null && notice.panel.activeInHierarchy)
                 {
-                    receipt["notice"] = VisibleText(notice.bodyTMP);
-                    return "purifier_notice";
+                    return PurifierNoticeAction("read",null,receipt);
                 }
                 int used = charge - DurabilityHelper.GetRealDurability(source);
                 receipt["charge_used"] = used;

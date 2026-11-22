@@ -2,13 +2,13 @@ using Newtonsoft.Json.Linq;
 
 namespace WhiteDragon.Ledger
 {
-    public class AfterhourLocation
+    public partial class AfterhourLocation
     {
         public string Id;
         public string GetTitle() => "測試拾荒場";
         public static AfterhourLocation Get(string id) => new AfterhourLocation { Id=id };
     }
-    public class MapUIManager
+    public partial class MapUIManager
     {
         public static MapUIManager Instance = new MapUIManager();
         public bool IsInTransit;
@@ -30,7 +30,7 @@ namespace WhiteDragon.Ledger
             int before = sequence;
             ReplayTravelOptions();
             map.IsInTransit=true;
-            Expect(!CanObserveStore() && sceneStatus=="transitioning", "early travel suspends store before destination is known");
+            Expect(!CanObserveStore() && sceneStatus=="transitioning" && destination=="forest", "first transit keeps selected native destination");
             TransitUI.IsOpen=false;
             OnArriveEarly("dumping_ground");
             Expect(destination=="dumping_ground" && (string)lastJourney["from"]==ShopScene, "named departure");

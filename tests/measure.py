@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 async def measure(args):
-    params = StdioServerParameters(command=sys.executable, args=["-B", str(ROOT / "ledger_mcp.py"),
+    params = StdioServerParameters(command=sys.executable, args=["-B", str(ROOT / "mcp" / "ledger_mcp.py"),
         "--journal", str(args.journal), "--database", str(args.database)])
     async with stdio_client(params) as (reader, writer), ClientSession(reader, writer) as session:
         await session.initialize()

@@ -92,13 +92,13 @@ def register_pawnshop_tools(server, folder, database):
         return lookup(folder, database, stock_query=dict(item_ids=item_ids, generation=generation))
 
     @server.tool()
-    def move_item(item_id: int, source: Literal["inventory", "showcase"],
-                  destination: Literal["inventory", "showcase"], generation: str,
-                  revision: int, command_id: str | None = None) -> dict:
-        """Move one owned item while the shutter is closed. Use the generation and revision from
-        query_inventory. A moved receipt gives the confirmed location and game-side scan counts.
-        Reuse the same command_id and original arguments when checking an uncertain response."""
-        return submit_move(folder, item_id, source, destination, generation, revision, command_id)
+    def move_item(item_id: int, source: Literal["inventory", "showcase", "front", "back"],
+                  destination: Literal["inventory", "showcase", "front", "back"], generation: str,
+                  revision: int, command_id: str | None = None, visit: str | None = None) -> dict:
+        """While closed, move owned stock between inventory and showcase. During trade pass the observed visit
+        to stage one item on the empty trade table (back), or return it. Guest goods return to front and
+        owned goods to inventory/showcase. Placement alone does not confirm a trade. Reuse the command ID to retry."""
+        return submit_move(folder, item_id, source, destination, generation, revision, command_id, visit=visit)
 
     @server.tool()
     def move_items(item_ids: list[int], source: Literal["inventory", "showcase"],
@@ -118,7 +118,8 @@ def register_pawnshop_tools(server, folder, database):
     @server.tool()
     def inspect_item_window(owner_id: int, generation: str, revision: int, open_if_closed: bool = False,
                             since_token: str | None = None) -> dict:
-        """Inspect one owned inventory or showcase item's content window. Optionally open it while closed.
+        """Inspect an owned inventory/showcase item, or a directly held owned back-counter item after closing.
+        Slot items include save_id for matching night loot. Optionally open a closed window.
         First read returns visible slots, text and controls. Pass the last token as since_token for changes only."""
         return counter.command(folder, "inspect_window", generation, revision, owner_id=owner_id,
                                open_if_closed=open_if_closed, since_token=since_token, read_id=uuid4().hex)
@@ -167,10 +168,10 @@ def register_pawnshop_tools(server, folder, database):
                                target_id=target_id, mode=mode, use_token=use_token)
 
     @server.tool()
-    def water_panel(generation: str, revision: int, mode: Literal["read", "match", "close"] = "read",
+    def water_panel(generation: str, revision: int, mode: Literal["read", "match", "close", "notice_close"] = "read",
                     panel_token: str | None = None, bottle_id: int | None = None) -> dict:
         """Read an already open test-strip panel, including tested bottle, displayed result and unused strip count.
-        Match an owned bottle label only with its observed ID and panel token, or close that panel by token."""
+        Match an owned bottle label only with its observed ID and panel token, or close that panel by token. A visible single-button purifier notice can be acknowledged with notice_close."""
         if mode == "read":
             return counter.command(folder, "water_panel", generation, revision, mode=mode, read_id=uuid4().hex)
         if not panel_token or (mode == "match" and (bottle_id is None or bottle_id < 1)):
@@ -303,6 +304,14 @@ def register_pawnshop_tools(server, folder, database):
     def get_phone_contacts() -> dict:
         """Read known phonebook and owned business-card contacts, services, answerability and visible call choices. Never dials."""
         return counter.phone_context(folder)
+
+    @server.tool()
+    def phone_keypad(mode: Literal["open", "close", "dial"], generation: str, revision: int,
+                     phone_token: str, digits: str = "") -> dict:
+        """Open or close the phone, or enter 1–9 digits on the empty native keypad. Preserve leading zeros."""
+        if mode == "dial" and not (digits.isascii() and digits.isdecimal() and 1 <= len(digits) <= 9):
+            return {"status": "invalid_number"}
+        return counter.command(folder, "phone_keypad", generation, revision, phone_token=phone_token, mode=mode, digits=digits)
 
     @server.tool()
     def dial_contact(number: int, generation: str, revision: int, phone_token: str) -> dict:

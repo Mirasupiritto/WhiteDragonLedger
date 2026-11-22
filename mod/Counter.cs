@@ -10,8 +10,8 @@ namespace WhiteDragon.Ledger
     {
         private float nextCounterPoll;
         private JObject offerSnapshot;
-        private string offerToken, lastCounterCommand, counterVisit;
-        private JObject lastCounterReceipt;
+        private string offerToken, counterVisit;
+        private readonly CommandMailbox counterMailbox = new CommandMailbox();
         private readonly JArray openingLines = new JArray();
         private object lastSpokenLine, lastPage;
         private string pageToken;
@@ -83,7 +83,7 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (stage == "ready" || stage == "not_selling" || stage == "tablet_closed" || stage == "confirmation_required")
                 view["demand"] = PanelDemand();
@@ -173,7 +173,7 @@ namespace WhiteDragon.Ledger
                 if (opened) receipt["waiting"] = PlayerStore.Instance.GetClientInQueueCount();
                 return opened ? "opened" : "open_unconfirmed";
             }
-            if (action == "dial" || action == "phone_choice" || action == "phone_advance")
+            if (action == "phone_keypad" || action == "dial" || action == "phone_choice" || action == "phone_advance")
                 return ActOnPhone(request, receipt);
             if (phase != "OPEN") return "shop_closed";
             var store = PlayerStore.Instance;
@@ -259,29 +259,18 @@ namespace WhiteDragon.Ledger
         {
             if (Time.realtimeSinceStartup < nextCounterPoll) return;
             nextCounterPoll = Time.realtimeSinceStartup + 0.15f;
-            string file = "counter-" + generation + ".json";
-            if (!ModHelper.ModDataFileExists(ModId, file)) return;
-            var request = JObject.Parse(ModHelper.ReadModDataFileText(ModId, file));
-            string id = (string)request["command_id"];
-            if (Guid.TryParseExact(id, "N", out var key) && id == key.ToString("N") &&
-                !ModHelper.ModDataFileExists(ModId, "receipt-" + id + ".json"))
+            counterMailbox.Process("counter", generation, slot, (request, receipt) =>
             {
-                if (id != lastCounterCommand)
+                try { return ActAtCounter(request, receipt); }
+                finally
                 {
-                    lastCounterCommand = id;
-                    lastCounterReceipt = new JObject { ["generation"] = generation, ["slot"] = slot,
-                        ["command_id"] = id, ["status"] = "outcome_unknown" };
-                    try { lastCounterReceipt["status"] = ActAtCounter(request, lastCounterReceipt); }
-                    catch (Exception error) { Debug.LogException(error); }
                     FlushChanges();
-                    lastCounterReceipt["revision"] = sequence;
-                    lastCounterReceipt["load_scans"] = loadScans;
+                    receipt["revision"] = sequence;
+                    receipt["load_scans"] = loadScans;
                     nextView = 0;
                     RefreshDesk();
                 }
-                Write("receipt-" + id + ".json", lastCounterReceipt);
-            }
-            ModHelper.DeleteModDataFile(ModId, file);
+            });
         }
     }
 }

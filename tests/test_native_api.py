@@ -2,8 +2,10 @@ import json
 from hashlib import sha256
 from pathlib import Path
 from tempfile import TemporaryDirectory
+import sys
 import unittest
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 from native_api_mcp import NativeIndex
 
 

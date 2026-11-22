@@ -9,14 +9,22 @@ from scene import interrupted_shop_call
 from ledger import read_head
 
 
-def move_item(folder: Path, item_id, source, destination, generation, revision, command_id=None, *, previous_command=None, machine_id=None):
+def move_item(folder: Path, item_id, source, destination, generation, revision, command_id=None, *, previous_command=None, machine_id=None, visit=None):
     changed = interrupted_shop_call(folder)
     if changed:
         return changed
     command = command_id or uuid4().hex
     if not re.fullmatch("[a-f0-9]{32}", generation) or not re.fullmatch("[a-f0-9]{32}", command):
         raise ValueError("generation and command_id must be lowercase 32-digit hex values")
-    if machine_id is not None:
+    counter_move = source in {"front", "back"} or destination in {"front", "back"}
+    if counter_move:
+        other = source if destination == "back" else destination
+        if ("back" not in (source, destination) or other not in {"front","inventory","showcase"} or machine_id is not None
+                or not re.fullmatch("[a-f0-9]{32}", visit or "")):
+            raise ValueError("Use the current visit and a route to or from the trade table (back)")
+    elif visit is not None:
+        raise ValueError("A visit is only used for trade table moves")
+    elif machine_id is not None:
         if machine_id < 1 or (source, destination) not in {
             ("purifier", "inventory"), ("inventory", "purifier"), ("showcase", "purifier")
         }:
@@ -27,6 +35,8 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         raise ValueError("Expected a positive item ID, revision and two different stock areas")
     request = dict(command_id=command, item_id=item_id, source=source, destination=destination,
                    generation=generation, revision=revision)
+    if counter_move:
+        request["visit"] = visit
     if machine_id is not None:
         request["machine_id"] = machine_id
 
@@ -35,8 +45,8 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         if result is None:
             return None
         if (result["expected_revision"], result["item_id"], result["from"],
-            result["requested_area"], result.get("machine_id")) != (
-                revision, item_id, source, destination, machine_id):
+            result["requested_area"], result.get("machine_id"), result.get("visit")) != (
+                revision, item_id, source, destination, machine_id, visit):
             raise ValueError("command_id already used for a different move")
         return result
 
@@ -50,7 +60,11 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         return {"status": "reload_updated_mod", "command_id": command}
     if head.get("move_protocol") != 1 or (machine_id is not None and head.get("purifier_take_protocol") != 1):
         return {"status": "reload_updated_mod", "command_id": command}
-    if head["phase"] not in ("CLOSED", "MORNING"):
+    if counter_move and head.get("counter_move_protocol") != 1:
+        return {"status": "reload_updated_mod", "command_id": command}
+    if counter_move and head["phase"] != "OPEN":
+        return {"status":"shop_closed", "command_id":command}
+    if not counter_move and head["phase"] not in ("CLOSED", "MORNING"):
         return {"status": "shop_open", "command_id": command}
     inbox = folder / f"move-{generation}.json"
     return exchange(folder, inbox, request, read_receipt, previous_command)

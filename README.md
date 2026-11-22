@@ -2,7 +2,7 @@
 
 白龍店帳讓 AI 助手透過 MCP 經營《深空當鋪》（Probably Stolen）。玩家載入存檔後，可以直接問「今天要留多少房租？」或「這批貨賣回了多少錢？」。要助手接客時，它能讀客人的原話、看剩餘預算、逐件設底價，成交後從遊戲回執確認實收。
 
-**模組 0.11.1 · Windows · 遊戲版本 0.46D · MIT**。店務透過本機 stdio MCP 提供，宿主支援工具呼叫和文字回執就能使用，無需 Computer Use。物品鑑定、包裝驗偽和通緝照比對留給玩家，日常交易也就省下反覆傳送截圖的影像 token。
+**模組 0.13.1 · Windows · 遊戲版本 0.46D · MIT**。店務透過本機 stdio MCP 提供，宿主支援工具呼叫和文字回執就能使用，無需 Computer Use。物品鑑定、包裝驗偽和通緝照比對留給玩家，日常交易也就省下反覆傳送截圖的影像 token。
 
 ## 先看一筆實際交易
 
@@ -39,7 +39,7 @@ $python = "$work/venv/Scripts/python.exe"
   "mcpServers": {
     "white-dragon-ledger": {
       "command": "D:/tools/WhiteDragonLedger-products/venv/Scripts/python.exe",
-      "args": ["-B", "D:/tools/WhiteDragonLedger/ledger_mcp.py"]
+      "args": ["-B", "D:/tools/WhiteDragonLedger/mcp/ledger_mcp.py"]
     }
   }
 }
@@ -64,8 +64,8 @@ $python = "$work/venv/Scripts/python.exe"
 | 時機 | 工具與回執 |
 |---|---|
 | 開門前算帳 | `get_shop_status` 讀現金、星期、兩週事件、交租倒數及夜間服務費。`get_trash` 分開列出桶內物品和垃圾堆積值。 |
-| 整理貨架與機台 | `move_items` 一次搬一批自有貨，逐件回報實際位置。`inspect_item_window` 讀槽位與按鈕，`transfer_slot_item` 存取，`press_machine_button` 操作機台。固定檔案箱用 `inspect_archive`。 |
-| 查昨晚放進去的水 | `inspect_purifiers` 把機號、瓶號、瓶貼、電力和全店剩餘試紙放在同一張回執。配貨可直接看淨化後的瓶貼。玩家決定抽試紙並打開結果時，助手可用 `water_panel` 對照同一瓶。 |
+| 整理貨架與機台 | 開門前或歇業時用 `move_items` 批次搬自有貨。`inspect_item_window` 讀槽位、按鈕和位置，`transfer_slot_item` 存取，`press_machine_button` 操作機台。固定檔案箱用 `inspect_archive`。 |
+| 查昨晚放進去的水 | `inspect_purifiers` 把機號、瓶號、瓶貼、電力和全店剩餘試紙放在同一張回執。配貨可直接看淨化後的瓶貼。`water_panel` 可讀試紙結果和可見的淨水器提示。 |
 | 開門接客 | `open_shop` 開門，`ring_customer` 按鈴，也可用 `set_auto_receive` 自動接下一位。`wait_for_opening` 等開場說完，先看 `get_counter` 的台詞，再判斷客人想買、想賣或想交換。 |
 | 櫃檯對話與回應 | `get_trade_context` 顯示當頁選項。手動翻一頁用 `advance_dialogue`，文字選項用 `choose_dialogue`，物品選項用 `response_choice`。三者都核對本頁及當次來訪。 |
 | 夜間帳單 | 歇業後從 `get_shop_status.sleep.bill` 取得 `bill_token`。用 `prepare_sleep` 開帳單，查看每項價格、勾選、必選與冷卻狀態。用 `night_service` 設定單項，回執直接列出新總額。決定過夜才用 `sleep`，可帶最後核對過的 `bill_token`。 |
@@ -85,9 +85,29 @@ $python = "$work/venv/Scripts/python.exe"
 
 `wait_for_shop_event` 可等開場說完、貨物擺出或按鈴可用。用 `get_trade_context` 讀客人的原話、平板限制和剩餘預算；商人帶水時可看逐瓶容量、瓶貼和上次可見的試紙結果。一般交易可用 `trade_batch` 對每一件設買入上限或賣出底價。交易檯已選中一件時，`confirm_trade` 核對同一位客人、物品、方向和確切價格後才成交。批發定價仍由整批貨單處理。
 
+需要先擺一件到交易檯再看價時，帶上本次來訪的 `visit` 呼叫 `move_item`。來客的貨可在前櫃 `front` 和交易檯 `back` 間搬動，自有貨可從庫存 `inventory` 或展示櫃 `showcase` 上檯，再退回這兩個貨區。從 `get_trade_context` 取得目前的 `visit`，上檯前先確認交易檯空著。看完報價後，決定成交才呼叫 `confirm_trade`。
+
+### 可見機台與淨水器提示
+
+用 `inspect_item_window` 查巢狀物品時，`window.location.area` 顯示所在貨區，`window.location.containers` 由外到內列出容器及其 `owner_id`、`control`。存取仍用 `transfer_slot_item`，以當前視窗的槽位和 token 為準。機台電源槽顯示有無電池、可否供電、每輪耗電，以及可讀到的電池編號、剩餘電量和容量。熔爐槽位分為電源、模組、原料、產出和紙條，產出槽僅供取貨。酒瓶畫面若有啟用的 `action=start_fermentation` 按鈕，決定發酵時可把當頁 `label`、`control` 和 `window_token` 傳給 `press_machine_button`。
+
+淨水器彈出「水已乾淨」或「電量不足」的單鍵提示時，先用 `water_panel(mode="read")` 讀取原文及 `panel_token`，確認要關閉再傳 `mode="notice_close"` 和同一個 token。玩家抽完試紙並開啟結果時，也用 `water_panel(mode="read")` 核對瓶號；自有瓶可依結果更新瓶貼。
+
 ## 場景與玩家分工
 
-**夜間選地。** 玩家打開選地畫面，`get_scene` 回報 `selecting_destination`。此時呼叫 `get_travel_options` 可讀當頁每張地點卡的名稱、事件文字、可選狀態，以及目前選中的地點和出發按鈕狀態。玩家翻頁後可再查。出發後用 `wait_for_scene(session, after_revision)` 等抵達。途中和拾荒地點只提供場景工具。0.9.5 的選地查詢已通過回放，仍待與實際遊戲畫面對照。選地出發、夜間搜尋與取物目前由玩家操作。
+**電話鍵盤。** 從 `get_phone_contacts` 取得當頁的 `phone_token`。通訊錄裡的人可直接用 `dial_contact`。若手上只有號碼，先用 `phone_keypad(mode="open")`，鍵盤就緒後再傳 `mode="dial"` 和字串號碼，開頭的 0 會保留。回執列出號碼顯示、電話狀態和已接通的對象。通話選單沿用 `choose_phone_service`。
+
+**夜間出門。** 歇業後用 `shop_activity()` 看門口與出門確認框。提交 `door` 後依實際畫面決定下一步。有確認框才用 `confirm_packing`，出現選包回應時從 `get_counter` 讀選項並用 `response_choice` 選擇。晨報開著時也可用 `close_report` 關閉。
+
+| 所在畫面 | 可以做什麼 |
+|---|---|
+| 選目的地 | `travel_menu()` 看當頁地點、事件和可選狀態。`previous`、`next` 翻頁，`select` 選地點，核對後以同一個 `location_id` 提交 `depart`。出發回執直接列出 `destination` 和 `destination_title`。`close` 關閉地圖。 |
+| 轉場 | `wait_for_scene` 以出發前的場景版本等抵達，回執附實際地點。 |
+| 拾荒地點 | `explore()` 看地面、左右口袋、背包裝備槽與已打開的背包格。在垃圾場還能看剩餘時間、受傷機率及能否再搜一次。`move` 用本次觀察的物品編號和起訖槽位，回執附實際到貨量。地上還有物品時，`return` 會停手。 |
+
+歇業返店後，可用 `inspect_item_window` 直接查後櫃自有腰包。視窗未開時傳 `open_if_closed=true`，用包內物品的 `save_id` 對照拾荒時的物品編號。
+
+這三個動作工具（`shop_activity`、`travel_menu`、`explore`）都先讀，再帶回同一張回執的 `session`、`revision` 和 `view_token` 操作。重查時帶上 `view_token`，相同畫面只回 `unchanged`。若連線中斷，用原參數重試可查回同一個動作。背包內嵌格直接存取，獨立視窗用 `open_bag` 和 `close_bag`。遊戲內辨認來客仍由玩家協助。
 
 **以物易物。** 血袋拾荒者在遊戲裡會給三個交換報價。0.9.5 實測能讀到他想換食物的台詞，但櫃檯回執是 `not_selling`，缺少各選項要交出及可換回的物品。遇到這位客人，先留在櫃檯讓玩家看報價。交換選項的讀取與選擇待接。
 
@@ -108,7 +128,7 @@ $python = "$work/venv/Scripts/python.exe"
 
 ## 開發與驗證
 
-0.11.1 已使用遊戲 0.46D 的程序集編譯。開發新功能前可用獨立的開發用 MCP 查原生型別、成員簽名與呼叫位置。[原生 API 查詢與安裝](docs/native-api.md)
+模組以遊戲 0.46D 的程序集為建置目標。0.12.0 新接的交易檯搬貨、巢狀物品視窗、機台欄位與淨水器提示待實機驗收。開發新功能前可用獨立的開發用 MCP 查原生型別、成員簽名與呼叫位置。[原生 API 查詢與安裝](docs/native-api.md)
 
 要看各工具已在哪個存檔實測、還缺哪種來客或場景，請查[實機驗收表](AGENTS.md#實機驗收表)。
 

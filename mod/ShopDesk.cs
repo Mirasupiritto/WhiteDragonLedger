@@ -166,20 +166,15 @@ namespace WhiteDragon.Ledger
                 var power = MachineHelper.GetBatterySlot(machine);
                 if (container == null || power == null) continue;
                 var bottle = container.childItem;
-                var battery = power.childItem;
                 var row = new JObject { ["machine_id"] = LocalId(machine), ["machine_key"] = machine.GetUniqueID(),
-                    ["machine"] = machine.GetDisplayName(true), ["day"] = StoreStation.Instance.dayCounter, ["battery_present"] = battery != null,
-                    ["can_power"] = MachineHelper.CanPower(machine, power),
+                    ["machine"] = machine.GetDisplayName(true), ["day"] = StoreStation.Instance.dayCounter,
                     ["can_remove_bottle"] = bottle != null && bottle.MayRemove(),
                     ["inventory_has_room"] = bottle != null && !EmporiumEntry.Instance.invElement.IsInsertLocked() &&
                         EmporiumEntry.Instance.invElement.TryFindOneValidInventorySlot(bottle) != null,
                     ["bottle_id"] = bottle == null ? JValue.CreateNull() : (JToken)LocalId(bottle),
                     ["bottle_key"] = bottle == null ? JValue.CreateNull() : (JToken)bottle.GetUniqueID() };
                 if (bottle != null && BottleLabel(bottle) is string label) row["bottle_label"] = label;
-                if (battery != null && battery.IsTag(PowerHelper.POWER_SOURCE_ITEM_ENERGY))
-                    row["energy_kj"] = battery.GetTagReadonly(PowerHelper.POWER_SOURCE_ITEM_ENERGY).GetInt();
-                if (battery != null && battery.IsTag(PowerHelper.POWER_SOURCE_ITEM_MAX_ENERGY))
-                    row["max_energy_kj"] = battery.GetTagReadonly(PowerHelper.POWER_SOURCE_ITEM_MAX_ENERGY).GetInt();
+                AddMachinePower(machine,power,row);
                 result.Add(row);
             }
             return result;

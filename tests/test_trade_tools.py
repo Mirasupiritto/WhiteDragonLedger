@@ -10,6 +10,7 @@ from unittest.mock import patch
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 import trade_tools
 from trade_journal import ledger
 
@@ -124,7 +125,7 @@ class TradeTools(unittest.TestCase):
     def test_inventory_waits_for_matching_calendar_revision(self):
         async def run():
             params = StdioServerParameters(command=sys.executable, args=[
-                "-B", str(Path(__file__).resolve().parents[1]/"ledger_mcp.py"),
+                "-B", str(Path(__file__).resolve().parents[1] / "mcp" / "ledger_mcp.py"),
                 "--journal", str(self.folder), "--database", str(self.db)])
             async with stdio_client(params) as streams, ClientSession(*streams) as session:
                 await session.initialize()
@@ -157,7 +158,7 @@ class TradeTools(unittest.TestCase):
 
     def test_stdio_counter_pages_and_night_bill(self):
         async def run():
-            params = StdioServerParameters(command=sys.executable,args=["-B",str(Path(__file__).resolve().parents[1]/"ledger_mcp.py"),
+            params = StdioServerParameters(command=sys.executable,args=["-B",str(Path(__file__).resolve().parents[1] / "mcp" / "ledger_mcp.py"),
                                        "--journal",str(self.folder),"--database",str(self.db)])
             async with stdio_client(params) as streams, ClientSession(*streams) as session:
                 await session.initialize()
@@ -216,7 +217,7 @@ class TradeTools(unittest.TestCase):
 
     def test_stdio_rejects_old_native_trade_and_attaches_delta(self):
         async def run():
-            params = StdioServerParameters(command=sys.executable,args=["-B",str(Path(__file__).resolve().parents[1]/"ledger_mcp.py"),
+            params = StdioServerParameters(command=sys.executable,args=["-B",str(Path(__file__).resolve().parents[1] / "mcp" / "ledger_mcp.py"),
                                        "--journal",str(self.folder),"--database",str(self.db)])
             async with stdio_client(params) as streams, ClientSession(*streams) as session:
                 await session.initialize()

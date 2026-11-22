@@ -34,6 +34,7 @@ namespace WhiteDragon.Ledger
         private static List<TransitCardView> cards = new List<TransitCardView>();
         private static AfterhourLocation selected;
         private static int page;
+        public static void Select(AfterhourLocation location){selected=location;Root.frame.travelButton.interactable=true;}
         public static void Show(int index, bool choose, params TransitCardView[] items)
         {
             IsOpen = true;

@@ -12,6 +12,39 @@ from mcp.client.stdio import stdio_client
 
 
 class SceneRouting(unittest.IsolatedAsyncioTestCase):
+    async def test_retry_departure_after_arrival_recovers_original_receipt(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            folder = Path(temp)
+            session = "e" * 32
+            def publish(status, location, revision):
+                (folder / "scene.json").write_text(json.dumps(dict(session=session, status=status,
+                    location=location, revision=revision, journey_protocol=1)), encoding="utf-8")
+            publish("selecting_destination", "pawnshop", 8)
+            server = StdioServerParameters(command=sys.executable, args=["-B",
+                str(Path(__file__).resolve().parents[1] / "mcp" / "ledger_mcp.py"), "--journal", temp,
+                "--database", str(folder / "ledger.sqlite")])
+            inbox = folder / f"journey-{session}.json"
+            async with stdio_client(server) as streams, ClientSession(*streams) as client:
+                await client.initialize()
+                args = dict(mode="depart", session=session, revision=8, view_token="page", location_id="forest")
+                submitted = asyncio.create_task(client.call_tool("travel_menu", args))
+                async with asyncio.timeout(5):
+                    while not inbox.exists():
+                        await asyncio.sleep(.02)
+                plan = json.loads(inbox.read_text())
+                self.assertEqual((plan["tool"], plan["action"], plan["location_id"]), ("travel_menu", "depart", "forest"))
+                receipt = dict(command_id=plan["command_id"], generation=session, status="departure_requested")
+                publish("ready", "forest", 9)
+                (folder / f"receipt-{plan['command_id']}.json").write_text(json.dumps(receipt))
+                inbox.unlink()
+                self.assertEqual(json.loads((await submitted).content[0].text), receipt)
+                retried = await client.call_tool("travel_menu", args)
+                self.assertEqual(json.loads(retried.content[0].text), receipt)
+                changed = await client.call_tool("travel_menu", dict(args, location_id="ruins"))
+                self.assertEqual(json.loads(changed.content[0].text)["status"], "scene_changed")
+                self.assertFalse(inbox.exists())
+                self.assertFalse((folder / "ledger.sqlite").exists())
+
     async def test_dynamic_list_cached_calls_and_arrival(self):
         changes = asyncio.Queue()
 
@@ -30,7 +63,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
 
             publish(1, "ready", "pawnshop")
             server = StdioServerParameters(command=sys.executable, args=[
-                "-B", str(Path(__file__).resolve().parents[1]/"ledger_mcp.py"),
+                "-B", str(Path(__file__).resolve().parents[1] / "mcp" / "ledger_mcp.py"),
                 "--journal", temp, "--database", str(database)])
             async with stdio_client(server) as streams, ClientSession(*streams, message_handler=handle) as client:
                 init = await client.initialize()
@@ -52,7 +85,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 options = {"destinations": [{"id": "forest", "available": True}], "selected_id": None}
                 publish(2, "selecting_destination", "pawnshop", travel_options=options)
                 await asyncio.wait_for(changes.get(), 4)
-                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common | {"get_travel_options"})
+                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common | {"get_travel_options", "travel_menu"})
                 async def read(name, **args):
                     result = await client.call_tool(name, args)
                     self.assertFalse(result.isError, result.content)
@@ -78,7 +111,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(reply.isError, reply.content)
                     self.assertEqual(json.loads(reply.content[0].text)["tool_status"], "unavailable_in_scene")
                 self.assertFalse(database.exists())
-                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common)
+                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common | {"explore"})
                 publish(5, "ready", "pawnshop")
                 await asyncio.wait_for(changes.get(), 4)
                 self.assertEqual({t.name for t in (await client.list_tools()).tools}, tools)

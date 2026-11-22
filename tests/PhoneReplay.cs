@@ -30,11 +30,14 @@ namespace WhiteDragon.Ledger {
         public bool ShownInPhoneBook()=>listed;
         public string GetLocalizedDisplayName()=>dialogFuncId;
     }
-    public static class LocHelper { public static string GetLocalizedUI(string key) => key; public static string GetLocalizedDialoguePhone(string key)=>key; }
+    public static class LocHelper { public static string GetLocalizedMechanic(string key, params object[] args)=>key; public static string GetLocalizedUI(string key) => key; public static string GetLocalizedDialoguePhone(string key)=>key; }
     public class PhoneUIManager {
         public static PhoneUIManager Instance=new PhoneUIManager();
         public Window phonePanel=new Window(); public StorePhoneClient currentPhoneClient;
         public int calls;
+        public Label numberDisplay=new Label(), statusDisplay=new Label {text="ui_phone_ready"};
+        public void CloseUI(){phonePanel.activeInHierarchy=false;numberDisplay.text="";}
+        public void PressNumber(int n){numberDisplay.text+=n.ToString();}
         public static bool WillAnswerCall(long n)=>PlayerStore.Instance.PhoneClientDict[n].answers;
         public void OpenUI(){phonePanel.activeInHierarchy=true;}
         public void AutoCall(long n){calls++;currentPhoneClient=PlayerStore.Instance.PhoneClientDict[n];}
@@ -71,6 +74,17 @@ namespace WhiteDragon.Ledger {
             var read=PhoneView();
             var phone=PhoneUIManager.Instance;
             Expect(((JArray)read["contacts"]).Count==2 && phone.calls==0 && !phone.phonePanel.activeInHierarchy,"passive directory with card and hidden contact filtered");
+            var keypad = new JObject { ["action"]="phone_keypad", ["mode"]="open", ["phone_token"]=read["phone_token"] };
+            var keys = new JObject();
+            store.currentClientInstance=null;
+            keypad["phone_token"]=PhoneView()["phone_token"];
+            Expect(ActOnPhone(keypad,keys)=="submitted" && (bool)keys["panel_open"],"open keypad");
+            keypad["mode"]="dial";keypad["digits"]="0017";keypad["phone_token"]=keys["phone_token"];
+            Expect(ActOnPhone(keypad,keys)=="submitted" && (string)keys["display"]=="0017","native leading zeros");
+            Expect(ActOnPhone(keypad,keys)=="phone_changed","old keypad cannot repeat");
+            keypad["mode"]="close";keypad["phone_token"]=keys["phone_token"];
+            Expect(ActOnPhone(keypad,keys)=="submitted" && !(bool)keys["panel_open"],"close keypad");
+            read=PhoneView();
             var request=new JObject {["action"]="dial",["number"]=4,["phone_token"]=read["phone_token"]};
             var result=new JObject();
             Expect(ActOnPhone(request,result)=="unknown_contact","cannot call hidden number");
@@ -82,7 +96,7 @@ namespace WhiteDragon.Ledger {
             Expect(ActOnPhone(request,result)=="connected" && phone.calls==1,"explicit dial");
             var talk=DialoguePhoneUIManager.Instance;
             talk.page=new object();talk.choice=true;
-            var option=new DialogChoiceBubble {index=0,enabled=true};option.gameObject.activeInHierarchy=true;option.TMP.text="order";
+            var option=new DialogChoiceBubble {type=1,index=0,enabled=true};option.gameObject.activeInHierarchy=true;option.TMP.text="order";
             talk.dialogChoiceBubbles.Add(option);
             read=PhoneView();
             Expect(((JArray)read["choices"]).Count==1 && option.clicks==0,"menu read does not order");

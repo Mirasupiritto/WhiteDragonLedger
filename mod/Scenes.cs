@@ -26,6 +26,7 @@ namespace WhiteDragon.Ledger
 
         private void PublishScene(string status)
         {
+            journeyToken = null;
             sceneStatus = status;
             if (status != Picker)
             {
@@ -33,7 +34,7 @@ namespace WhiteDragon.Ledger
                 travelOptions = null;
             }
             var receipt = new JObject {
-                ["session"] = sceneSession, ["revision"] = ++sceneRevision, ["status"] = status,
+                ["journey_protocol"] = 1, ["session"] = sceneSession, ["revision"] = ++sceneRevision, ["status"] = status,
                 ["location"] = currentLocation, ["title"] = currentTitle,
                 ["tool_region"] = status == Picker ? "destination_selection" : status == "ready" ? (currentLocation == ShopScene ? "pawnshop" : "afterhours") : "transition",
                 ["destination"] = destination, ["destination_title"] = destinationTitle,
@@ -79,7 +80,11 @@ namespace WhiteDragon.Ledger
             }
             if (map.IsInTransit)
             {
-                if (sceneStatus != "transitioning") StartTravel(map.Current == null ? null : ShopScene);
+                if (sceneStatus != "transitioning")
+                {
+                    string selected = sceneStatus == Picker ? (string)travelOptions?["selected_id"] : null;
+                    StartTravel(selected ?? (map.Current == null ? null : ShopScene));
+                }
                 return false;
             }
             if (awaitingLateHook) return false;

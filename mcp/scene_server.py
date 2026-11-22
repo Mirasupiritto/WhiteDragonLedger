@@ -7,17 +7,8 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel.server import NotificationOptions
 from mcp.server.stdio import stdio_server
 
-from scene import at_shop, read_scene, shop_visit
-
-
-def tool_region(scene):
-    if at_shop(scene):
-        return "pawnshop"
-    if scene.get("status") == "selecting_destination":
-        return "destination_selection"
-    if scene.get("status") in {"waiting_for_load", "waiting_for_scene_observer"}:
-        return "offline"
-    return "scene_only"
+from journey import ACTION_REGIONS, REGIONS
+from scene import read_scene, shop_visit, tool_region
 
 
 class SceneServer(FastMCP):
@@ -35,29 +26,34 @@ class SceneServer(FastMCP):
         self.client_session = self.get_context().session
         self.listed_region = region
         registered = await super().list_tools()
-        if region == "pawnshop":
-            return [tool for tool in registered if tool.name != "get_travel_options"]
-        allowed = self.global_tools
-        if region == "offline":
-            allowed = allowed | self.ledger_tools
-        if region == "destination_selection":
-            allowed = allowed | {"get_travel_options"}
-        return [tool for tool in registered if tool.name in allowed]
+        return [tool for tool in registered if self.available(tool.name, region)]
+
+    def available(self, name, region):
+        if name in self.global_tools:
+            return True
+        if name in REGIONS:
+            return REGIONS[name] == region
+        return region == "pawnshop" or (region == "offline" and name in self.ledger_tools)
 
     async def call_tool(self, name, arguments):
-        if name != "get_travel_options" and name not in self.global_tools:
+        if name in ACTION_REGIONS:
+            # A departure can finish before the client receives its reply. The command
+            # layer can recover an existing receipt across regions, then gates new work.
+            return await super().call_tool(name, arguments)
+        if name not in self.global_tools:
             scene = read_scene(self.folder)
-            if name in self.ledger_tools and tool_region(scene) == "offline":
-                return await super().call_tool(name, arguments)
-            if not at_shop(scene):
+            region = tool_region(scene)
+            if not self.available(name, region):
                 return {**scene, "tool_status": "unavailable_in_scene"}
+            if name in REGIONS or region == "offline":
+                return await super().call_tool(name, arguments)
             token = shop_visit.set((scene["session"], scene["revision"]))
             try:
                 mutations = {"move_item","move_items","sell_order","trade_batch","confirm_trade","buy_merchant_batch",
                              "pay_info_receipt","open_shop","close_shop","ring_customer","dismiss_customer",
                              "advance_dialogue","choose_dialogue","response_choice","prepare_sleep","night_service",
                              "set_auto_receive","sleep","transfer_slot_item","press_machine_button","put_purifier_bottle",
-                             "take_purifier_bottle","water_use","water_panel","dial_contact","choose_phone_service",
+                             "take_purifier_bottle","water_use","water_panel","dial_contact","phone_keypad","choose_phone_service",
                              "advance_phone_dialogue","inspect_archive","inspect_item_window","wait_for_opening"}
                 if (name in mutations or (name == "wild_network" and arguments.get("mode", "read") != "read")) and self.updates.cursor is not None:
                     tool = self._tool_manager.get_tool(name)

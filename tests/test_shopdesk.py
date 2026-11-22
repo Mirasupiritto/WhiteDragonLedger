@@ -7,7 +7,7 @@ from contextlib import closing
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 from shopdesk import machines, purchase_lots, sell_order, summarize
 
 

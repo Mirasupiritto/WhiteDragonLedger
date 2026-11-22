@@ -17,9 +17,6 @@ namespace WhiteDragon.Ledger
         private JObject previousNetwork;
         private string networkToken;
 
-        private static bool NetworkButtonEnabled(Button button) =>
-            button != null && button.isActiveAndEnabled && button.IsInteractable();
-
         private JObject ReadNetwork(WildNetworkFrame frame)
         {
             var store = PlayerStore.Instance;
@@ -28,7 +25,7 @@ namespace WhiteDragon.Ledger
             {
                 var label = slot.GetComponentInChildren<TextMeshProUGUI>();
                 tabs.Add(new JObject { ["id"]=slot.id, ["label"]=VisibleText(label),
-                    ["enabled"]=NetworkButtonEnabled(slot.GetComponent<Button>()) });
+                    ["enabled"]=NativeButton.Enabled(slot.GetComponent<Button>()) });
             }
             var services = new JArray();
             foreach (var slot in frame.gridContent.GetComponentsInChildren<WildNetworkSlot>())
@@ -48,7 +45,7 @@ namespace WhiteDragon.Ledger
             {
                 var upgrade = store.networkUpgrade[selected];
                 view["cost"] = upgrade.GetCost();
-                view["can_buy"] = NetworkButtonEnabled(frame.useButton) && upgrade.IsReady() && !upgrade.IsUnlocked();
+                view["can_buy"] = NativeButton.Enabled(frame.useButton) && upgrade.IsReady() && !upgrade.IsUnlocked();
             }
             if (observedNetworkFrame != frame || previousNetwork == null || !JToken.DeepEquals(previousNetwork, view))
             {
@@ -93,7 +90,7 @@ namespace WhiteDragon.Ledger
                 if (tab)
                 {
                     var button = slot.GetComponent<Button>();
-                    if (!NetworkButtonEnabled(button)) return "tab_unavailable";
+                    if (!NativeButton.Enabled(button)) return "tab_unavailable";
                     button.onClick.Invoke();
                 }
                 else

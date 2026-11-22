@@ -68,6 +68,7 @@ namespace WhiteDragon.Ledger
             previousNetwork = null;
             workstations.Clear();
             observedWaterPanel = null;
+            noticeToken = null;
             stripReadings.Clear();
             waterPlan = null;
             autoReceiveDay = 0;
@@ -173,7 +174,7 @@ namespace WhiteDragon.Ledger
             record["phase"] = phase;
             record["day"] = StoreStation.Instance.dayCounter;
             Write(generation + "-" + revision + ".json", record);
-            Write("head.json", new JObject { ["status"] = "observed", ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
+            Write("head.json", new JObject { ["status"] = "observed", ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["counter_move_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
                 ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
                 ["full_scans"] = fullScans, ["load_scans"] = loadScans });
             sequence = revision;
@@ -214,7 +215,7 @@ namespace WhiteDragon.Ledger
         private void LateUpdate()
         {
 
-            if (!CanObserveStore()) return;
+            if (!CanObserveStore()) { CheckJourney(); return; }
             if (pending)
             {
                 var shop = EmporiumEntry.Instance;
@@ -235,8 +236,10 @@ namespace WhiteDragon.Ledger
                         changed.Add(bottle);
             FlushChanges();
             InvalidatePreviousShopVisit();
+            ExpirePurifierNotice();
             RefreshDesk();
             MarkSceneReady(ShopScene, "當鋪");
+            if (CheckJourney()) return;
             CheckMove();
             CheckOrder();
             CheckCounter();

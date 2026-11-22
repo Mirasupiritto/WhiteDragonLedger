@@ -18,6 +18,10 @@ namespace WhiteDragon.Ledger
 
         private string WaterPanelAction(JObject request, JObject receipt)
         {
+            string mode = (string)request["mode"];
+            var notice = GenericConfirmationUIManager.Instance;
+            if (mode == "notice_close" || (notice?.panel != null && notice.panel.activeInHierarchy))
+                return PurifierNoticeAction(mode,(string)request["panel_token"],receipt);
             var ui = WaterStripUIManager.Instance;
             if (ui == null || ui.panel == null || !ui.panel.activeInHierarchy)
             {
@@ -37,7 +41,6 @@ namespace WhiteDragon.Ledger
             };
             if (bottle != null && !string.IsNullOrWhiteSpace(tested))
                 stripReadings[bottle] = new JObject { ["tested"]=tested, ["purity"]=panel["purity"] };
-            string mode = (string)request["mode"];
             if (mode == "read")
             {
                 waterPanelToken = Guid.NewGuid().ToString("N");

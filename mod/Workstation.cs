@@ -19,38 +19,43 @@ namespace WhiteDragon.Ledger
 
         private readonly Dictionary<int, WindowRead> workstations = new Dictionary<int, WindowRead>();
 
-        private void ReadElement(PixelElement element, string path, string role, string label, WindowRead read, JArray rows)
+        private static void WalkVisible(PixelElement element, string path, string role, string label, Action<PixelElement,string,string,string> leaf)
         {
             if (element == null || MachineryContainerUtils.IsHidden(element)) return;
             if (element is MachineryPanel panel)
             {
-                ReadElement(panel.content, path + "/body", panel.role ?? role, panel.label?.GetText() ?? label, read, rows);
+                WalkVisible(panel.content, path + "/body", panel.role ?? role, panel.label?.GetText() ?? label, leaf);
                 return;
             }
             if (element is MachineryIntake intake)
             {
-                ReadElement(intake.content, path + "/intake", role, label, read, rows);
+                WalkVisible(intake.content, path + "/intake", role, label, leaf);
                 return;
             }
             if (element is MachineryTabs tabs)
             {
                 if (tabs.selected >= 0)
-                    ReadElement(tabs.GetPage(tabs.selected), path + "/tab" + tabs.selected, role, tabs.GetCaption(tabs.selected), read, rows);
+                    WalkVisible(tabs.GetPage(tabs.selected), path + "/tab" + tabs.selected, role, tabs.GetCaption(tabs.selected), leaf);
                 return;
             }
             if (element is MachineryPanelRow panels)
             {
                 for (int i = 0; i < panels.Panels.Count; i++)
-                    ReadElement(panels.Panels[i], path + "/" + i, role, label, read, rows);
+                    WalkVisible(panels.Panels[i], path + "/" + i, role, label, leaf);
                 return;
             }
             if (element is MachineryStack stack)
             {
                 for (int i = 0; i < stack.elements.Count; i++)
-                    ReadElement(stack.elements[i], path + "/" + i, role, label, read, rows);
+                    WalkVisible(stack.elements[i], path + "/" + i, role, label, leaf);
                 return;
             }
 
+            leaf(element, path, role, label);
+        }
+
+        private void DescribeControl(PixelElement element, string path, string role, string label, WindowRead read, JArray rows)
+        {
             var row = new JObject { ["control"]=path, ["role"]=role, ["label"]=label };
             if (element is GameInventory storage)
             {
@@ -61,7 +66,7 @@ namespace WhiteDragon.Ledger
                 foreach (var child in storage.childItems)
                 {
                     if (GeneralHelper.IsDisplayOnly(child)) continue;
-                    var entry = new JObject { ["id"]=LocalId(child), ["name"]=child.GetDisplayName(true),
+                    var entry = new JObject { ["id"]=LocalId(child), ["save_id"]=child.GetUniqueID(), ["name"]=child.GetDisplayName(true),
                         ["kind"]=child.identifier, ["quantity"]=child.unitCount };
                     if (BottleLabel(child) is string bottleLabel) entry["bottle_label"] = bottleLabel;
                     items.Add(entry);
@@ -94,8 +99,10 @@ namespace WhiteDragon.Ledger
         {
             var read = new WindowRead { Window=owner.contentWindow };
             var rows = new JArray();
-            ReadElement(read.Window.childElement, "content", null, null, read, rows);
-            read.View = new JObject { ["owner_id"]=LocalId(owner), ["name"]=owner.GetDisplayName(true),
+            WalkVisible(read.Window.childElement, "content", null, null,
+                (element, path, role, label) => DescribeControl(element, path, role, label, read, rows));
+            DescribeMachine(owner,read,rows);
+            read.View = new JObject { ["owner_id"]=LocalId(owner), ["save_id"]=owner.GetUniqueID(), ["name"]=owner.GetDisplayName(true),
                 ["title"]=read.Window.titleString, ["locked"]=read.Window.isLocked, ["controls"]=rows };
             return read;
         }
@@ -175,17 +182,25 @@ namespace WhiteDragon.Ledger
             if (archiveRequest) owner = shop.dossier;
             else if (!itemsById.TryGetValue((int)request["owner_id"], out owner)) return "owner_unavailable";
             if (owner == null) return "owner_unavailable";
+            bool inspecting = action == "inspect_window" || action == "inspect_archive";
             bool archive = owner == shop.dossier;
+            JObject location = null;
             if (archive)
             {
                 if (shop.docInvWindow == null || !shop.docInvWindow.IsVisible() || shop.docInvElement?.childItem != owner)
                     return "archive_unavailable";
                 receipt["fixture"] = "archive";
             }
-            else if (owner.parentInventory == null || !areas.TryGetValue(owner.parentInventory, out var area) ||
-                (area != "inventory" && area != "showcase") || !GeneralHelper.IsItemOwned(owner)) return "owner_unavailable";
+            else
+            {
+                location = StockLocation(owner);
+                string area = (string)location?["area"];
+                bool inspectBack = inspecting && phase == "CLOSED" && area == "back" &&
+                    owner.parentInventory == shop.backInvinvElement && GeneralHelper.IsItemOwned(owner);
+                if ((!inspectBack && area != "inventory" && area != "showcase") || !GeneralHelper.IsItemEffectivelyOwned(owner))
+                    return "owner_unavailable";
+            }
             int id = LocalId(owner);
-            bool inspecting = action == "inspect_window" || action == "inspect_archive";
             receipt["owner_id"] = id;
             var window = owner.contentWindow;
             if (window == null) return "no_content_window";
@@ -199,6 +214,7 @@ namespace WhiteDragon.Ledger
                 if (!window.IsVisible()) return "window_closed";
             }
             var read = ReadWindow(owner);
+            if (location != null) read.View["location"] = location;
             workstations.TryGetValue(id, out var prior);
             if (inspecting)
             {
@@ -218,7 +234,7 @@ namespace WhiteDragon.Ledger
             }
             string control = (string)request["control"];
             if (prior == null || prior.Token != (string)request["window_token"] ||
-                prior.Window != window || !DecisionControls(prior).SequenceEqual(DecisionControls(read), JToken.EqualityComparer) ||
+                prior.Window != window || !JToken.DeepEquals(prior.View["location"],location) || !DecisionControls(prior).SequenceEqual(DecisionControls(read), JToken.EqualityComparer) ||
                 !read.Controls.TryGetValue(control, out var element) || !prior.Controls.TryGetValue(control, out var old) ||
                 !ReferenceEquals(old, element)) return "window_changed";
             var row = (JObject)((JArray)read.View["controls"]).FirstOrDefault(r => (string)r["control"] == control);
@@ -234,12 +250,19 @@ namespace WhiteDragon.Ledger
             else
             {
                 if (!(element is GameInventory storage)) return "not_storage";
+                if ((string)request["source"] != "slot" && location?["containers"] is JArray parents &&
+                    parents.Any(parent => (int)parent["owner_id"] == (int)request["item_id"])) return "insert_blocked";
                 status = TransferStorage(owner, storage, row, request, receipt);
             }
             FlushChanges();
             receipt["owner_id"] = id;
             receipt["control"] = control;
-            if (owner.contentWindow == window && window.IsVisible()) PublishWindow(id, ReadWindow(owner), receipt, prior);
+            if (owner.contentWindow == window && window.IsVisible())
+            {
+                var updated = ReadWindow(owner);
+                if (location != null) updated.View["location"] = StockLocation(owner);
+                PublishWindow(id,updated,receipt,prior);
+            }
             else receipt["window_closed"] = true;
             return status;
         }
@@ -263,35 +286,16 @@ namespace WhiteDragon.Ledger
             if (!retrieve && (bool)row["insert_allowed"] == false) return "insert_blocked";
             if (origin.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove() || !GraphUtils.CanAccept(target, item))
                 return "transfer_blocked";
-            int before = item.unitCount;
-            int destinationBefore = KindQuantity(target, item.identifier);
-            int sourceBefore = KindQuantity(origin, item.identifier);
-            GraphUtils.TryAcceptOnce(target, item);
-            changed.Add(item);
-            int arrived = KindQuantity(target, item.identifier) - destinationBefore;
-            int left = sourceBefore - KindQuantity(origin, item.identifier);
+            string status = TransferAndMeasure(item,origin,target,receipt);
             receipt["item_id"] = id;
             receipt["source"] = source;
             receipt["destination"] = retrieve ? "inventory" : "slot";
-            receipt["requested_quantity"] = before;
-            receipt["observed_quantity"] = arrived;
-            receipt["same_item_at_destination"] = item.parentInventory == target;
             if (archive && item.parentInventory == target)
             {
                 receipt["name"] = item.GetDisplayName(true);
                 receipt["actual_area"] = retrieve ? "inventory" : "archive";
             }
-            if (left != arrived || arrived < 0 || arrived > before) return "outcome_unknown";
-            if (arrived == 0) return "not_moved";
-            return arrived == before ? "moved" : "partial";
-        }
-
-        private static int KindQuantity(GameInventory storage, string kind)
-        {
-            int count = 0;
-            foreach (var item in storage.childItems)
-                if (item.identifier == kind) count += item.unitCount;
-            return count;
+            return status;
         }
     }
 }

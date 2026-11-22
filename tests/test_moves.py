@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 from moves import move_item, move_items
 
 
@@ -47,6 +47,33 @@ class MoveMailbox(unittest.TestCase):
         self.assertFalse(self.inbox.exists())
         with self.assertRaises(ValueError):
             self.request(revision=3)
+
+    def test_counter_move_requires_visit_and_replays_only_the_same_visit(self):
+        visit = "b"*32
+        def stage(current):
+            return move_item(self.folder,26,"front","back",self.generation,2,self.command,visit=current)
+        with self.assertRaises(ValueError):
+            stage(None)
+        self.head["phase"] = "OPEN"
+        self.publish_head()
+        self.assertEqual(stage(visit)["status"],"reload_updated_mod")
+        self.head["counter_move_protocol"] = 1
+        self.publish_head()
+        def tick(_):
+            plan = json.loads(self.inbox.read_text())
+            self.assertEqual(plan["visit"],visit)
+            receipt = dict(status="moved",command_id=self.command,generation=self.generation,expected_revision=2,
+                           item_id=26,requested_area="back",actual_area="back",visit=visit,load_scans=1)
+            receipt["from"]="front"
+            (self.folder/f"receipt-{self.command}.json").write_text(json.dumps(receipt))
+            self.inbox.unlink()
+        with patch("command_transport.time.sleep",side_effect=tick):
+            settled = stage(visit)
+        self.assertEqual(stage(visit),settled)
+        self.assertEqual((settled["actual_area"],settled["load_scans"]),("back",1))
+        with self.assertRaises(ValueError):
+            stage("c"*32)
+        self.assertFalse(self.inbox.exists())
 
     def test_preconditions_and_contention(self):
         self.assertEqual(self.request(1)["status"], "stale_observation")

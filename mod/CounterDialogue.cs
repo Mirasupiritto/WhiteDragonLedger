@@ -15,13 +15,13 @@ namespace WhiteDragon.Ledger
             return shop.responseWindow != null && shop.responseWindow.IsVisible() ? shop.responseInventory : null;
         }
 
-        private static bool VisibleChoice(DialogChoiceBubble button) =>
-            button != null && button.type == 0 && button.gameObject.activeInHierarchy && button.TMP != null;
+        private static bool VisibleChoice(DialogChoiceBubble button, int type = 0) =>
+            button != null && button.type == type && button.gameObject.activeInHierarchy && button.TMP != null;
 
         private static JArray DialogChoices(DialogUIManager talk)
         {
             if (talk == null || !talk.IsChoice()) return new JArray();
-            return new JArray(talk.dialogChoiceBubbles.Where(VisibleChoice).Select(button =>
+            return new JArray(talk.dialogChoiceBubbles.Where(button => VisibleChoice(button)).Select(button =>
                 new JObject { ["id"]=button.index, ["text"]=button.TMP.text, ["enabled"]=button.IsInteractable() }));
         }
 

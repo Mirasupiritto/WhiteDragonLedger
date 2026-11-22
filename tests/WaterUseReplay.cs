@@ -7,6 +7,7 @@ namespace WhiteDragon.Ledger
 {
     public partial class EmporiumEntry
     {
+        public PixelWindow invWindow=new PixelWindow(), showcaseWindow=new PixelWindow();
         public PixelWindow frontInvWindow = new PixelWindow(), backInvWindow = new PixelWindow(),
             drainInvWindow = new PixelWindow(), faucetWindow = new PixelWindow();
         public GameItem faucet = new GameItem { identifier="faucet" }, drain = new GameItem { identifier="drain" };
@@ -20,7 +21,10 @@ namespace WhiteDragon.Ledger
     {
         public static GenericConfirmationUIManager Instance = new GenericConfirmationUIManager();
         public Window panel = new Window();
-        public TextMeshProUGUI bodyTMP = new TextMeshProUGUI { text="No charge" };
+        public Window confirmButton=new Window {activeInHierarchy=true}, cancelButton=new Window();
+        public int clicks;
+        public void ConfirmButtonPressed() { clicks++;panel.activeInHierarchy=false; }
+        public TextMeshProUGUI bodyTMP = new TextMeshProUGUI { text="mech_portable_purifier_not_enough_charge" };
     }
     public static class DurabilityHelper { public static int GetRealDurability(GameItem item) => item.charge; }
     public static class WaterHelper { public static int GetTotalCapacityML(GameItem item) => 500; public static int GetCurrentCapacityUL(GameItem item) => item.volume; }
@@ -133,7 +137,7 @@ namespace WhiteDragon.Ledger
             Preview(purifier,LocalId(dest));
             Expect(Apply()=="purifier_used" && (int)receipt["charge_used"]==1,"purifier charge");
             Preview(purifier,LocalId(dest));
-            Expect(Apply()=="purifier_notice" && (string)receipt["notice"]=="No charge","native notice");
+            Expect(Apply()=="purifier_notice" && (string)receipt["notice"]=="mech_portable_purifier_not_enough_charge","native notice");
             GenericConfirmationUIManager.Instance.panel.activeInHierarchy=false;
 
             phase="OPEN";

@@ -50,6 +50,7 @@ namespace WhiteDragon.Ledger
                 ["requested_area"] = (string)request["destination"],
                 ["expected_revision"] = (int)request["revision"]
             };
+            if (request["visit"] != null) result["visit"] = request["visit"];
             if (request["machine_id"] != null) result["machine_id"] = (int)request["machine_id"];
             return result;
         }
@@ -60,12 +61,14 @@ namespace WhiteDragon.Ledger
                 return Receipt(request, "expired");
             if ((string)request["generation"] != generation || (int)request["revision"] != sequence)
                 return Receipt(request, "stale_observation");
-            if (phase != "CLOSED" && phase != "MORNING") return Receipt(request, "shop_open");
 
             int id = (int)request["item_id"];
             string source = (string)request["source"], destination = (string)request["destination"];
             if (!itemsById.TryGetValue(id, out var item) || item.parentInventory == null)
                 return Receipt(request, "source_changed");
+            if (source == "front" || source == "back" || destination == "front" || destination == "back")
+                return MoveCounterStock(request,item,source,destination);
+            if (phase != "CLOSED" && phase != "MORNING") return Receipt(request,"shop_open");
             GameSlotInventory container = null;
             GameItem machine = null;
             bool loading = destination == "purifier";

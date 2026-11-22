@@ -34,6 +34,18 @@ def at_shop(scene):
     return scene.get("status") == "ready" and scene.get("location") == "pawnshop"
 
 
+def tool_region(scene):
+    if at_shop(scene):
+        return "pawnshop"
+    if scene.get("status") == "selecting_destination":
+        return "destination_selection"
+    if scene.get("status") in {"waiting_for_load", "waiting_for_scene_observer"}:
+        return "offline"
+    if scene.get("status") == "ready" and scene.get("location"):
+        return "afterhours"
+    return "scene_only"
+
+
 def register_scene_tools(server, folder):
     @server.tool()
     def get_scene() -> dict:

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 
 namespace WhiteDragon.Ledger
@@ -50,6 +51,16 @@ namespace WhiteDragon.Ledger
             var contacts = new JArray();
             var choices = new JArray();
             var view = new JObject { ["panel_open"] = panelOpen, ["contacts"] = contacts, ["choices"] = choices };
+            view["keypad_protocol"] = 1;
+            view["can_open"] = phone != null && !panelOpen && !Interactable.isPaused &&
+                PlayerStore.Instance.lockStorePhysicalFlag == 0 && !PlayerStore.Instance.IsClientPresent();
+            if (panelOpen)
+            {
+                view["display"] = phone.numberDisplay.text;
+                view["status_text"] = phone.statusDisplay.text;
+                view["can_enter_number"] = page == null && string.IsNullOrEmpty(phone.numberDisplay.text) &&
+                    phone.statusDisplay.text == LocHelper.GetLocalizedUI("ui_phone_ready");
+            }
             foreach (var entry in PlayerStore.Instance.PhoneClientDict)
             {
                 var person = entry.Value;
@@ -74,7 +85,7 @@ namespace WhiteDragon.Ledger
                 view["can_advance"] = talk.isWaitingForManualAdvance && !talk.IsChoice();
                 if (talk.IsChoice())
                     foreach (var button in talk.dialogChoiceBubbles)
-                        if (button != null && button.gameObject.activeInHierarchy)
+                        if (VisibleChoice(button, 1))
                             choices.Add(new JObject { ["id"] = button.index, ["label"] = button.TMP.text,
                                 ["enabled"] = button.IsInteractable() });
             }
@@ -94,9 +105,35 @@ namespace WhiteDragon.Ledger
             var view = PhoneView();
             if ((string)request["phone_token"] != (string)view["phone_token"]) return "phone_changed";
             string action = (string)request["action"];
+            if (action == "phone_keypad")
+            {
+                switch ((string)request["mode"])
+                {
+                    case "open":
+                        if (!(bool)view["can_open"]) return "phone_unavailable";
+                        phone.OpenUI();
+                        break;
+                    case "close":
+                        if (!(bool)view["panel_open"]) return "phone_not_open";
+                        phone.CloseUI();
+                        break;
+                    case "dial":
+                        if ((bool?)view["can_enter_number"] != true) return "phone_not_ready";
+                        string digits = (string)request["digits"];
+                        if (string.IsNullOrEmpty(digits) || digits.Length > 9 || digits.Any(c => c < '0' || c > '9'))
+                            return "invalid_number";
+                        foreach (char digit in digits) phone.PressNumber(digit - '0');
+                        break;
+                    default: return "invalid_mode";
+                }
+                var after = PhoneView();
+                foreach (var key in new[] { "phone_token", "panel_open", "display", "status_text", "connected_to" })
+                    if (after[key] != null) receipt[key] = after[key].DeepClone();
+                return "submitted";
+            }
             if (action == "dial")
             {
-                if (phone == null || (bool)view["panel_open"]) return "phone_unavailable";
+                if (!(bool)view["can_open"]) return "phone_unavailable";
                 long number = (long)request["number"];
                 foreach (var row in (JArray)view["contacts"])
                 {
@@ -119,7 +156,7 @@ namespace WhiteDragon.Ledger
             }
             foreach (var button in talk.dialogChoiceBubbles)
             {
-                if (!talk.IsChoice() || button == null || !button.gameObject.activeInHierarchy ||
+                if (!talk.IsChoice() || !VisibleChoice(button, 1) ||
                     button.index != (int)request["choice_id"] || !button.IsInteractable()) continue;
                 receipt["selected_label"] = button.TMP.text;
                 button.OnDialogChoiceClick();

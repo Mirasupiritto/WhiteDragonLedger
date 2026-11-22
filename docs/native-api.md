@@ -20,7 +20,7 @@
 ~~~powershell
 ./scripts/build-native-api.ps1 -GameDir 'E:/SteamLibrary/steamapps/common/Probably Stolen' -OutputDir 'D:/workspace/WhiteDragonLedger-products/native-api'
 
-codex mcp add white-dragon-native-api -- 'D:/workspace/WhiteDragonLedger-products/venv/Scripts/python.exe' -B 'D:/tools/WhiteDragonLedger/native_api_mcp.py' --index 'D:/workspace/WhiteDragonLedger-products/native-api/native-api-index.json'
+codex mcp add white-dragon-native-api -- 'D:/workspace/WhiteDragonLedger-products/venv/Scripts/python.exe' -B 'D:/tools/WhiteDragonLedger/mcp/native_api_mcp.py' --index 'D:/workspace/WhiteDragonLedger-products/native-api/native-api-index.json'
 ~~~
 
 完成註冊後，新開 Codex 聊天即可使用。Python 環境沿用根目錄 requirements.txt 的 MCP 依賴。遊戲更新或搬家後，同路徑重建索引並重新連線。服務啟動時會比對程序集 SHA-256，檔案變更後需要重建才能啟動。

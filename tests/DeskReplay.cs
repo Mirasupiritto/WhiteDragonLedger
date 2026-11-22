@@ -4,9 +4,9 @@ using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 
 namespace UnityEngine {
-    public static class Time { public static float realtimeSinceStartup = 1; }
+    public static class Time { public static float realtimeSinceStartup = 1, timeScale = 1; }
     public static class Debug { public static void LogException(Exception e) { throw e; } }
-    public class Object { public static T FindObjectOfType<T>() where T:class { if (typeof(T)==typeof(WhiteDragon.Ledger.StoreBedroll)) return new WhiteDragon.Ledger.StoreBedroll() as T; return typeof(T)==typeof(WhiteDragon.Ledger.StoreBell)?new WhiteDragon.Ledger.StoreBell() as T:null; } }
+    public class Object { public static T FindObjectOfType<T>() where T:class { if (typeof(T)==typeof(WhiteDragon.Ledger.StoreDoor)) return new WhiteDragon.Ledger.StoreDoor() as T; if (typeof(T)==typeof(WhiteDragon.Ledger.StoreBedroll)) return new WhiteDragon.Ledger.StoreBedroll() as T; return typeof(T)==typeof(WhiteDragon.Ledger.StoreBell)?new WhiteDragon.Ledger.StoreBell() as T:null; } }
 }
 namespace WhiteDragon.Ledger {
     public class Label { public string text; }
@@ -21,7 +21,7 @@ namespace WhiteDragon.Ledger {
     }
     public class Window { public bool activeInHierarchy; }
     public class NegotiationTabletFrame { public PanelNode infoHost; public Window confirmRoot; }
-    public class StoreUIManager {
+    public partial class StoreUIManager {
         public static StoreUIManager Instance = new StoreUIManager();
         public SceneFade blackscreen;
         public Window closeShutterConfirmationPanel = new Window();
@@ -50,7 +50,7 @@ namespace WhiteDragon.Ledger {
         public bool IsRemoveLocked() => false;
         public object TryFindOneValidInventorySlot(GameItem item) => new object();
     }
-    public class GameSlotInventory:GameInventory { public GameItem childItem; }
+    public partial class GameSlotInventory:GameInventory { public GameItem childItem; }
     public partial class EmporiumEntry {
         public PixelWindow responseWindowClosable,responseWindow;
         public GameInventory responseInventoryClosable,responseInventory;
@@ -195,9 +195,13 @@ namespace WhiteDragon.Ledger {
         public static bool IsDisplayOnly(GameItem item) => false;
         public static bool IsItemLocked(GameItem item) => false;
     }
+    public static class MachineryHelper { public static int GetMachinePowerUsage(GameItem machine) => 4; }
     public static class MachineHelper {
+        public const string STANDARD_MACHINE_TAG="standard_machine";
         public static GameSlotInventory container=new GameSlotInventory(), battery=new GameSlotInventory();
-        public static object GetBodyStorage(GameItem item,int index) => index==2 ? container : null;
+        public static object[] furnaceSlots;
+        public static object GetBodyStorage(GameItem item,int index) =>
+            item.identifier=="furnace" && furnaceSlots!=null ? furnaceSlots[index] : index==2 ? container : null;
         public static GameSlotInventory GetBatterySlot(GameItem item) => battery;
         public static bool CanPower(GameItem item,GameSlotInventory power) => power.childItem!=null;
     }
@@ -401,6 +405,7 @@ namespace WhiteDragon.Ledger {
             ReplayInformation();
             ReplayPhone();
             ReplayScenes();
+            ReplayJourney();
             ReplayDay();
             ReplayReception();
             ReplayWorkstation();
@@ -411,6 +416,7 @@ namespace WhiteDragon.Ledger {
             ReplayNetwork();
             ReplayDismiss();
             ReplayCounterDay();
+            ReplayStockSection();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }

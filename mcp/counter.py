@@ -43,7 +43,7 @@ def command(folder, action, generation, revision, *, database=None, **args):
         result = receipt()
     if result is not None:
         return result
-    phone_action = action in {"dial", "phone_choice", "phone_advance"}
+    phone_action = action in {"dial", "phone_choice", "phone_advance", "phone_keypad"}
     view = phone_context(folder) if phone_action else context(folder)
     if view["status"] != "observed":
         return view
@@ -52,6 +52,8 @@ def command(folder, action, generation, revision, *, database=None, **args):
     visit_guarded = action == "dismiss" and view.get("dismiss_recheck_protocol") == 1
     if view["generation"] != generation or (view["revision"] != revision and not visit_guarded):
         return {"status": "stale_observation"}
+    if action == "phone_keypad" and not view.get("keypad_protocol"):
+        return {"status": "reload_updated_mod"}
     if phone_action and view["phone_token"] != args["phone_token"]:
         return {"status": "phone_changed"}
     if action in {"choose_dialogue","response_choice","advance"}:
@@ -81,6 +83,8 @@ def command(folder, action, generation, revision, *, database=None, **args):
         if view.get("water_use_protocol") != 1:
             return {"status": "reload_updated_mod"}
     elif action == "water_panel":
+        if args.get("mode") == "notice_close" and view.get("purifier_notice_protocol") != 1:
+            return {"status":"reload_updated_mod"}
         if view.get("water_panel_protocol") != 1:
             return {"status": "reload_updated_mod"}
     elif action in {"inspect_archive", "close_archive"}:
