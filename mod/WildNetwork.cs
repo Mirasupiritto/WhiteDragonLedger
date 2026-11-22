@@ -57,6 +57,23 @@ namespace WhiteDragon.Ledger
             return view;
         }
 
+        private void AttachNetworkSelection(WildNetworkFrame frame, JObject receipt)
+        {
+            if (!WildNetworkUI.IsOpen || (WildNetworkFrame)NetworkFrameField.GetValue(null) != frame) return;
+            var panel = ReadNetwork(frame);
+            var selected = ((JArray)panel["services"]).FirstOrDefault(row => (string)row["id"] == (string)panel["selected_id"]);
+            if (selected != null)
+            {
+                panel["ready"] = selected["ready"];
+                panel["unlocked"] = selected["unlocked"];
+            }
+            receipt["panel_token"] = networkToken;
+            panel.Remove("panel_token");
+            panel.Remove("tabs");
+            panel.Remove("services");
+            receipt["selected"] = panel;
+        }
+
         private string NetworkAction(JObject request, JObject receipt)
         {
             if (!WildNetworkUI.IsOpen) return "panel_closed";
@@ -102,7 +119,10 @@ namespace WhiteDragon.Ledger
                 receipt["target"] = id;
                 // Grid children from the old tab are destroyed by Unity at the end of this frame.
                 string actual = tab ? NetworkTabField.GetValue(null).ToString() : (string)NetworkSelectionField.GetValue(null);
-                return actual == id ? (tab ? "tab_selected" : "service_selected") : "selection_unconfirmed";
+                if (actual != id) return "selection_unconfirmed";
+                if (tab) return "tab_selected";
+                AttachNetworkSelection(frame, receipt);
+                return "service_selected";
             }
             if (mode != "buy") return "invalid_action";
             if (id == null || id != (string)view["selected_id"] || view["cost"] == null ||
@@ -124,6 +144,7 @@ namespace WhiteDragon.Ledger
             receipt["unlocked"] = service.IsUnlocked();
             receipt["cooldown"] = service.cooldownCurrent;
             bool applied = service.IsUnlocked() || service.state != beforeState || service.cooldownCurrent != beforeCooldown;
+            AttachNetworkSelection(frame, receipt);
             return applied && cashPaid >= 0 && favorPaid >= 0 && cashPaid + favorPaid == (int)view["cost"]
                 ? "purchased" : "purchase_unconfirmed";
         }

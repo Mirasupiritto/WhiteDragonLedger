@@ -304,9 +304,10 @@ def register_pawnshop_tools(server, folder, database):
     def wild_network(mode: Literal["read", "tab", "select", "buy", "close"] = "read",
                      generation: str | None = None, revision: int | None = None, panel_token: str | None = None,
                      target: str | None = None, cost: int | None = None, since_token: str | None = None) -> dict:
-        """Inspect Joe's open network. Read again after selecting a tab or service. since_token suppresses
-        unchanged reads. Mutations require the observed generation, revision and panel_token. Buying requires
-        the selected service ID and its exact cost; the receipt reports favor and cash separately."""
+        """Read Joe's visible network catalog on entry and after changing tabs. Pass since_token for an unchanged check.
+        On 0.19.1+, select and buy return selected details and a fresh top-level panel_token while the panel stays open.
+        Chain using the receipt's generation, revision and panel_token. Buy requires selected_id and the quoted cost.
+        The purchase receipt separates favor spent and cash paid."""
         if mode == "read":
             view = counter.context(folder)
             if view["status"] != "observed":

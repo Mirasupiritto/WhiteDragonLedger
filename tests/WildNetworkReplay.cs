@@ -82,6 +82,14 @@ namespace WhiteDragon.Ledger
             var upgrade=new NetworkUpgrade();
             store.networkUpgrade["referral"]=upgrade;
             var frame=WildNetworkUI.Fixture();
+            var catalog = new List<WildNetworkSlot>(frame.gridContent.children);
+            for (int i = 1; i < 55; i++)
+            {
+                var slot = new WildNetworkSlot { id = "fixture_service_" + i };
+                store.networkUpgrade.Add(slot.id, new NetworkUpgrade());
+                catalog.Add(slot);
+            }
+            frame.gridContent.children = catalog.ToArray();
             frame.useButton.onClick=()=>{store.playerCash-=7; store.wildFavor-=5; upgrade.state=2;};
             JObject receipt=null;
             string token=null;
@@ -97,27 +105,49 @@ namespace WhiteDragon.Ledger
                 Expect(Send("read")=="observed","native network read");
                 token=(string)receipt["panel"]["panel_token"];
             }
+            JObject AcceptSelection()
+            {
+                var detail = (JObject)receipt["selected"];
+                Expect(receipt["panel"] == null && detail["tabs"] == null && detail["services"] == null,
+                       "action receipt contains no catalog");
+                var fresh = (string)receipt["panel_token"];
+                Expect(!string.IsNullOrEmpty(fresh) && fresh != token, "action issues a fresh token");
+                token = fresh;
+                return detail;
+            }
             Expect(CounterStage()=="wild_network" && !CanDismissCustomer(store),"network suppresses negotiation and dismissal");
             Read();
             Expect((string)receipt["panel"]["tabs"][0]["label"]=="Services" && (int)receipt["panel"]["favor"]==5,
                    "visible tabs and favor");
+            Expect(((JArray)receipt["panel"]["services"]).Count == 55, "full catalog on first read");
             Expect(Send("read",since:token)=="unchanged","repeat read compact");
             Expect(Send("tab","1")=="tab_selected","select native tab");
             Read();
             Expect(Send("select","referral")=="service_selected","select without spending");
-            Read();
-            Expect((bool)receipt["panel"]["can_buy"] && (int)receipt["panel"]["cost"]==12,"selected quote");
+            var detail = AcceptSelection();
+            Expect((string)detail["selected_id"] == "referral" && (bool)detail["can_buy"] && (bool)detail["ready"] &&
+                   (int)detail["cost"] == 12 && (int)detail["cash"] == 100 && (int)detail["favor"] == 5, "selected quote");
             Expect(Send("buy","referral",13)=="quote_changed" && store.playerCash==100,"wrong price no payment");
             upgrade.cost=14;
             Expect(Send("buy","referral",12)=="panel_changed","stale panel no payment");
             upgrade.cost=12;
             Read();
-            Expect(Send("buy","referral",12)=="purchased" && (int)receipt["cash_paid"]==7 &&
+            Expect(Send("select","referral") == "service_selected", "select the current quote");
+            detail = AcceptSelection();
+            string quoteToken = token;
+            Expect(Send("buy",(string)detail["selected_id"],(int)detail["cost"])=="purchased" && (int)receipt["cash_paid"]==7 &&
                    (int)receipt["favor_spent"]==5 && (int)receipt["cash_after"]==93 && (bool)receipt["unlocked"],
                    "native purchase spends both balances");
+            detail = AcceptSelection();
+            Expect((int)detail["cash"] == 93 && (int)detail["favor"] == 0 && (bool)detail["unlocked"] &&
+                   !(bool)detail["can_buy"], "post-purchase selection reflects applied cost and state");
+            string purchasedToken = token;
+            token = quoteToken;
             Expect(Send("buy","referral",12)=="panel_changed" && store.playerCash==93,"second click cannot charge again");
-            Read();
+            token = purchasedToken;
+            Expect(Send("read",since:token) == "unchanged" && receipt["panel"] == null, "token matches full post-purchase view");
             Expect(Send("close")=="closed" && Send("read")=="panel_closed","explicit close");
+            foreach (var slot in catalog.GetRange(1, 54)) store.networkUpgrade.Remove(slot.id);
             store.playerCash=originalCash;
             Console.WriteLine("Wild network replay passed: modal, tabs, selection, changed quote, favor/cash and close.");
         }
