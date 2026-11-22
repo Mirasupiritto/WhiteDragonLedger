@@ -1,153 +1,30 @@
-# 白龍店帳 MCP 工具索引
+# 白龍店帳 · 助手操作指南
 
-用途是讓接手的助手知道眼前能做什麼、哪一步交給玩家，以及開發下一個工具時可沿用哪個遊戲入口。本文件記錄白龍店帳 **0.16.0**、遊戲內部版本 **0.46D**。舊版以白龍當鋪 **0.1.0**（`white_dragon_pawnshop`）啟用 SQLite 的完整工具集為準，兩個帳本工具只在啟用帳本時註冊。
+## 接手時
 
-## 接手營業時怎麼查
+1. 呼叫 `get_scene()`，核對場景和存檔欄位。依目前 MCP 工具清單行動。玩家交代「先不開店」「不睡覺」或「我來驗」時，就停在對應動作之前。
+2. 在當鋪先用 `get_shop_updates()` 取得庫存基準，記下 `cursor`。同條連線後續店務動作會附上變動；重新連線可帶 `since=cursor` 接續。要看現金、交租倒數或剩餘客數，再查 `get_shop_status` 或 `get_counter`。
+3. 中途接班時，用實際欄位呼叫 `get_shop_ledger(slot=…)`。有未完單就用同一個 `ticket_id` 查原參數與最新回執。讀檔後重新取得 `generation` 和物品編號。
+4. 使用回執提供的版本、來訪編號與 token。不確定交易是否成交，先用原單和原參數查結果。若已換客或畫面已變，重讀當前場景，再決定下一步。
 
-| 當下要做的事 | 0.16.0 可呼叫的工具 |
+## 接一位客人
+
+- **接客。** 玩家要開始營業時用 `open_shop` 開門。營業時看 `get_counter` 的排隊人數與櫃檯狀態，空櫃檯才用 `ring_customer`。開場仍在進行，用 `wait_for_opening` 等同一位說完。再用 `get_trade_context` 讀台詞、剩餘預算、買賣方向與報價。
+- **配貨。** 以交易平板的 `demand` 為準；條件區未顯示就保留未知。用 `find_stock` 按需求分類、瓶貼、位置及自有狀態找貨，一批編號用 `get_stock_items` 查。「種類多樣」看 `kind_groups`，每種只出一件，客人買過的種類就收起來。
+- **成交。** 向商人整批買用 `buy_merchant_batch` 設總價上限；逐件賣用 `sell_order` 設底價；混合買賣用 `trade_batch`。遇插話或 `sale_pending`，沿用原單。成交後看實收／實付、物品位置和剩餘預算。
+- **交換或買情報。** `barter.options` 裡的 `give` 是店家付出、`receive` 是換回。先用 `barter_offer` 選方案，把付款物品移到交易檯，再用新 `barter_token` 確認。情報商則先看 `info_receipt` 開價，決定買才用 `pay_info_receipt`。
+- **送客。** 用 `dismiss_customer` 送走該次 `visit`。收到 `dismiss_unavailable` 就等同一位可以離開，再用原參數重試；`visit_changed` 表示已換人，停手。
+
+## 其他常用操作
+
+| 場景 | 怎麼做 |
 |---|---|
-| 當鋪反饋箱 | `feedback_box()` 查派系聲望、效果、門檻與後續變動。讀檔後重新建基準；傳 `full=True` 可重看全表。 |
-| 新遊戲難度 | `starting_difficulty` 讀取全部原生卡片與條件，跨頁選取後停在難度頁。見[難度比較表](docs/difficulties.md)。 |
-| 新遊戲初始特性 | `starting_perks` 讀兩列的特性與點數限制，逐項增減後可進難度頁。見[特性比較表](docs/starting-perks.md)。 |
-| 新遊戲專精頁 | `get_specializations` 讀所有可見選項，`choose_specialization` 選一項並繼續。見[專精比較表](docs/specializations.md)。 |
-| 先看人在哪裡 | `get_scene` 看當前區域，`wait_for_scene` 等抵達。選地時可用 `travel_menu`，抵達夜間地點後可用 `explore`。 |
-| 看現金、收租、垃圾桶、當晚費用 | `get_shop_status`，只查桶內明細可用 `get_trash`。日曆的 `event_scans` 是本次讀檔共重建幾次兩週日曆。 |
-| 查標籤 | `list_stock_tags` 列遊戲原生分類和四個貨區及淨水器槽位出現的額外分類，附遊戲名稱和有貨狀態。按關鍵字搜尋或只列有貨。已觀察瓶貼另列。不認得的分類會讓 `find_stock` 回報 `unknown_categories`，先核對代碼與客人台詞。 |
-| 配貨與批次明細 | `find_stock` 可按瓶貼、分類、排除分類、品種、位置和歸屬查候選。開場後看 `demand.source=trade_panel`。條件區可見時依 `restrictions`、`interests` 配貨。未顯示時保留未知。機內瓶的 `machine_id` 與 `can_take_now` 區分在哪台、現在能否取出。批次明細用 `get_stock_items`，附上本次讀檔的 `generation`。 |
-| 按名稱、位置、歸屬找貨，或查批發回款 | `query_inventory`、`query_purchase_lots`。批發回款以原批次核算。 |
-| 歇業或晨間搬貨、看昨晚的淨水器 | `move_item`、`move_items`、`inspect_purifiers`、`put_purifier_bottle`、`take_purifier_bottle`。取瓶與驗水分開。 |
-| 查固定檔案箱、存入或取回文件 | `inspect_archive` 可唯讀、開箱或關箱。取得箱號、槽位及 token 後，用 `transfer_slot_item` 存取；看 `actual_area` 和 `same_item_at_destination` 確認位置。 |
-| 查機台、放料、取貨、執行機台操作 | 用 `inspect_item_window` 查物品內容視窗；`transfer_slot_item` 按原生槽位搬貨，`press_machine_button` 按當頁列出的按鈕。 |
-| 開門、接客、等對方講完 | `get_counter` → `open_shop` → `ring_customer`，回執仍在等同一人時用 `wait_for_opening`。只查店況時停在唯讀查詢。 |
-| 櫃檯對話與回應 | `get_trade_context` 顯示當頁選項。手動翻一頁用 `advance_dialogue`，文字選項用 `choose_dialogue`，物品選項用 `response_choice`。三者都核對本頁及當次來訪。 |
-| 夜間帳單 | 歇業後從 `get_shop_status.sleep.bill` 取得 `bill_token`。用 `prepare_sleep` 開帳單，查看每項價格、勾選、必選與冷卻狀態。用 `night_service` 設定單項，回執直接列出新總額。決定過夜才用 `sleep`，可帶最後核對過的 `bill_token`。 |
-| 當日自動接客或打烊 | `set_auto_receive` 只在空櫃檯接下一位。用 `close_shop` 打烊，提前打烊要先讀剩餘人數，再帶回新 token 和人數確認。 |
-| 買貨或賣貨 | 整批買入用 `buy_merchant_batch`；逐件賣出先 `get_buyer_context` 再 `sell_order`。插話時原售單會等候，使用含最初版本的相同參數取回進度或最終回執。 |
-| 接回未完交易 | 先用 `get_shop_ledger(slot)` 列單，帶 `ticket_id` 查完整原單與回執。確認要收單後，把同一欄位、單號、版本交給 `dismiss_trade_ticket`。 |
-| 委託助手用水或耗材 | `water_use` 先預覽來源和目標，決定執行才用同一張 `use_token` 提交。玩家要親手驗水時，等玩家開啟試紙面板。 |
-| 玩家抽完試紙後 | 用 `water_panel` 對回瓶號、檢測結果與試紙餘量。自有瓶才可選擇更新瓶貼。 |
-| 買情報 | `get_counter` 或 `wait_for_opening` 讀 `info_receipt`。要買才呼叫 `pay_info_receipt`，核對 `paid` 和 `cash_after`。 |
-| 電話與歇業後就寢 | `get_phone_contacts` 查可聯絡對象；決定撥號才用 `dial_contact`，通話中用 `advance_phone_dialogue` 或 `choose_phone_service`。歇業後的 `sleep` 會提交當晚費用並推進日期。 |
+| 新遊戲 | 玩家點「新遊戲」後，依序用 `get_specializations`、`choose_specialization`、`starting_perks` 和 `starting_difficulty`。配點後看剩餘點數、格數與互斥。難度的 `select` 只選中卡片。 |
+| 店務與設備 | `move_items` 批次搬自有貨。`inspect_purifiers` 查瓶貼、電力和試紙；`inspect_item_window` 讀機台或容器，按回執的槽位用 `transfer_slot_item` 存取。玩家親手驗水後，用 `water_panel` 核對瓶號與結果。 |
+| 聲望與人脈 | `feedback_box()` 首查回全表、後續回差異；需要重看完整清單用 `full=True`。用 `get_phone_contacts` 查聯絡人與業務，決定聯絡才撥號。喬的人脈網路用 `wild_network` 查看服務價格和人情餘額。 |
+| 打烊與過夜 | `close_shop` 提早打烊時會列剩餘客數。歇業後用 `prepare_sleep` 看當晚帳單，`night_service` 改服務；要推進到隔天才用 `sleep`。 |
+| 夜間拾荒 | `shop_activity` 看門口與出門確認；有選包提示時用 `response_choice`。用 `travel_menu` 選目的地，`wait_for_scene` 等抵達，之後用 `explore` 看地面、背包和可用動作。返店後再查店帳。 |
 
-**回執與決策。** 首次或換會話可查完整內容視窗。同一視窗後續觀察傳回上次的 `window_token` 作為 `since_token`，只讀差異。搬貨或按鈕回執附上有效變動，連續進度留在遊戲內，真正要決策時再查。遇到 `window_changed` 要重看眼前的槽位或按鈕。
+通緝照、可疑包裝或鑑定畫面需要玩家辨認時，指出是哪位客人或哪件物品，等玩家判斷。原生台詞、平板文字、瓶貼與數值優先用 MCP 讀。
 
-**買家要多種貨時。** 以交易平板限制列為準。出現「種類多樣」時提示「每種只出一件」。`find_stock.kind_groups` 列出每個原生品種的物品編號、候選數和建議件數。成交後平板暫時不可讀時，配貨回執以 `allocation_status=last_visible_for_visit` 標記沿用的限制，依同一來客的原生已購品種清單，賣過的品種建議出 0 件。
-
-**玩家參與。** 來客像不像通緝照、包裝有沒有破綻、鑑定畫面上看到了什麼，都由玩家判斷。遇到這些情況就停在當前物品或來客，說清楚需要看哪裡，等玩家回覆再接著交易。兩個相關舊工具保留在索引，目視辨識與影像功能暫緩。原生 UI 已顯示的文字、瓶貼和數值仍可用文字回執呈現。
-
-## 舊版逐項對照
-
-42 個舊工具中，**22 個已接、12 個部分接上、6 個待接、2 個歸玩家協作**。按舊工具的操作範圍逐列統計，改名或拆成多個 MCP 工具都算在原來那一列。「已接」表示新版有對應的主要操作；實機與回放的驗證範圍見 [README](README.md#開發與驗證)。
-
-右欄的「原生」表示已有遊戲方法或可見 UI 動作可呼叫，仍要接 MCP 和驗證結果。`ModHelper`、`ModHook` 是模組介面；其餘具名的管理器、按鈕與槽位屬於 **0.46D 遊戲實作**，升級時核對簽名和行為。「組合」表示須把幾個原生來源串成可操作流程；帳本、差異摘要、訂單與圖片回執則由橋接端負責。
-
-### 查帳與交易
-
-| 舊版 MCP 工具 | 0.16.0 | 新版入口與差異 | 遊戲入口及橋接工作 |
-|---|---|---|---|
-| `get_shop_ledger` | 已接 | 按欄位列未完單；帶單號回原始參數與最新逐項回執。離線可帶品名、位置、歸屬查最後匯入的庫存。 | SQLite 保存遊戲日誌與當時可見的原單；回傳本次讀檔識別與版本。 |
-| `dismiss_trade_ticket` | 已接 | 依欄位、單號與版本封存未完單。版本已變回 `ticket_changed`，已確認成交回 `already_complete`。 | SQLite 結案前對照原生回執。已提交給遊戲的動作仍可完成。 |
-| `get_shop_updates` | 已接 | 首次回基準，此後回新增、修改、移除與欄位變動。可傳前次 cursor 作為 since。同連線的店務動作附上差異。 | 從遊戲發布的增量與階段重建；0.10.0 逐版保留開關門檢查點。 |
-| `get_shop_state` | 已接 | 按需取得完整店況、庫存、當前貨單與報價、可見物品視窗、對話與回應選項。 | 組合庫存版本、櫃檯觀察及原生可見視窗；觀察發生變動時回報。 |
-| `get_trade_context` | 已接 | 固定回來客、需求及剩餘預算；保留台詞與平板限制，商人水瓶附瓶號、容量、瓶貼及曾觀察到的試紙結果。 | 讀遊戲預算、可見交易平板、WaterHelper 容量與試紙面板。 |
-| `wait_for_shop_event` | 已接 | 等貨物擺出、下一客可接或開場結束。玩家選擇、換客與超時會交回決策。 | 只觀察櫃檯與原生按鈴條件。需要自動翻普通對話時用 wait_for_opening。 |
-| `trade_batch` | 已接 | 一次列多件，同單可買可賣，每件獨立設買入上限或賣出底價。回逐件實付或實收、歸屬與剩餘預算。 | 沿用原生買入及出售按鈕流程。保留原單號、逐件核價與退回原位。整批批發另走原生批發入口。 |
-| `confirm_trade` | 已接 | 對交易檯已擺好的單件，帶來客、瓶號或物品編號、方向及確切報價確認；價格變動會停單。 | 使用原生 CanBuyItemFromTable、CanSellItemFromTable、BuyItem 與既有出售回呼。 |
-| `buy_wholesale` | 已接 | `buy_merchant_batch` 綁定當次整批貨物、開價與買入上限；`query_purchase_lots` 追蹤該批回款。 | 原生 `NegociationUIManager.OnWholesaleClick`；回款由店帳累計。 |
-
-### 櫃檯、對話與日結
-
-| 舊版 MCP 工具 | 0.16.0 | 新版入口與差異 | 遊戲入口及橋接工作 |
-|---|---|---|---|
-| `open_shop` | 已接 | `open_shop` 只在可開門的早晨操作，回執確認營業階段與人數。 | 原生 `StoreShutterButton.OnClick`。 |
-| `call_next_customer` | 已接 | `ring_customer` 在空櫃檯按一次鈴並等開場，使用眼前隊列人數。 | 原生 `StoreBell.RingBell`。 |
-| `dismiss_customer` | 已接 | 用當次 visit 送客，回執帶客人與剩餘人數。劇情攔下時交回對話。 | 原生 `PlayerStore.TryPlayerDismissCurrentClient`。綁定當次來客，送走後別連帶按鈴。 |
-| `advance_dialogue` | 已接 | 用 get_trade_context 的 visit、page 前進一頁，與 wait_for_opening 共用同一回執。 | 原生 DialogUIManager.OnAdvancePressed。只有同一位客人正在等手動翻頁才執行。 |
-| `choose_dialogue` | 已接 | 用同頁 dialog_choices 的 ID 選可用文字選項，回執附選中的 ID 和原文。換頁或換客就停。 | 原生 DialogChoiceBubble.OnDialogChoiceClick。 |
-| `response_choice` | 已接 | 用 response_choices 裡的物品 ID 選劇情回應；回應視窗開著時自動接客暫停。 | 取可見回應容器的選項，原生 MayActivateSlotItem、CanActivateSlotItem 核對後才 ActivateSlotItem。 |
-| `close_shop` | 已接 | `close_shop` 在空櫃檯提交打烊，回執確認店門狀態。 | 原生 `StoreShutterButton.OnClick`。檢查櫃檯與來客，回報是否彈出提早打烊確認。 |
-| `confirm_close_shop` | 已接 | `close_shop` 顯示剩餘人數，再以新 token 和準確人數確認。 | 原生 `StoreShutterButton.EndAndClose`。確認必須對應眼前的提早打烊提示。 |
-| `prepare_sleep` | 已接 | 從 get_shop_status.sleep.bill 取 bill_token，歇業時只開帳單，回傳可見服務、本晚合計與新 token。 | 原生 StoreBedroll.OnClick 開日結平板。 |
-| `night_service` | 已接 | 輸入服務 ID、顯示價格與目標勾選狀態。回執附更新後的帳單；必選、冷卻、失效的帳單會停手。 | 從原生日結服務列對應 StoreService 和 TabletCheckbox，重新核對後 Toggle。 |
-| `confirm_sleep` | 已接 | `sleep` 核對日期、版本和已選費用。`sleep_submitted` 表示送出，`slept` 才表示看見隔日。 | 原生 `EndOfDayUIManager.OnEndDayButtonClick`。跨夜目前為回放驗證。 |
-
-### 貨區、物品與機台
-
-| 舊版 MCP 工具 | 0.16.0 | 新版入口與差異 | 遊戲入口及橋接工作 |
-|---|---|---|---|
-| `move_item` | 已接 | 店內晨間或歇業整理庫存與展示櫃。營業時 move_item 帶同一 visit 擺一件到空交易檯或退回，自有貨退庫存／展示櫃，來客貨退前櫃；成交另用 confirm_trade。 | 原生貨區和 GraphUtils.TryAcceptOnce，按來源與目的地數量確認。 |
-| `container_move` | 已接 | 淨水器有專屬取放。其他自有容器由 inspect_item_window 讀可見的外層路徑與槽位，再用 transfer_slot_item 放入或取回庫存。 | GameInventory.GetParentItem 與開啟的原生視窗逐層核對，外層換位置或隱藏就停。 |
-| `move_furnace_item` | 已接 | transfer_slot_item 走通用槽位；可見的電源、模組、原料、產出、紙條按角色呈現，產出槽只取。 | 以原生 GetBodyStorage 的槽位實例核對控件，回放已驗，待實機有熔爐。 |
-| `get_tool_windows` | 已接 | inspect_item_window 查看物品可見控件、巢狀路徑和電源槽；get_shop_state 可看所有已知且開啟的物品視窗。 | 原生 GetBatterySlot、CanPower 和 GetMachinePowerUsage，電池的剩餘與容量按遊戲標籤回傳。 |
-| `press_machine_button` | 已接 | 使用視窗編號、控件、原文與 token 操作，再回傳控件變動。列印機已實機操作，其他設備逐項實測。 | MachineryButton.Select。 |
-| `pay_info_receipt` | 已接 | 開場結束後從櫃檯讀可見開價，決定購買才提交同一收據與金額。付款回執含實扣與現金餘額。 | 原生 `NegociationUIManager.OnOfferAcceptClick`；橋接核對情報商、可見價格與實扣。 |
-| `wine_start` | 已接 | 可見發酵鍵附 action=start_fermentation，操作仍用 press_machine_button。 | 比對原生本地化按鈕原文，沿用視窗 token 與啟用狀態。待實機有酒瓶。 |
-| `water_use` | 已接 | 倒水、補給、藥片、攜帶式淨水器及新試紙。預覽後明確提交，逐項回報水量、耗材、充能或試紙關聯瓶號。 | 沿用原生選取與指定目標流程，先派送 `ItemBehaviourManager.Target` 再重驗 `GameItem.MayTarget/CanTarget`。實測結果只取已顯示的同瓶面板。 |
-| `water_panel` | 已接 | 玩家驗水後核對同瓶、套用自有瓶貼或關窗。水已乾淨、淨水器電量不足兩種原生單鍵提示用 water_panel 讀原文，再用 notice_close 與同一 token 關閉。 | 讀原生試紙面板或特定 GenericConfirmationUIManager 提示，核對文字、按鈕與面板。 |
-| `archive` | 已接 | `inspect_archive` 開關固定檔案箱；`transfer_slot_item` 存取指定文件。箱內增減與實際目的地在同張回執，第 4 欄已驗證。 | 組合原生容器視窗與 `GraphUtils.TryAcceptOnce`，沿用箱子的限制。 |
-| `inspect_item` | 玩家協作 | 舊版含讀提示、打開／關閉、放大、翻頁。新版只回現有品名與瓶貼等欄位。看細節、鑑定真偽由玩家處理。 | 暫緩目視流程。日後若單需文字提示，可獨立接物品文字與 `ItemMouseDoubleClickHandler.OpenExamineAction`；不需加圖像推理。 |
-| `compare_wanted_portraits` | 玩家協作 | 舊版能並排展示客人與海報原圖或高清參考。新版未接；辨人由玩家接手。 | 暫緩。原生有來客立繪、通緝單與 `WantedElement`，拼圖及 MCP 圖片回傳要自寫。 |
-
-### 電話、人脈與場景
-
-| 舊版 MCP 工具 | 0.16.0 | 新版入口與差異 | 遊戲入口及橋接工作 |
-|---|---|---|---|
-| `phone_call` | 已接 | 先 `get_phone_contacts`，再 `dial_contact` 撥可見聯絡人。通話本身和選業務是兩個動作。 | 原生 `PhoneUIManager.OpenUI/AutoCall`；核對聯絡人與 `phone_token`。 |
-| `phone_advance` | 已接 | `advance_phone_dialogue` 僅翻可前進的普通電話頁。 | 原生 `DialoguePhoneUIManager.OnAdvancePressed`。 |
-| `phone_choice` | 已接 | `choose_phone_service` 選可見且可用的通話選項。獨立人脈服務視窗另見下一列。 | 原生對話按鈕搭配當頁 `phone_token`。 |
-| `wild_network` | 已接 | 店內或電話開窗後可查分頁、服務、已選項和總價。帶上次 panel_token 作 since_token 可略過相同內容。可切頁、選取、依確切價格購買與關閉。 | 走 WildNetworkUI 原生按鈕。購買逐項核對現金、人情實扣、餘額、升級或冷卻狀態。 |
-| `phone_dial` | 已接 | phone_keypad 開關電話、保留前導零並逐位撥號，回傳顯示與通話狀態。 | PhoneUIManager.PressNumber，沿用電話頁版本。 |
-| `activity` | 已接 | shop_activity 處理門口、出門確認及關晨報。選包時從 get_counter 讀取選項，再用 response_choice。拾荒與返店交給 explore。 | StoreDoor.OnClick、OnGoOutsideConfirm、ScavengeButtonClick、Return。 |
-| `travel` | 已接 | travel_menu 讀取當頁地點、翻頁、選地、從選中的地點出發或關圖。抵達看 wait_for_scene。 | TransitUI.Select、原生地圖翻頁及出發按鈕。 |
-| `move_exploration` | 已接 | explore 的 move 使用外出物品編號、來源、目的槽位。回執列到貨量和原物件是否抵達。 | 與當鋪共用 TransferAndMeasure 核對原生搬運結果。 |
-| `exploration_container` | 已接 | 內嵌背包可直接搬運，獨立背包用 explore 的 open_bag、close_bag。 | 背包和機台共用可見槽位遍歷，外出使用原生物品編號。 |
-| `shotgun` | 已接 | shop_activity 顯示遊戲內互動狀態。拿起與收回需當次來訪編號，發射另需玩家辨認後明確確認。 | 核對當前來客及遊戲可用狀態，換人即停。 |
-
-## 實機驗收表
-
-物品編號跟著讀檔重新分配，以下編號只用來識別當次實測。接手新會話時先確認存檔和場景。
-
-0.9.5 第 4 欄第 10 天試營業，26 號基礎水實收 58，買家剩 38，店款從 218 到 276。下一客拒喝幽靈水，25 號退回展示櫃。兩張售單的 `load_scans` 都是 1。當次暫停在最後一位年輕星際客，尚未打烊。
-
-| 功能 | 最近一次證據 | 下次需要的場景或條件 |
-|---|---|---|
-| 0.13.1 出發與後櫃查包 | 第 4 欄第 10 天，出發命令及第一張轉場回執均帶 dumping_ground 和「垃圾倾倒场」。本輪地面 683 號垃圾 ×1 收進原生 66 號腰包。返店直接查後櫃的店帳 22 號腰包，內有店帳 62 號垃圾 ×1，save_id 683。開門前、打烊及開包均為 load_scans 1。 | 兩項均已實機通過。上次的 650 號槍械零件屬於重讀早晨前的另一趟拾荒。 |
-| 0.13.0 第 4 欄夜間往返 | 第 10 天接待 9 位，現金 218 → 276，打烊放棄 0 位。選包回應 51 確認腰包，選地後由當鋪抵達垃圾傾倒場。拾荒一次，剩餘時間 5 → 4；地面 650 號槍械零件 ×1 移到 66 號腰包，實到 1 件，原物件相同，複查地面為空。返店停在歇業，開門前、打烊及返店的 load_scans 均為 1。 | 去程最早的轉場回執目的地為空，抵達時補齊；回程兩步都顯示當鋪。返店後腰包為店帳 22 號，在後櫃，inspect_item_window 回 owner_unavailable，返店後的包內明細待核。電話鍵盤與獨立背包視窗仍待實機。 |
-| 喬的人脈網路 | 0.10.1 回放通過切頁、選服務、拒絕過期報價、分列人情與現金、重複付款防護及關窗。 | 第 4 欄喬來訪時仍載入 0.10.0。下次 0.10.1 在店內或電話打開人脈視窗，對照實際分頁、價格與人情餘額。 |
-| 送客與種類多樣 | 0.10.3 第 4 欄第 10 天，6 號廢金屬實收 14，成交後立即再配貨，15、17、18 號建議 0 件。4 次暫拒後以原版本認回同一客並送走，打烊盤點 1 次。 | 重試期間剛好換人的分支已回放，待實機重現。 |
-| 貨區、物品與機台 | 0.12.0 原生回放涵蓋擺貨與退回、換人與佔桌停止、巢狀位置變動、熔爐五種槽、可見電源、發酵鍵與淨水單鍵提示。 | 第 4 欄待實機遇到相應來客、容器與機台。辨認通緝照及驗偽留給玩家。 |
-| 櫃檯選項與夜間帳單 | 0.11.0 回放涵蓋單頁前進、文字和物品選項、換客換頁、開帳單、設定與取消服務、價格變動、必選與冷卻、同總價但舊帳單無法確認。 | 第 4 欄待實機遇到對話與物品回應。歇業可先開帳單再勾選服務，核對費用後停在當晚。 |
-| 庫存與日曆版本 | 0.11.1 的 MCP 回放以第 11 天庫存配上尚未更新的第 10 天店況，查庫存回 `observation_changed`。待版本一致再查，回第 11 天日曆，讀檔盤點 1 次。 | 實機跨日照常取增量。收到版本變動提示時再查一次。 |
-| 第一區交易與查帳 | 第 4 欄唯讀實測基準 29 筆、續查零變動、盤點 1 次。星際客剩 114，平板限制「拒绝违禁品」。0.10.0 原生回放確認買 8、賣 3，同單按逐件上限及底價成交，變價拒單，重送沒有重複收付。 | 第 4 欄 0.10.0 實機開門收到 OPEN 檢查點，30 號 750 毫升瓶實付 5、26 號基礎水實收 58，客人剩 37。成交當下附帶的差異回 observation_changed，下一查補齊，盤點 1 次。確價、試紙結果與當日打烊檢查點仍待驗。 |
-| 未完單與本機結案 | 第 4 欄接通新版 MCP，實機查到 0 張未完單。回放已驗逐件售單、整批買入、買情報、舊版本拒絕結案、重複結案及跨欄隔離。 | 下次有實際交易中斷時，對照原單、最新進度和成交回執。 |
-| 水務操作 | 0.9.2 回放覆蓋倒水、龍頭與排水、配給、藥片、攜帶式淨水器成功及提示、商人換客與試紙歸瓶。預覽零消耗，重送同一操作沿用原回執。 | 各耗材與設施待實機。第 4 欄第一瓶由玩家親手驗，這次只驗下列面板；之後另找適合的水瓶驗工具動作。 |
-| 反饋箱 | 0.16.0 回放驗證基準、無變動、小數聲望、正負門檻效果啟停及讀檔重置。 | 第 4 欄開門前實測：第一次列出 5 派系、41 項效果（3 項啟用），下層區聲望 0.63；第二次只回「無變動」。效果跨門檻的啟停以回放驗證。 |
-| 新遊戲特性 | 0.15.1 回放涵蓋首輪限制、跨頁選取、互斥、超支、增減格數、取消和進入難度頁。 | 0.15.2 實機從 3 點、0/4 格開始，選「管道暢通」剩 1 點，再加「存款」剩 0 點、2/4 格，成功進入難度頁。互斥與取消仍為回放驗證。 |
-| 新遊戲難度 | 0.15.2 回放覆蓋普通基準、其他卡片的條件與備註、跨頁選取、過期回執及留在難度頁。 | 0.15.2 實機讀到四張卡，各回 8、10、10、10 條。選到第 2 頁赤字連連，再選回第 1 頁加價銷售。測試止於難度頁；主選單的「新遊戲」由玩家點入。 |
-| 新遊戲專精表與選擇 | 0.15.0 原生介面回放驗過跨頁、禁用項、畫面變動與重複提交；stdio 驗過專精頁工具清單。 | 0.15.2 實機讀到 12 項、預選學徒。水培農場主回執有手冊、水培系統、農資種子及較高起租，選取後進入特性頁。學徒三項仍待逐項實機對照。 |
-| 血袋拾荒者的以物易物報價 | 0.14.0 回放驗過開場結束才列三項、翻回原頁、重查沿用報價、只選不付、舊報價與換客停手。選第 1 項，提交一件食品換到兩袋血，重送後成交一次。 | 第 4 欄待自然遇到一般或教學食物交換拾荒客，實機比對三份報價與交換回執。 |
-| 標籤目錄 | 0.9.6 第 4 欄晨間讀到 60 個原生商品分類，目前四個貨區帶有其中 12 類。搜尋「淨水」後用原生代碼配到 8 件自有貨，水培模組查無現貨，完整盤點 1 次。 | 已實機驗收。 |
-| 交易平板條件與淨水器庫存 | 0.9.7 第 4 欄預算 141 的拾荒客，條件區回 `panel_unavailable`，玩家確認這一頁沒顯示限制。WATER 配到展示櫃 25、26 號和 23 號淨水器中的 27 號鐵鏽水。開門前能取 27 號，營業中不能取。全程盤點 1 次。 | 26 號基礎水以 58 成交，拾荒客剩 83，店款 276。下一位星際客說要買水，預算 114。櫃檯與買家回執均從可見交易平板讀到「拒绝违禁品」，興趣列為空，已停在該頁待玩家目視對照。 |
-| 原生分類配貨及瓶貼 | 0.9.6 第 4 欄開門前，自有基礎水找到展示櫃 26 號。批查 25、26 號，分別為幽靈水和基礎水，兩瓶都在展示櫃。食品、日用品、材料共命中 12 件，排除材料後剩 8 件。完整回執及配貨回執盤點均為 1。 | 第 4 欄第 10 天首位拾荒客開場說「我正在囤水」「我有127信用点」。櫃檯與買家回執的四個需求清單皆空，餘額 127。依台詞選用 WATER 查到自有展示瓶 25、26 號，盤點 1 次。玩家截圖確認該頁顯示「拒絕違禁品」。0.9.6 讀的四張買家清單漏了這項限制。 |
-| 夜間選擇目的地 | 0.9.5 回放覆蓋開選單、已選／不可選地點、翻頁、取消、出發與工具清單切換。 | 第 4 欄 0.9.4 開啟選地時仍回「當鋪」。0.9.5 待同頁對照地名、當晚事件和出發按鈕。 |
-| 試紙面板、更新瓶貼與關閉 | 0.9.1 回放確認商人瓶可讀、自有瓶更新到指定瓶號、換瓶拒絕舊操作，試紙餘量相同。 | 0.9.4 第 4 欄第 10 天，玩家親驗拾荒客的 43 號大瓶。面板回瓶號 43，實測與瓶貼均為基礎水，純度 98.23%，商人所有，試紙剩 5 張，與晨檢工具一致。MCP 關閉同瓶面板成功。自有瓶實際改貼及庫存增量仍待驗。 |
-| 情報商報價與付款 | 0.9.0 遊戲端回放已驗。開價 13、現金 100，付款回執實扣 13、餘額 87；重送只扣一次。 | 待第 4 欄自然遇到情報商，聽完讀價。若決定購買，再對照實扣與遊戲上的剩餘現金。 |
-| 固定檔案箱開關與文件往返 | 0.8.1 第 4 欄早晨。5 號情報紙條（存檔 ID 285）從庫存進 28 號箱，再回庫存。回執各報一件增減。續查無差異，已關箱，盤點 1 次。 | 已實機驗收。 |
-| 通用機台視窗、取出產物與按鈕 | 0.8.0 第 4 欄的 14 號列印機。打開後讀到電池、輸出槽和三個按鈕。續查無差異；29 號小瓶取回庫存，按一次小瓶鍵後差異新增 30 號小瓶。再查輸出槽一致。 | 小瓶已實測。中、大瓶鍵當時未啟用，待已解鎖且有電的列印機。 |
-| 其他專精機台 | 熔爐原料存取及產出槽禁放已通過回放。 | 有熔爐與可用礦料時實測各槽；有備妥材料的酒瓶時實測發酵按鈕及後續狀態。 |
-| 晨間查帳與電話 | 0.8.1 第 4 欄查店況、垃圾桶、櫃檯、買家資料、批發帳、淨水器和電話簿均成功。日曆 1 輪／14 次，1 台淨水器、6 張試紙、2 位聯絡人。 | 電話撥號與選業務待可接聽的聯絡人及營業安排；回放已驗。 |
-| 自動接客、提早打烊、分批交易 | 0.9.2 第 4 欄第 10 天開門有 9 位排隊。啟用自動接客後，首位「口渴的星際客」自行入場，隊列剩 8 位。客人開場明說要買基礎水，櫃檯另列兩瓶合計 9 的非自有物品，交易方向要看台詞。開門及啟用回執的盤點數均為 1。 | 0.9.3 已確認現客交易後仍在場時按鈴回 `occupied`，自動接客維持等候。0.9.4 第 4 欄首兩位買家成交後，以各自 visit 送客成功，重查同一回執，自動接客迎入下一位。拒絕送走劇情角色另有回放。0.9.4 第 4 欄第 10 天完整接待 8 位，排隊歸零後正常打烊，放棄 0 人。開門現金 218、打烊 418，全日盤點 1 次。尚待有意提前打烊時驗人數確認。批發回款待實際進貨和後續售出，同款退貨待有預算不足的買家。 |
-| 出售上櫃後客人插話 | 0.9.2 第 4 欄的前兩位買家均在展示瓶上櫃後收到 `buyer_or_ui_changed`。第一筆由遊戲按鈕成交 58。第二筆 25 號仍在後櫃，現金 276；MCP 等到平板再開，接回同瓶卻回 `source_changed`。 | 0.9.3 第 4 欄重開後，25 號（存檔 ID 203）底價 25、遊戲報價 41，拾荒客拒收，瓶子回展示櫃。26 號基礎水插話後按原單成交，實收 58，店款 218→276，預算 130→72。兩張原單分別重查，回執相同，盤點 1 次。0.9.4 重跑同欄，第二位星際客以 41 購買 25 號幽靈水，原底價 25。預算 114→73，店款 276→317，原單重查完全相同，下一客店況確認現金 317。單獨誤關平板與換客拒賣另有回放；0.9.2 現場關閉原因未定。 |
-| 跨夜垃圾、就寢與夜間轉場 | 已有回放；晨間只核對店況。 | 用已歇業且可推進日期的測試檔驗垃圾及就寢。夜間往返另待玩家實際出門。 |
-
-## 開發前先查遊戲入口
-
-使用獨立的 `white-dragon-native-api` MCP 搜尋型別和方法，再查簽名與引用。索引對應本機遊戲程序集，版本及重建方式見[原生 API 查詢](docs/native-api.md)。
-
-## 維護這份索引
-
-- 店務工具見 [pawnshop_tools.py](mcp/pawnshop_tools.py)，區域動作見 [journey.py](mcp/journey.py)。[scene_server.py](mcp/scene_server.py) 控制列表與實際呼叫。轉場中可查場景與等待抵達，在夜間地點另外開放 `explore`。
-- 原生入口按責任查找。讀檔與貨區變動看 [LedgerMod.cs](mod/LedgerMod.cs)，搬貨與取瓶看 [Move.cs](mod/Move.cs)，日曆看 [Calendar.cs](mod/Calendar.cs)，垃圾桶與睡覺看 [ShopDay.cs](mod/ShopDay.cs)，轉場看 [Scenes.cs](mod/Scenes.cs)。
-- 櫃檯、訂單與人脈分別看 [Counter.cs](mod/Counter.cs)、[SaleOrder.cs](mod/SaleOrder.cs)、[Phone.cs](mod/Phone.cs)。情報商收據在 [InformationReceipt.cs](mod/InformationReceipt.cs)。批發及晨檢觀察在 [ShopDesk.cs](mod/ShopDesk.cs)，SQLite 庫存查詢在 [ledger.py](mcp/ledger.py)。
-- 舊版依據為白龍當鋪 0.1.0 的 `probably_stolen_mcp.py:create_server`。本機封存的 `local-0.12.2.13` 註冊了同名 42 項；更早的 `backups/before-local-0.12.2.1` 有 32 項，均包含在表內。這裡記錄工具行為與遊戲入口，供新版獨立實作。
-- 工具新增、拆分、改名或操作範圍改變時，同步改對應列與統計。純查詢、回放、實際進遊戲操作的證據分開記錄。睡覺、打烊和付款等動作的實測使用另行指定的測試檔。
+開發新工具前先查[遊戲原生 API](docs/native-api.md)。驗收結果與待驗項目記在[實機驗收表](docs/acceptance.md)。
