@@ -135,7 +135,7 @@ namespace WhiteDragon.Ledger
             var purifier = Item(976,"portable_water_purifier",1);
             purifier.charge=1;
             Preview(purifier,LocalId(dest));
-            Expect(Apply()=="purifier_used" && (int)receipt["charge_used"]==1,"purifier charge");
+            Expect(Apply()=="purifier_used" && (int)receipt["charge_used"]==1 && (int)receipt["charge_remaining"]==0,"purifier charge");
             Preview(purifier,LocalId(dest));
             Expect(Apply()=="purifier_notice" && (string)receipt["notice"]=="mech_portable_purifier_not_enough_charge","native notice");
             GenericConfirmationUIManager.Instance.panel.activeInHierarchy=false;

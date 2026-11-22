@@ -131,7 +131,12 @@ namespace WhiteDragon.Ledger
             store.isStampIntroduced = true;
             store.commissaryData.redeemedCredit = 12;
             store.startingPerks.Add(new StartingPerk { id = "thrifty" });
-            AdvCalendarUIManager.Instance.storeAttractivenessTMP.text = "店铺吸引力: 14";
+            AdvCalendarUIManager.Instance.storeAttractivenessTMP.text = "店铺吸引力: 250";
+            store.nightLogs.Add("<color=#FF5555> 昨晚店面没有被打扫</color>");
+            store.nightLogs.Add(" 电费已结清。");
+            CaptureMorningReport();
+            store.nightLogs.Clear();
+            FinishMorningReport();
             var fullDay = DayView();
             var nr = (JObject)fullDay["night_report"];
             Expect(((JArray)nr["lines"]).Count == 2 && (string)nr["lines"][0] == "- 昨晚店面没有被打扫" &&
@@ -142,10 +147,19 @@ namespace WhiteDragon.Ledger
             var ss = (JObject)fullDay["status_summary"];
             Expect((int)ss["estimated_net_worth"] == 190 && (int)ss["redeemed_tokens"] == 12 &&
                 (string)ss["active_perks"][0] == "thrifty", "status summary");
-            startUi.contentGroupObject.labels = new TMPro.TextMeshProUGUI[0];
-            store.nightLogs.Add("<b>- 保护期还剩1晚</b>");
-            Expect((string)DayView()["night_report"]["lines"][0] == "- 保护期还剩1晚", "fallback to nightLogs");
+            station.dayCounter++;
+            Expect((string)DayView()["night_report"]["status"] == "awaiting_report", "new day never reuses yesterday's report");
+            store.nightLogs.Add("Garbage bags piled up");
+            store.nightLogs.Add("Protection: 2 nights");
+            store.nightLogs.Add("Wanted: Odin visited yesterday.");
+            CaptureMorningReport();
             store.nightLogs.Clear();
+            Expect((string)DayView()["night_report"]["status"] == "awaiting_report", "wait for panel initialization");
+            FinishMorningReport();
+            var today = DayView()["night_report"];
+            Expect((int)today["day"] == station.dayCounter && (string)today["lines"][0] == "-Garbage bags piled up" &&
+                (string)today["lines"][1] == "-Protection: 2 nights" && (string)today["alerts"][0]["name"] == "Odin", "second morning uses its own logs");
+            station.dayCounter--;
             startUi.displayCaseReminder.activeSelf = false;
             startUi.rentReminder.activeSelf = false;
             store.garbageLevel = 0;

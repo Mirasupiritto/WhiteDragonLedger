@@ -31,6 +31,7 @@ namespace WhiteDragon.Ledger
                 ["load_scans"] = loadScans, ["items"] = results,
                 ["remaining_budget"] = merchant != null && visitId == (string)order["visit"] && merchant.useClientBudget
                     ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
+            if (status == "counter_unavailable") DescribeBlockedTable(completedOrder, false);
             staged = null;
             stagedBundle.Clear();
             bundleOrigins.Clear();

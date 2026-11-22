@@ -35,12 +35,20 @@ namespace WhiteDragon.Ledger
             if (apply && (waterPlan == null || waterUseToken != (string)request["use_token"])) return "water_plan_changed";
             var shop = EmporiumEntry.Instance;
             if (!itemsById.TryGetValue((int)request["source_id"], out var source) || source == null ||
-                !GeneralHelper.IsItemEffectivelyOwned(source)) return "source_unavailable";
+                !GeneralHelper.IsItemEffectivelyOwned(source))
+            {
+                receipt["reason"] = source == null ? "item_missing" : source == shop.faucet ? "use_faucet_as_target" : "not_owned";
+                return "source_unavailable";
+            }
             string origin = WaterArea(source);
             string operation = WaterOperation(source);
             if (origin == null || operation == null || GeneralHelper.IsDisplayOnly(source) ||
                 GeneralHelper.IsItemLocked(source) || !source.MaySelectSlotItem() || !source.CanSelectSlotItem())
+            {
+                receipt["reason"] = source == shop.faucet ? "use_faucet_as_target" : origin == null ? "unknown_location" :
+                    operation == null ? "unsupported_source" : "selection_locked";
                 return "source_unavailable";
+            }
 
             var destination = request["target_id"];
             GameItem target;
@@ -71,7 +79,13 @@ namespace WhiteDragon.Ledger
             var notice = GenericConfirmationUIManager.Instance;
             if (Interactable.isPaused || (notice?.panel != null && notice.panel.activeInHierarchy) || native == null ||
                 !((source.MayTarget(target) && source.CanTarget(target)) ||
-                  (native.MayTarget(source, target) && native.CanTarget(source, target)))) return "target_blocked";
+                  (native.MayTarget(source, target) && native.CanTarget(source, target))))
+            {
+                receipt["reason"] = Interactable.isPaused ? "paused" : notice?.panel?.activeInHierarchy == true ? "confirmation_open" :
+                    !fixture && WaterHelper.GetCurrentCapacityUL(target) == 0 && (operation == "purify" || operation == "test" || operation == "tablet")
+                        ? "container_empty" : "native_target_unavailable";
+                return "target_blocked";
+            }
 
             var plan = new JObject { ["revision"]=sequence, ["operation"]=operation, ["source_id"]=LocalId(source), ["from"]=origin,
                 ["target_id"]=destination, ["target_item_id"]=LocalId(target), ["to"]=area, ["offered"]=offered,
@@ -115,7 +129,9 @@ namespace WhiteDragon.Ledger
                 {
                     return PurifierNoticeAction("read",null,receipt);
                 }
-                int used = charge - DurabilityHelper.GetRealDurability(source);
+                int remaining = DurabilityHelper.GetRealDurability(source);
+                receipt["charge_remaining"] = remaining;
+                int used = charge - remaining;
                 receipt["charge_used"] = used;
                 return used > 0 ? "purifier_used" : "use_unconfirmed";
             }

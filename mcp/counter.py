@@ -112,7 +112,8 @@ def command(folder, action, generation, revision, *, database=None, **args):
         if view.get("visit") != args["visit"] or not view.get("visit"):
             return {"status":"visit_changed"}
         if view["revision"] >= revision and not view["reception"]["can_dismiss"]:
-            return {"status":"dismiss_unavailable"}
+            blockers = {k: view["reception"][k] for k in ("reason", "blocking_items") if k in view["reception"]}
+            return {"status":"dismiss_unavailable", **blockers}
     if action == "barter":
         if view.get("barter_protocol") != 1:
             return {"status": "reload_updated_mod"}
@@ -172,6 +173,6 @@ def wait_opening(folder, generation, visit, timeout=25):
 def ring(folder, generation, revision, waiting):
     result = command(folder, "ring", generation, revision, waiting=waiting)
     if result["status"] != "called":
-        return result
+        return {**result, "bell_receipt": result}
     view = wait_opening(folder, generation, result["visit"])
     return {**view, "bell_receipt": result}

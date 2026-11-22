@@ -14,7 +14,7 @@ namespace WhiteDragon.Ledger {
     public class StoreBell { public void RingBell() { PlayerStore.Instance.currentClientInstance = new StoreClientInstance(); } }
     public static class Interactable { public static bool isPaused; }
     public static class GraphUtils {
-        public static bool CanAccept(GameInventory slot, GameItem item) => !slot.IsInsertLocked();
+        public static bool CanAccept(GameInventory slot, GameItem item) => !slot.IsInsertLocked() && slot.TryFindOneValidInventorySlot(item) != null;
         public static int TryAcceptOnce(GameInventory slot, GameItem item) { item.To(slot); return 0; }
         public static bool CanAccept(GameSlotInventory slot, GameItem item) => slot.childItem == null && item.identifier == "bottle";
         public static int TryAcceptOnce(GameSlotInventory slot, GameItem item) { item.To(slot); return 1; }
@@ -52,7 +52,8 @@ namespace WhiteDragon.Ledger {
         public List<GameItem> childItems = new List<GameItem>();
         public bool IsInsertLocked() => false;
         public bool IsRemoveLocked() => false;
-        public object TryFindOneValidInventorySlot(GameItem item) => new object();
+        public bool replayFull;
+        public object TryFindOneValidInventorySlot(GameItem item) => replayFull ? null : new object();
     }
     public partial class GameSlotInventory:GameInventory { public GameItem childItem; }
     public partial class EmporiumEntry {
@@ -573,6 +574,13 @@ namespace WhiteDragon.Ledger {
             Expect(ActAtCounter(req,receipt)=="dismiss_unavailable","native dismissal locked");
             store.dismissable=true;
             EmporiumEntry.Instance.backInvinvElement.childItems.Clear();
+            var delivered = Item(64001,"card_rev",1);
+            delivered.To(EmporiumEntry.Instance.frontInvinvElement);
+            QueueFrontPaper(delivered,delivered.parentInventory,null);
+            delivered.To(EmporiumEntry.Instance.backInvinvElement);
+            Expect(ActAtCounter(req,receipt)=="dismiss_unavailable" && (string)receipt["blocking_items"][0]["kind"]=="card_rev","diagnose the actual blocker");
+            FileCounterPapers();
+            Expect(delivered.parentInventory==EmporiumEntry.Instance.invElement,"recover this visit before dismissal");
             int waiting=store.waiting;
             store.interceptDismiss=true;
             Expect(ActAtCounter(req,receipt)=="dismiss_intercepted","intercept keeps original visit");

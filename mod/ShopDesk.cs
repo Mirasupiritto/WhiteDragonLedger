@@ -28,7 +28,11 @@ namespace WhiteDragon.Ledger
             if (current == visit) return;
             DisconnectVisit();
             visit = current;
-            if (visit == null) return;
+            if (visit == null)
+            {
+                if (phase == "OPEN") QueueCounterPapers();
+                return;
+            }
             merchant = visit.GetClientBlueprint();
             if (merchant == null) return;
             visitId = Guid.NewGuid().ToString("N");

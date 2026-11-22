@@ -103,14 +103,14 @@ def register_pawnshop_tools(server, folder, database):
         return submit_move(folder, item_id, source, destination, generation, revision, command_id, visit=visit)
 
     @server.tool()
-    def move_items(item_ids: list[int], source: Literal["inventory", "showcase", "back"],
-                   destination: Literal["inventory", "showcase"], generation: str, revision: int) -> dict:
-        """Move owned stock between inventory and showcase with the shutter closed, or clear back to inventory
-        while the counter has no customer. Each back item is checked at transfer time. Pass the generation and
+    def move_items(item_ids: list[int], source: Literal["inventory", "showcase", "front", "back"],
+                   destination: Literal["inventory", "showcase"], generation: str, revision: int, visit: str | None = None) -> dict:
+        """Move owned stock between inventory and showcase with the shutter closed, or collect owned front/back items to inventory.
+        Pass the current visit during service, or omit it at an empty counter. Pass the generation and
         starting revision from query_inventory. Returns one receipt with each observed destination
         and game scan counters. Stops at the first unconfirmed or rejected item. The original
         arguments recover completed lines and can continue pending lines."""
-        return submit_batch(folder, item_ids, source, destination, generation, revision)
+        return submit_batch(folder, item_ids, source, destination, generation, revision, visit=visit)
 
     @server.tool()
     def query_purchase_lots(supplier: str | None = None, product: str | None = None, lot_id: str | None = None) -> dict:
@@ -167,6 +167,7 @@ def register_pawnshop_tools(server, folder, database):
     def water_use(source_id: int, target_id: int | Literal["faucet", "drain"], generation: str, revision: int,
                   mode: Literal["preview", "apply"] = "preview", use_token: str | None = None) -> dict:
         """Preview a water interaction without using supplies. Sources include bottles, rations, tablets, portable purifiers and fresh strips.
+        Use a bottle as source_id and target_id="faucet" to fill it from the tap, or "drain" to empty it.
         To perform it once, submit the same two IDs with mode=apply and the preview token. Recover the receipt with identical arguments.
         A seller's offered bottle permits testing only. Only the visible test panel supplies a water-quality result."""
         if source_id < 1 or (isinstance(target_id, int) and (target_id < 1 or target_id == source_id)):

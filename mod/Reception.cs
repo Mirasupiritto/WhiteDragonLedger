@@ -49,7 +49,11 @@ namespace WhiteDragon.Ledger
         private string DismissCustomer(JObject receipt)
         {
             var store = PlayerStore.Instance;
-            if (!CanDismissCustomer(store)) return "dismiss_unavailable";
+            if (!CanDismissCustomer(store))
+            {
+                DescribeBlockedTable(receipt, true);
+                return "dismiss_unavailable";
+            }
             var departing = visit;
             receipt["visit"] = visitId;
             receipt["customer"] = merchant.displayName;
@@ -74,8 +78,10 @@ namespace WhiteDragon.Ledger
                 receptionState = stamp;
                 receptionToken = Guid.NewGuid().ToString("N");
             }
-            return new JObject { ["token"]=receptionToken, ["waiting"]=waiting, ["auto_receive"]=automatic,
+            var view = new JObject { ["token"]=receptionToken, ["waiting"]=waiting, ["auto_receive"]=automatic,
                 ["close_prompt"]=prompt, ["can_ring"]=RingBlocker(store) == null, ["can_close_shop"]=available, ["can_dismiss"]=CanDismissCustomer(store) };
+            if (visitId != null && !(bool)view["can_dismiss"]) DescribeBlockedTable(view, true);
+            return view;
         }
 
         private void TickReception()
@@ -118,7 +124,7 @@ namespace WhiteDragon.Ledger
                 if (PlayerStore.Instance.storeState == PlayerStore.StoreState.OPEN &&
                     PlayerStore.Instance.currentClientInstance == null &&
                     EmporiumEntry.Instance.backInvinvElement.childItems.Count > 0)
-                    receipt["reason"] = "trade_table_not_empty";
+                    DescribeBlockedTable(receipt, false);
                 return "shutter_unavailable";
             }
             var shutter = StoreShutterButton.Instance;

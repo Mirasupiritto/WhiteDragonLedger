@@ -99,6 +99,15 @@ class MoveMailbox(unittest.TestCase):
                 move_item(self.folder, 16, src, dst, self.generation, 2)
         self.assertFalse(self.inbox.exists())
 
+    def test_old_batch_revision_can_confirm_location_but_cannot_move_next_item(self):
+        already = dict(status="already_in_destination", actual_area="inventory", revision=4, slot=4,
+                       phase="MORNING", full_scans=1, load_scans=1)
+        with patch("moves.move_item", side_effect=[already, {"status": "stale_observation"}]) as move:
+            result = self.batch([25, 26])
+        self.assertEqual([call.args[5] for call in move.call_args_list], [2, 2])
+        self.assertEqual((result["already_count"], result["moved_count"]), (1, 0))
+        self.assertEqual([row["status"] for row in result["items"]], ["already_in_destination", "stale_observation"])
+
     def test_preconditions_and_contention(self):
         self.assertEqual(self.request(1)["status"], "stale_observation")
         self.head["phase"] = "OPEN"
@@ -173,6 +182,15 @@ class MoveMailbox(unittest.TestCase):
         self.assertEqual([(r["item_id"],r["status"]) for r in result["items"]],
                          [(25,"moved"),(26,"unconfirmed"),(27,"not_attempted")])
         self.assertIsNone(result["items"][1]["actual_area"])
+
+    def test_front_batch_accepts_observed_visit(self):
+        with patch("moves.exchange", return_value={"status":"busy"}) as mailbox:
+            self.head.update(phase="OPEN", counter_move_protocol=1)
+            self.publish_head()
+            visit = "c" * 32
+            result = move_items(self.folder, [26], "front", "inventory", self.generation, 2, visit=visit)
+            self.assertEqual(result["items"][0]["status"], "busy")
+            self.assertEqual(mailbox.call_args.args[2]["visit"], visit)
 
     def test_back_batch_customer_arrives_or_stack_moves_partway(self):
         def clear():

@@ -105,12 +105,17 @@ namespace WhiteDragon.Ledger
             var view = PhoneView();
             if ((string)request["phone_token"] != (string)view["phone_token"]) return "phone_changed";
             string action = (string)request["action"];
+            if ((action == "dial" || (action == "phone_keypad" && (string)request["mode"] == "open")) && !(bool)view["can_open"])
+            {
+                receipt["reason"] = phase == "OPEN" ? "shop_open" : (bool)view["panel_open"] ? "phone_already_open" :
+                    PlayerStore.Instance.IsClientPresent() ? "customer_present" : "phone_locked";
+                return "phone_unavailable";
+            }
             if (action == "phone_keypad")
             {
                 switch ((string)request["mode"])
                 {
                     case "open":
-                        if (!(bool)view["can_open"]) return "phone_unavailable";
                         phone.OpenUI();
                         break;
                     case "close":
@@ -133,7 +138,6 @@ namespace WhiteDragon.Ledger
             }
             if (action == "dial")
             {
-                if (!(bool)view["can_open"]) return "phone_unavailable";
                 long number = (long)request["number"];
                 foreach (var row in (JArray)view["contacts"])
                 {

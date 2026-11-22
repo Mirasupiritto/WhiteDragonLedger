@@ -73,27 +73,40 @@ namespace WhiteDragon.Ledger
         private static string CleanReportText(string raw) =>
             string.IsNullOrWhiteSpace(raw) ? "" : Regex.Replace(raw, "<.*?>", "").Trim();
 
-        private static JObject NightReportView()
+        private JObject morningReport;
+        private bool morningReportReady;
+
+        // InitPanel prefixes each native line, then clears nightLogs. Capture before it runs.
+        private void CaptureMorningReport()
         {
             var lines = new JArray();
+            var alerts = new JArray();
+            const string marker = "__WDL_NAME__";
+            string template = CleanReportText(LocHelper.GetLocalizedMechanic("mech_nightlog_wanted_visited", marker));
+            int split = template.IndexOf(marker, StringComparison.Ordinal);
+            string prefix = split < 0 ? null : template.Substring(0, split);
+            string suffix = split < 0 ? null : template.Substring(split + marker.Length);
+            foreach (string entry in PlayerStore.Instance.nightLogs)
+            {
+                string line = CleanReportText("-" + entry);
+                lines.Add(line);
+                string text = line.Substring(1).Trim();
+                if (split < 0) continue;
+                if (text.Length > prefix.Length + suffix.Length && text.StartsWith(prefix, StringComparison.Ordinal) &&
+                    text.EndsWith(suffix, StringComparison.Ordinal))
+                    alerts.Add(new JObject { ["type"]="wanted_visited", ["name"]=text.Substring(split, text.Length - split - suffix.Length) });
+            }
+            morningReport = new JObject { ["day"]=StoreStation.Instance.dayCounter, ["lines"]=lines, ["alerts"]=alerts };
+            morningReportReady = false;
+        }
+
+        private void FinishMorningReport()
+        {
+            if (morningReport == null) return;
+            morningReportReady = true;
+            nextView = 0;
             var reminders = new JArray();
             var startOfDay = StartOfDayUIManager.Instance;
-            if (startOfDay?.contentGroupObject != null)
-            {
-                foreach (var label in startOfDay.contentGroupObject.GetComponentsInChildren<TextMeshProUGUI>(true))
-                {
-                    string text = CleanReportText(label?.text);
-                    if (text.Length > 0) lines.Add(text);
-                }
-            }
-            if (lines.Count == 0 && PlayerStore.Instance.nightLogs != null)
-            {
-                foreach (var entry in PlayerStore.Instance.nightLogs)
-                {
-                    string text = CleanReportText(entry);
-                    if (text.Length > 0) lines.Add(text);
-                }
-            }
             if (startOfDay?.displayCaseReminder != null && startOfDay.displayCaseReminder.activeSelf)
             {
                 string reminder = "";
@@ -109,8 +122,16 @@ namespace WhiteDragon.Ledger
                 string text = CleanReportText(startOfDay.rentReminderTMP?.text);
                 if (text.Length > 0) reminders.Add(text);
             }
-            var report = new JObject { ["lines"] = lines };
-            if (reminders.Count > 0) report["reminders"] = reminders;
+            if (reminders.Count > 0) morningReport["reminders"] = reminders;
+        }
+
+        private JObject NightReportView()
+        {
+            int day = StoreStation.Instance.dayCounter;
+            if (!morningReportReady || (int?)morningReport?["day"] != day)
+                return new JObject { ["status"]="awaiting_report", ["day"]=day, ["lines"]=new JArray() };
+            var report = (JObject)morningReport.DeepClone();
+            report["status"] = "ready";
             if (AdvCalendarUIManager.Instance?.UIPanel?.activeInHierarchy == true) report["panel_open"] = true;
             return report;
         }
@@ -125,8 +146,7 @@ namespace WhiteDragon.Ledger
                 ["projector_bonus"] = store.projectorAttractivenessBonus,
                 ["garbage_level"] = store.garbageLevel
             };
-            string display = CleanReportText(AdvCalendarUIManager.Instance?.storeAttractivenessTMP?.text);
-            if (display.Length > 0) result["display"] = display;
+            result["display"] = LocHelper.GetLocalizedMechanic("mech_store_attractiveness") + ": " + (int)result["total"];
             return result;
         }
 

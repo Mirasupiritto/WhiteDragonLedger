@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Collections.Generic;
 using System.Reflection;
 using Newtonsoft.Json.Linq;
 using TMPro;
@@ -28,8 +29,9 @@ namespace WhiteDragon.Ledger
                     ["enabled"]=NativeButton.Enabled(slot.GetComponent<Button>()) });
             }
             var services = new JArray();
+            var seen = new HashSet<string>();
             foreach (var slot in frame.gridContent.GetComponentsInChildren<WildNetworkSlot>())
-                if (store.networkUpgrade.TryGetValue(slot.id, out var upgrade))
+                if (seen.Add(slot.id) && store.networkUpgrade.TryGetValue(slot.id, out var upgrade))
                     services.Add(new JObject { ["id"]=slot.id, ["title"]=upgrade.GetLocalizedTitle(),
                         ["unlocked"]=upgrade.IsUnlocked(), ["ready"]=upgrade.IsReady() });
 

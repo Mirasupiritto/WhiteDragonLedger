@@ -38,6 +38,15 @@ namespace WhiteDragon.Ledger
                 string inbox = "sale-" + generation + ".json";
                 string path = "receipt-" + id + ".json";
                 int placements = ModHelper.placed.Count;
+                if (scenario == "speech")
+                {
+                    var paper = Item(64002,"newspaper",1);
+                    paper.To(shop.frontInvinvElement);
+                    QueueFrontPaper(paper,paper.parentInventory,null);
+                    paper.To(shop.backInvinvElement);
+                    FileCounterPapers();
+                    Expect(paper.parentInventory==shop.invElement,"ready to sell after native counter sweep");
+                }
                 Write(inbox, plan);
                 Tick();
                 Expect(staged == bottle && ModHelper.placed.Count == placements+1,"placed original bottle exactly once");

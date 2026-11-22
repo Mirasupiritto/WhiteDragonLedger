@@ -30,7 +30,8 @@ namespace WhiteDragon.Ledger {
         public bool ShownInPhoneBook()=>listed;
         public string GetLocalizedDisplayName()=>dialogFuncId;
     }
-    public static class LocHelper { public static string GetLocalizedOrDefault(string table,string key,string fallback) => fallback; public static string GetLocalizedMechanic(string key, params object[] args)=>key; public static string GetLocalizedUI(string key) => key; public static string GetLocalizedDialoguePhone(string key)=>key; }
+    public static class LocHelper { public static string GetLocalizedOrDefault(string table,string key,string fallback) => fallback; public static string GetLocalizedMechanic(string key, params object[] args) =>
+            key=="mech_store_attractiveness" ? "店铺吸引力" : key=="mech_nightlog_wanted_visited" ? "Wanted: "+args[0]+" visited yesterday." : key; public static string GetLocalizedUI(string key) => key; public static string GetLocalizedDialoguePhone(string key)=>key; }
     public class PhoneUIManager {
         public static PhoneUIManager Instance=new PhoneUIManager();
         public Window phonePanel=new Window(); public StorePhoneClient currentPhoneClient;

@@ -89,6 +89,7 @@ namespace WhiteDragon.Ledger
                 store.networkUpgrade.Add(slot.id, new NetworkUpgrade());
                 catalog.Add(slot);
             }
+            catalog.Add(catalog[0]);
             frame.gridContent.children = catalog.ToArray();
             frame.useButton.onClick=()=>{store.playerCash-=7; store.wildFavor-=5; upgrade.state=2;};
             JObject receipt=null;

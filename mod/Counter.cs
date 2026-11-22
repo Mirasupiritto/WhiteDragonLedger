@@ -87,6 +87,8 @@ namespace WhiteDragon.Ledger
             string stage = CounterStage();
             var view = new JObject { ["stage"] = stage, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
+            if (paperCleanup != null && paperCleanup.Any(row => (string)row["status"] != "moved"))
+                view["document_cleanup"] = new JArray(paperCleanup.Where(row => (string)row["status"] != "moved"));
             if (stage == "ready" || stage == "not_selling" || stage == "tablet_closed" || stage == "confirmation_required")
                 view["demand"] = PanelDemand();
             if (observedVariety && visitId != null && view["demand"]?["max_per_kind"] == null)
@@ -173,7 +175,11 @@ namespace WhiteDragon.Ledger
                 StoreShutterButton.Instance.OnClick();
                 var opened = PlayerStore.Instance.storeState == PlayerStore.StoreState.OPEN;
                 receipt["phase"] = PlayerStore.Instance.storeState.ToString();
-                if (opened) receipt["waiting"] = PlayerStore.Instance.GetClientInQueueCount();
+                if (opened)
+                {
+                    FileCounterPapers(receipt);
+                    receipt["waiting"] = PlayerStore.Instance.GetClientInQueueCount();
+                }
                 return opened ? "opened" : "open_unconfirmed";
             }
             if (action == "phone_keypad" || action == "dial" || action == "phone_choice" || action == "phone_advance")
@@ -250,6 +256,7 @@ namespace WhiteDragon.Ledger
                 ui.OnBuyAllClick();
             }
             CloseTransactions();
+            FileCounterPapers(receipt);
             foreach (var item in items) changed.Add(item);
             FlushChanges();
             receipt["cash_after"] = store.playerCash;

@@ -7,7 +7,8 @@ namespace WhiteDragon.Ledger
     {
         private JObject MoveCounterStock(JObject request, GameItem item, string source, string destination)
         {
-            bool idleClear = request["visit"] == null && source == "back" && (destination == "inventory" || destination == "showcase");
+            bool collect = destination == "inventory" && (source == "front" || source == "back");
+            bool idleClear = request["visit"] == null && (collect || source == "back" && destination == "showcase");
             if (!idleClear && phase != "OPEN") return Receipt(request,"shop_closed");
             ObserveVisit();
             string stage = null;
@@ -20,7 +21,9 @@ namespace WhiteDragon.Ledger
             {
                 if (visitId == null || (string)request["visit"] != visitId) return Receipt(request,"visit_changed");
                 stage = CounterStage(true);
-                if ((stage != "ready" && stage != "barter") || order != null || Interactable.isPaused) return Receipt(request,"trade_unavailable");
+                bool canCollect = collect && (stage == "business_complete" || stage == "tablet_closed");
+                if ((!canCollect && stage != "ready" && stage != "barter") || order != null || Interactable.isPaused ||
+                    NegociationUIManager.IsTradeLocked()) return Receipt(request,"trade_unavailable");
             }
             if (!areas.TryGetValue(item.parentInventory,out var actual) || actual != source)
                 return Receipt(request,"source_changed");
@@ -30,7 +33,7 @@ namespace WhiteDragon.Ledger
             bool stock = source == "inventory" || source == "showcase";
             bool allowed = destination == "back" ? (owned ? stock : source == "front") :
                 source == "back" && (owned ? destination == "inventory" || destination == "showcase" : destination == "front");
-            if (!allowed) return Receipt(request,"invalid_route");
+            if (!allowed && !(collect && owned)) return Receipt(request,"invalid_route");
             if (destination == "back" && shop.backInvinvElement.childItems.Count != 0 &&
                 (!owned || stage != "ready" || shop.backInvinvElement.childItems.Any(existing => !GeneralHelper.IsItemOwned(existing))))
                 return Receipt(request,"table_occupied");
@@ -47,6 +50,7 @@ namespace WhiteDragon.Ledger
             receipt["name"] = item.GetDisplayName(true);
             receipt["kind"] = item.identifier;
             string status = TransferAndMeasure(item,origin,target,receipt);
+            if (destination == "back" && status == "moved") pendingPapers.Remove(item);
             FlushChanges();
             receipt["revision"] = sequence;
             receipt["status"] = status;

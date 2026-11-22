@@ -59,12 +59,23 @@ namespace WhiteDragon.Ledger
         {
             if ((long)request["expires_ms"] < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
                 return Receipt(request, "expired");
-            if ((string)request["generation"] != generation || (int)request["revision"] != sequence)
+            if ((string)request["generation"] != generation)
                 return Receipt(request, "stale_observation");
 
             int id = (int)request["item_id"];
             string source = (string)request["source"], destination = (string)request["destination"];
-            if (!itemsById.TryGetValue(id, out var item) || item.parentInventory == null)
+            itemsById.TryGetValue(id, out var item);
+            bool shelves = (source == "inventory" && destination == "showcase") || (source == "showcase" && destination == "inventory");
+            if (shelves && (int)request["revision"] <= sequence && item?.parentInventory != null && GeneralHelper.IsItemOwned(item) &&
+                areas.TryGetValue(item.parentInventory, out var current) && current == destination)
+            {
+                var settled = Receipt(request, "already_in_destination");
+                settled["actual_area"] = destination;
+                settled["quantity"] = item.unitCount;
+                return settled;
+            }
+            if ((int)request["revision"] != sequence) return Receipt(request, "stale_observation");
+            if (item == null || item.parentInventory == null)
                 return Receipt(request, "source_changed");
             if (source == "front" || source == "back" || destination == "front" || destination == "back")
                 return MoveCounterStock(request,item,source,destination);
@@ -107,6 +118,12 @@ namespace WhiteDragon.Ledger
             if (item.parentInventory.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove())
                 return Receipt(request, "locked");
 
+            if (destination == "showcase" && !GraphUtils.CanAccept(target, item))
+            {
+                var full = Receipt(request, "showcase_full");
+                full["actual_area"] = source;
+                return full;
+            }
             if (source == "purifier" && shop.invElement.TryFindOneValidInventorySlot(item) == null)
                 return Receipt(request, "inventory_full");
 

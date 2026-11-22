@@ -1,9 +1,11 @@
+import asyncio
 import json
 import os
 from pathlib import Path
 import tempfile
 import sys
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 from shop_day import trash_contents
@@ -29,6 +31,28 @@ class TrashLedger(unittest.TestCase):
             self.assertEqual(replay("a",3,10,[first,second])["items"], [first,second])
             self.assertEqual(replay("a",4,11,[second])["items"], [second])
             self.assertEqual(replay("b",1,10,[])["items"], [])
+
+    def test_sleep_waits_for_the_requested_morning_report(self):
+        from mcp.server.fastmcp import FastMCP
+        from shop_day import register_day_tools
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            folder = Path(temp)
+            server = FastMCP("replay")
+            register_day_tools(server, folder, folder / "account.sqlite")
+            gen = "a" * 32
+            morning = dict(slot=7, generation=gen, phase="MORNING", day=3, calendar={"day": 3},
+                           trash={"status": "unavailable"}, appeal={"total": 200})
+            ready = dict(status="ready", day=3, lines=["-Protection: 2 nights"])
+            sequence = [{**morning, "night_report": report} for report in (
+                dict(status="ready", day=2, lines=["-Protection: 3 nights"]),
+                dict(status="awaiting_report", day=3, lines=[]), ready)]
+            with (patch("counter.command", return_value={"slot": 7, "status":"sleep_submitted"}) as submit,
+                  patch("shop_day.shop_status", side_effect=sequence) as read,
+                  patch("shop_day.time.sleep")):
+                result = asyncio.run(server.call_tool("sleep", dict(generation=gen, revision=12, day=2, service_cost=0)))
+            reply = json.loads(result[0].text)
+            self.assertEqual((reply["status"], reply["night_report"], reply["appeal"]["total"]), ("slept", ready, 200))
+            self.assertEqual((submit.call_count, read.call_count), (1, 3))
 
     def test_shop_status_exposes_night_report_appeal_and_status_summary(self):
         from shop_day import shop_status

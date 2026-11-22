@@ -59,12 +59,20 @@ namespace WhiteDragon.Ledger
             ModHook.OnGameLoadedLate += Ready;
             ModHook.OnNewGameStarted += StartNewGame;
             ModHook.OnGoingSleepEarly += BeforeSleep;
+            ModHook.OnWakingUpEarly += CaptureMorningReport;
+            ModHook.OnWakingUpLate += FinishMorningReport;
+            ModHook.OnShutterOpenedLate += QueueCounterPapers;
         }
 
         private void ResetLoad()
         {
             ResetScene();
             ResetCalendar();
+            morningReport = null;
+            morningReportReady = false;
+            pendingPapers.Clear();
+            papersDirty = false;
+            paperCleanup = null;
             observedNetworkFrame = null;
             previousNetwork = null;
             workstations.Clear();
@@ -100,13 +108,19 @@ namespace WhiteDragon.Ledger
             Write("head.json", new JObject { ["status"] = "waiting_for_load" });
         }
 
-        private void Ready() { pending = true; }
+        private void Ready()
+        {
+            pending = true;
+            // Loaded saves show their saved logs directly, without the waking hooks.
+            if (PlayerStore.Instance.nightLogs.Count > 0) CaptureMorningReport();
+        }
         private void StartNewGame(string _) { ResetLoad(); pending = true; }
 
         private void DetachAreas()
         {
             foreach (var area in areas.Keys)
             {
+                area.onSlotAddItemLateFunc -= QueueFrontPaper;
                 area.onSlotAddItemLateFunc -= Changed;
                 area.onSlotRemoveItemLateFunc -= Changed;
                 area.onSlotChangeAmountItemFunc -= Changed;
@@ -117,11 +131,13 @@ namespace WhiteDragon.Ledger
         private void Changed(GameItem item, GameInventory inventory, SlotMarker marker)
         {
             changed.Add(item);
+            if (pendingPapers.Count > 0) papersDirty = true;
         }
 
         private void Track(GameInventory area, string name)
         {
             areas.Add(area, name);
+            if (name == "front") area.onSlotAddItemLateFunc += QueueFrontPaper;
             area.onSlotAddItemLateFunc += Changed;
             area.onSlotRemoveItemLateFunc += Changed;
             area.onSlotChangeAmountItemFunc += Changed;
@@ -176,7 +192,7 @@ namespace WhiteDragon.Ledger
             record["phase"] = phase;
             record["day"] = StoreStation.Instance.dayCounter;
             Write(generation + "-" + revision + ".json", record);
-            Write("head.json", new JObject { ["status"] = "observed", ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["counter_move_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
+            Write("head.json", new JObject { ["status"] = "observed", ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["move_location_protocol"] = 1, ["counter_move_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
                 ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
                 ["full_scans"] = fullScans, ["load_scans"] = loadScans });
             sequence = revision;
@@ -208,6 +224,8 @@ namespace WhiteDragon.Ledger
                     known.Add(ids[item], row);
                     rows.Add(row);
                 }
+            if (morningReport != null && !morningReportReady) FinishMorningReport();
+            if (phase == "OPEN") QueueCounterPapers();
             LoadDesk();
             purifierStock = ReadPurifierStock();
             Publish(new JObject { ["op"] = "baseline", ["items"] = rows, ["purifier_stock"] = purifierStock });
@@ -232,6 +250,7 @@ namespace WhiteDragon.Ledger
             }
             if (generation == null || !PlayerStore.HasInstance) return;
             CloseTransactions();
+            FileCounterPapers();
             if (Time.realtimeSinceStartup >= nextView)
                 foreach (var bottle in bottles)
                     if (bottle != null && BottleLabel(bottle) != (string)known[ids[bottle]]["bottle_label"])
@@ -302,6 +321,9 @@ namespace WhiteDragon.Ledger
             ModHook.OnGameLoadedLate -= Ready;
             ModHook.OnNewGameStarted -= StartNewGame;
             ModHook.OnGoingSleepEarly -= BeforeSleep;
+            ModHook.OnWakingUpEarly -= CaptureMorningReport;
+            ModHook.OnWakingUpLate -= FinishMorningReport;
+            ModHook.OnShutterOpenedLate -= QueueCounterPapers;
             DisconnectVisit();
         }
     }

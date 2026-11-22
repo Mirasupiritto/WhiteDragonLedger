@@ -88,7 +88,10 @@ def register_day_tools(server, folder, database):
         deadline=time.monotonic()+8
         while True:
             view=shop_status(folder)
-            if view.get("slot")==result["slot"] and view.get("generation")==generation and view.get("day")==day+1 and view.get("phase")=="MORNING":
+            report = view.get("night_report", {})
+            if (view.get("slot") == result["slot"] and view.get("generation") == generation
+                    and view.get("day") == day + 1 and view.get("phase") == "MORNING"
+                    and report.get("day") == day + 1 and report.get("status") == "ready"):
                 slept = {**result,"status":"slept","day_after":view["day"],"calendar":view["calendar"],
                          "trash":trash_contents(folder,database,view)}
                 for key in ("night_report", "appeal", "status_summary"):
