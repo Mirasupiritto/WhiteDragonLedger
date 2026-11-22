@@ -13,6 +13,90 @@ class CounterFlow(unittest.TestCase):
         self.view = dict(status="observed", phase="OPEN", generation=self.generation,
                          revision=2, visit=self.visit)
 
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_network_load_gate_and_closed_shop_phone_visit(self, context, exchange):
+        context.return_value = dict(self.view, phase="CLOSED")
+        args = dict(mode="buy",target="referral",panel_token="panel",cost=12)
+        self.assertEqual(counter.command(self.folder,"wild_network",self.generation,2,**args)["status"],"reload_updated_mod")
+        exchange.assert_not_called()
+        context.return_value["wild_network_protocol"]=1
+        exchange.return_value={"status":"purchased","cash_paid":7,"favor_spent":5}
+        result=counter.command(self.folder,"wild_network",self.generation,2,**args)
+        self.assertEqual(result["cash_paid"],7)
+        self.assertEqual(exchange.call_args.args[2]["target"],"referral")
+
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_dismiss_rechecks_original_visit_and_recovers_receipt(self, context, exchange):
+        import json
+        import os
+        import tempfile
+        view = dict(self.view, visit=self.visit, revision=16, dismiss_recheck_protocol=1,
+                    reception=dict(can_dismiss=True))
+        context.return_value = view
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as tmp:
+            folder = Path(tmp)
+            def send(folder, inbox, request, receipt):
+                self.assertEqual((request["revision"],request["visit"]),(14,self.visit))
+                result=dict(status="dismissed", generation=self.generation, command_id=request["command_id"],
+                            visit=self.visit, customer="维护工人", waiting=6)
+                (folder/f"receipt-{request['command_id']}.json").write_text(json.dumps(result),encoding="utf8")
+                return result
+            exchange.side_effect=send
+            def dismiss():
+                return counter.command(folder,"dismiss",self.generation,14,visit=self.visit)
+            view["visit"]="c"*32
+            self.assertEqual(dismiss()["status"],"visit_changed")
+            view["visit"]=self.visit
+            view["reception"]["can_dismiss"]=False
+            self.assertEqual(dismiss()["status"],"dismiss_unavailable")
+            exchange.assert_not_called()
+            view["reception"]["can_dismiss"]=True
+            result=dismiss()
+            self.assertEqual(result["waiting"],6)
+            view["visit"]="c"*32
+            self.assertEqual(dismiss(),result)
+            exchange.assert_called_once()
+
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_retry_persisted_native_refusal_with_original_revision(self, context, exchange):
+        import json
+        import os
+        import tempfile
+        for terminal in ("dismissed", "dismiss_intercepted", "outcome_unknown"):
+            with self.subTest(terminal=terminal), tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as tmp:
+                view = dict(self.view, revision=22, dismiss_recheck_protocol=1, reception=dict(can_dismiss=True))
+                context.return_value = view
+                attempts = []
+                outcomes = iter(["dismiss_unavailable", "dismiss_unavailable", terminal])
+                def dispatch(folder, inbox, plan, read):
+                    self.assertEqual((plan["revision"],plan["visit"]),(20,self.visit))
+                    token = plan["command_id"]
+                    attempts.append(token)
+                    record = dict(status=next(outcomes), generation=self.generation, command_id=token)
+                    (folder/f"receipt-{token}.json").write_text(json.dumps(record),encoding="utf-8")
+                    return read()
+                exchange.side_effect = dispatch
+                def dismiss():
+                    return counter.command(Path(tmp),"dismiss",self.generation,20,visit=self.visit)
+                self.assertEqual(dismiss()["status"],"dismiss_unavailable")
+                view["reception"]["can_dismiss"] = False
+                self.assertEqual(dismiss()["status"],"dismiss_unavailable")
+                view["visit"] = "c"*32
+                view["reception"]["can_dismiss"] = True
+                self.assertEqual(dismiss()["status"],"visit_changed")
+                self.assertEqual(len(attempts),1)
+                view["visit"] = self.visit
+                self.assertEqual(dismiss()["status"],"dismiss_unavailable")
+                receipt = dismiss()
+                self.assertEqual(receipt["status"],terminal)
+                view["visit"] = "d"*32
+                self.assertEqual(dismiss(),receipt)
+                self.assertEqual(len(set(attempts)),3)
+                self.assertEqual(len(attempts),3)
+
     @patch("counter.published")
     def test_legacy_native_ready_is_not_an_offer(self, published):
         published.return_value = dict(self.view, slot=4, counter={"stage": "ready", "offer_token": "old"})

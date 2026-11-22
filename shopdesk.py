@@ -1,14 +1,14 @@
 """Views of the current save's confirmed purchases and visible purifier panel."""
-import ctypes
 import json
-import os
 import re
 import time
 from uuid import NAMESPACE_URL, uuid5
 
+from search_text import search_text
 from scene import interrupted_shop_call
-from ledger import lookup, read_head
-from moves import exchange
+from ledger import lookup, same_observation, read_head
+from command_transport import exchange, read_command_receipt, read_optional_json
+import trade_journal
 
 
 def published(folder, stream="desk"):
@@ -32,6 +32,9 @@ def published(folder, stream="desk"):
                 continue
             return {"status": "awaiting_observation"}
         if read_head(folder).get("generation") == data["generation"] == generation:
+            counter = data.get("counter", {})
+            if "demand" in counter and counter["demand"].get("source") != "trade_panel":
+                counter["demand"] = {"source": "trade_panel", "status": "reload_updated_mod"}
             return {**data, "status": "observed"}
     return {"status": "load_changed"}
 
@@ -52,21 +55,6 @@ def summarize(lot, on_hand):
     if not remaining and lot["paid"] is not None:
         result["gross_profit"] = recovered - lot["paid"]
     return result
-
-
-def search_text(text):
-    text = text.casefold()
-    if not text or os.name != "nt":
-        return text
-    # Windows NLS maps traditional and simplified search terms to the same form.
-    convert = ctypes.windll.kernel32.LCMapStringEx
-    size = convert("zh-CN", 0x02000000, text, len(text.encode("utf-16-le")) // 2, None, 0, None, None, 0)
-    if not size:
-        raise ctypes.WinError()
-    output = ctypes.create_unicode_buffer(size + 1)
-    if not convert("zh-CN", 0x02000000, text, len(text.encode("utf-16-le")) // 2, output, size, None, None, 0):
-        raise ctypes.WinError()
-    return output.value
 
 
 def purchase_lots(folder, database, supplier=None, product=None, lot_id=None):
@@ -100,7 +88,8 @@ def machines(folder):
         row["last_night_bottle_key"] = last["bottle_key"] if last else None
         row["same_bottle_as_last_night"] = (row["bottle_key"] == last["bottle_key"]
                                                if last and last["bottle_key"] is not None else None)
-        row["can_remove_to_inventory"] = bool(row["can_remove_bottle"] and row["inventory_has_room"])
+        row["can_remove_to_inventory"] = bool(view["phase"] in ("MORNING", "CLOSED") and
+                                              row["can_remove_bottle"] and row["inventory_has_room"])
         row["available_strips"] = available_strips
         row["ready_to_take_and_test"] = bool(row["can_remove_to_inventory"] and available_strips > 0)
     return {**{k:view[k] for k in ("status","slot","day","phase","generation","revision","available_strips")},
@@ -109,46 +98,76 @@ def machines(folder):
             "missing_since_last_night":[r for k,r in previous.items() if k not in current]}
 
 
+def allocation_stock(folder, database, query):
+    result = lookup(folder, database, stock_query=query)
+    if result["status"] != "observed" or query.get("owned") is False:
+        return result
+    view = published(folder)
+    if view.get("status") != "observed" or view["phase"] != "OPEN":
+        return result
+    counter = view["counter"]
+    demand = counter.get("demand", {})
+    if not (demand.get("source") == "trade_panel" and demand.get("status") == "visible" and demand.get("max_per_kind") == 1):
+        demand = counter.get("visit_variety", {})
+        if (demand.get("visit") != counter.get("visit") or demand.get("status") != "last_visible_for_visit"
+                or demand.get("source") != "trade_panel" or demand.get("max_per_kind") != 1):
+            return result
+    if not counter.get("visit") or not same_observation(view, result):
+        return {**result, "allocation_status":"observation_changed"}
+    sold = set(demand["sold_kinds"])
+    groups = {}
+    for item in result["items"]:
+        if item["owned"] and item["area"] in {"inventory","showcase"}:
+            groups.setdefault(item["kind"], []).append(item["id"])
+    result.update(visit=counter["visit"], allocation_status=demand["status"], sold_kinds=demand["sold_kinds"],
+                  allocation_hint=demand["allocation_hint"],
+                  kind_groups=[dict(kind=kind, item_ids=ids, count=len(ids),
+                                    recommended_count=0 if kind in sold else 1)
+                               for kind, ids in groups.items()])
+    return result
+
+
 def buyer(folder):
     view = published(folder)
     if view["status"] != "observed":
         return view
-    return {k:view[k] for k in ("status","slot","phase","generation","revision","customer")}
+    result = {k:view[k] for k in ("status","slot","phase","generation","revision","customer")}
+    if "trade_tools_protocol" in view.get("counter", {}):
+        result["trade_tools_protocol"] = view["counter"]["trade_tools_protocol"]
+    if "demand" in view.get("counter", {}):
+        result["demand"] = view["counter"]["demand"]
+    return result
 
 
-def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_budget=False):
+def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_budget=False, *, database=None, tool="sell_order", on_table=False):
     if not all(re.fullmatch("[a-f0-9]{32}", token) for token in (generation, visit)) or revision < 1:
         raise ValueError("Use the generation, revision and visit from the buyer context")
     ids = [line["item_id"] for line in lines]
-    if not lines or len(ids) != len(set(ids)) or any(i<1 for i in ids) or any(l["min_price"]<0 for l in lines):
+    if not lines or len(ids) != len(set(ids)) or any(i<1 for i in ids) or any(l.get("min_price", l.get("max_price", -1))<0 for l in lines):
         raise ValueError("Expected distinct positive item IDs and a non-negative minimum for each")
     plan = dict(lines=lines, generation=generation, revision=revision, visit=visit,
                 stop_same_kind_on_budget=stop_same_kind_on_budget)
+    if tool != "sell_order":
+        plan.update(tool=tool, on_table=on_table)
     command = uuid5(NAMESPACE_URL, "white-dragon/sell-order/"+json.dumps(plan,sort_keys=True)).hex
     def receipt():
-        try:
-            result=json.loads((folder/f"receipt-{command}.json").read_text(encoding="utf-8-sig"))
-        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
-            return None
-        if result["command_id"] != command or result["generation"] != generation:
-            raise ValueError("Receipt belongs to another sale order")
-        return result
+        return read_command_receipt(folder, command, generation)
+
     previous = receipt()
     if previous is not None:
         return previous
 
     def progress():
-        try:
-            data = json.loads((folder/f"sale-progress-{generation}.json").read_text(encoding="utf-8-sig"))
-        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
-            return None
-        if (data["command_id"], data["generation"], data["visit"]) == (command, generation, visit):
+        data = read_optional_json(folder/f"sale-progress-{generation}.json")
+        if data is not None and (data["command_id"], data["generation"], data["visit"]) == (command, generation, visit):
             return data
         return None
 
     context = buyer(folder)
     if context["status"] != "observed":
         return context
+    if tool != "sell_order" and context.get("trade_tools_protocol") != 1:
+        return {"status":"reload_updated_mod"}
     if context["phase"] != "OPEN":
         return {"status":"shop_closed"}
     if (context["generation"], (context["customer"] or {}).get("visit")) == (generation, visit):
@@ -158,7 +177,10 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
     if (context["generation"],context["revision"],(context["customer"] or {}).get("visit")) != (generation,revision,visit):
         return {"status":"stale_order"}
     request = dict(plan, command_id=command)
-    result = exchange(folder, folder/f"sale-{generation}.json", request, receipt)
+    def send():
+        return exchange(folder, folder/f"sale-{generation}.json", request, receipt)
+    result = send() if database is None else trade_journal.dispatch(
+        database, folder, tool, request, context["slot"], context["customer"].get("name"), send)
     if result["status"] == "unconfirmed":
         return receipt() or progress() or result
     return result

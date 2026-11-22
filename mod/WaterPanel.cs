@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using TMPro;
 
@@ -8,6 +9,7 @@ namespace WhiteDragon.Ledger
     {
         private JObject observedWaterPanel;
         private string waterPanelToken;
+        private readonly Dictionary<GameItem, JObject> stripReadings = new Dictionary<GameItem, JObject>();
 
         private static string VisibleText(TextMeshProUGUI label)
         {
@@ -33,6 +35,8 @@ namespace WhiteDragon.Ledger
                     ui.matchButton != null && ui.matchButton.isActiveAndEnabled &&
                     ui.matchButton.IsInteractable() && ui.CanMatch(bottle)
             };
+            if (bottle != null && !string.IsNullOrWhiteSpace(tested))
+                stripReadings[bottle] = new JObject { ["tested"]=tested, ["purity"]=panel["purity"] };
             string mode = (string)request["mode"];
             if (mode == "read")
             {

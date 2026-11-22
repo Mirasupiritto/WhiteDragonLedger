@@ -39,7 +39,7 @@ class MoveMailbox(unittest.TestCase):
             path = self.folder / f"receipt-{self.command}.json"
             path.write_text(json.dumps(response), encoding="utf-8")
             self.inbox.unlink()
-        with patch("moves.time.sleep", side_effect=lambda _: respond()):
+        with patch("command_transport.time.sleep", side_effect=lambda _: respond()):
             self.assertEqual(self.request(), response)
         self.head["revision"] = 3
         self.publish_head()
@@ -83,7 +83,7 @@ class MoveMailbox(unittest.TestCase):
             self.publish_head()
             (self.folder / ("receipt-" + request["command_id"] + ".json")).write_text(json.dumps(receipt))
             self.inbox.unlink()
-        with patch("moves.time.sleep", side_effect=game_tick):
+        with patch("command_transport.time.sleep", side_effect=game_tick):
             result = self.batch([25, 26])
             self.assertEqual(self.batch([25, 26]), result)
         self.assertEqual(posted, [(25, 2), (26, 3)])
@@ -125,7 +125,7 @@ class MoveMailbox(unittest.TestCase):
             response["from"] = "purifier"
             (self.folder/f"receipt-{self.command}.json").write_text(json.dumps(response))
             self.inbox.unlink()
-        with patch("moves.time.sleep", side_effect=game_tick):
+        with patch("command_transport.time.sleep", side_effect=game_tick):
             self.assertEqual(take(23)["available_strips"],6)
         self.assertTrue(take(23)["source_slot_empty"])
         with self.assertRaises(ValueError):
@@ -140,7 +140,7 @@ class MoveMailbox(unittest.TestCase):
             move_item(self.folder, 26, "front", "purifier", self.generation, 2, machine_id=23)
 
     def test_unconfirmed_is_not_success(self):
-        with patch("moves.time.monotonic", side_effect=[0, 9]):
+        with patch("command_transport.time.monotonic", side_effect=[0, 9]):
             result = self.request()
         self.assertEqual(result["status"], "unconfirmed")
         self.assertEqual(result["command_id"], self.command)

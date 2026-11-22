@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
@@ -39,6 +40,8 @@ namespace WhiteDragon.Ledger
 
         private string CounterStage(bool sellingToBuyer = false)
         {
+            if (WildNetworkUI.IsOpen) return "wild_network";
+            if (ResponseInventory() != null) return "response_required";
             if (phase != "OPEN") return "shop_closed";
             var store = PlayerStore.Instance;
             if (merchant == null) return store.currentClientInstance == null ? "idle" : "arriving";
@@ -80,16 +83,17 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
-            if (stage == "advance_required")
-            {
-                var page = DialogUIManager.Instance.GetCurrentDialog();
-                if (page != lastPage || pageToken == null) pageToken = Guid.NewGuid().ToString("N");
-                lastPage = page;
-                view["page"] = pageToken;
-            }
-            else { lastPage = null; pageToken = null; }
+            if (stage == "ready" || stage == "not_selling" || stage == "tablet_closed" || stage == "confirmation_required")
+                view["demand"] = PanelDemand();
+            if (observedVariety && visitId != null && view["demand"]?["max_per_kind"] == null)
+                view["visit_variety"] = new JObject { ["source"]="trade_panel", ["status"]="last_visible_for_visit",
+                    ["visit"]=visitId, ["max_per_kind"]=1, ["allocation_hint"]=VarietyHint,
+                    ["sold_kinds"]=new JArray(merchant.varietyTrackingList.Distinct()) };
+            view["quote_ready"] = merchant != null && CounterStage(true) == "ready";
+            view["quote"] = TableQuote();
+            ObserveDecision(stage, view);
             if (phase == "OPEN") view["waiting"] = store.GetClientInQueueCount();
             if (stage == "information")
                 ObserveInformationReceipt(view);
@@ -110,7 +114,19 @@ namespace WhiteDragon.Ledger
             {
                 var row = new JObject { ["id"] = LocalId(item), ["name"] = item.GetDisplayName(true),
                     ["kind"] = item.identifier, ["quantity"] = item.unitCount };
-                if (BottleLabel(item) is string label) row["bottle_label"] = label;
+                if (BottleLabel(item) is string label)
+                {
+                    row["bottle_label"] = label;
+                    row["capacity_ml"] = WaterHelper.GetTotalCapacityML(item);
+                    var strip = WaterStripUIManager.Instance;
+                    if (strip != null && strip.panel != null && strip.panel.activeInHierarchy && strip.currentWaterContainer == item)
+                    {
+                        string tested = VisibleText(strip.testedTMP);
+                        if (!string.IsNullOrWhiteSpace(tested))
+                            stripReadings[item] = new JObject { ["tested"]=tested, ["purity"]=VisibleText(strip.purityTMP) };
+                    }
+                    if (stripReadings.TryGetValue(item, out var reading)) row["last_strip"] = reading.DeepClone();
+                }
                 rows.Add(row);
                 sum += item.GetNegociatedValue();
             }
@@ -132,13 +148,21 @@ namespace WhiteDragon.Ledger
         private string ActAtCounter(JObject request, JObject receipt)
         {
             if ((long)request["expires_ms"] < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) return "expired";
-            if ((string)request["generation"] != generation || (int)request["revision"] != sequence) return "stale_observation";
             string action = (string)request["action"];
+            int requestedRevision = (int)request["revision"];
+            bool recheckDismiss = action == "dismiss" && requestedRevision > 0 && requestedRevision < sequence;
+            if ((string)request["generation"] != generation || (requestedRevision != sequence && !recheckDismiss))
+                return "stale_observation";
+            if (action == "wild_network") return NetworkAction(request, receipt);
+            if (WildNetworkUI.IsOpen && action != "visible_windows") return "wild_network_open";
             if (action == "inspect_window" || action == "transfer_slot" || action == "press_control" ||
                 action == "inspect_archive" || action == "close_archive")
                 return WorkstationAction(request, receipt);
+            if (action == "visible_windows") return ObserveTradeWindows(receipt);
             if (action == "water_use") return WaterUseAction(request, receipt);
             if (action == "water_panel") return WaterPanelAction(request, receipt);
+            if (action == "prepare_sleep" || action == "night_service") return ActOnBill(request, receipt);
+            if (action == "response_choice" || action == "choose_dialogue") return SubmitDecision(request, receipt);
             if (action == "sleep") return SubmitSleep(request, receipt);
             if (action == "open_shop")
             {
@@ -156,15 +180,20 @@ namespace WhiteDragon.Ledger
             if (action == "auto_receive" || action == "close_shop") return ActOnReception(request, receipt);
             if (action == "ring")
             {
-                if (store.currentClientInstance != null) return "occupied";
-                if (store.GetClientInQueueCount() != (int)request["waiting"]) return "queue_changed";
-                if (store.lockNextBellFlag > 0 || !store.CanNextClient()) return "bell_unavailable";
+                string blocked = RingBlocker(store, (int)request["waiting"]);
+                if (blocked != null) return blocked;
                 var bell = UnityEngine.Object.FindObjectOfType<StoreBell>();
                 if (bell == null) return "bell_unavailable";
                 bell.RingBell();
                 ObserveVisit();
                 receipt["visit"] = visitId;
                 return visitId == null ? "ring_unconfirmed" : "called";
+            }
+            if (action == "advance") ObserveVisit();
+            if (action == "dismiss")
+            {
+                ObserveVisit();
+                receipt["revision_rechecked"] = recheckDismiss;
             }
             if (visitId == null || (string)request["visit"] != visitId) return "visit_changed";
             if (action == "pay_info") return PayInformationReceipt(request, receipt);

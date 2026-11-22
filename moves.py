@@ -1,12 +1,10 @@
 """One local mailbox per load. Only the Unity game thread may confirm a transfer."""
 import json
-import os
 import re
-import tempfile
-import time
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from command_transport import exchange, read_command_receipt
 from scene import interrupted_shop_call
 from ledger import read_head
 
@@ -33,13 +31,12 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         request["machine_id"] = machine_id
 
     def read_receipt():
-        try:
-            result = json.loads((folder / f"receipt-{command}.json").read_text(encoding="utf-8-sig"))
-        except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+        result = read_command_receipt(folder, command, generation)
+        if result is None:
             return None
-        if (result["generation"], result["expected_revision"], result["item_id"], result["from"],
-            result["requested_area"], result["command_id"], result.get("machine_id")) != (
-                generation, revision, item_id, source, destination, command, machine_id):
+        if (result["expected_revision"], result["item_id"], result["from"],
+            result["requested_area"], result.get("machine_id")) != (
+                revision, item_id, source, destination, machine_id):
             raise ValueError("command_id already used for a different move")
         return result
 
@@ -57,45 +54,6 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         return {"status": "shop_open", "command_id": command}
     inbox = folder / f"move-{generation}.json"
     return exchange(folder, inbox, request, read_receipt, previous_command)
-
-
-def exchange(folder, inbox, request, read_receipt, previous_command=None):
-    command = request["command_id"]
-    fd, name = tempfile.mkstemp(dir=folder, prefix="posting-", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            json.dump({**request, "expires_ms": int(time.time()*1000)+6000}, stream)
-        # Unity publishes the receipt just before removing the inbox. A batch may
-        # reach this point while the preceding confirmed command still owns it.
-        handoff_deadline = time.monotonic() + 0.5 if previous_command else None
-        while True:
-            try:
-                os.link(name, inbox)
-                break
-            except FileExistsError:
-                try:
-                    pending = json.loads(inbox.read_text(encoding="utf-8"))
-                except FileNotFoundError:
-                    continue
-                if pending.get("command_id") == command:
-                    if any(pending.get(k) != v for k, v in request.items()):
-                        raise ValueError("command_id already pending for a different move")
-                    break
-                if (previous_command and pending.get("command_id") == previous_command
-                        and time.monotonic() < handoff_deadline):
-                    time.sleep(0.025)
-                    continue
-                return {"status": "busy", "command_id": command}
-    finally:
-        Path(name).unlink(missing_ok=True)
-    deadline = time.monotonic() + 8
-    while time.monotonic() < deadline:
-        result = read_receipt()
-        if result is not None:
-            return result
-        time.sleep(0.075)
-    return {"status": "unconfirmed", "command_id": command,
-            "detail": "Check the receipt with the original arguments before another action."}
 
 
 def move_items(folder: Path, item_ids, source, destination, generation, revision):

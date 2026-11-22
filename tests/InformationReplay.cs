@@ -14,6 +14,7 @@ namespace WhiteDragon.Ledger
     {
         public bool activeInHierarchy = true;
         public object[] elements = new object[0];
+        public T GetComponent<T>() where T:class => elements.OfType<T>().FirstOrDefault();
         public T[] GetComponentsInChildren<T>() => elements.OfType<T>().ToArray();
     }
     public class TabletListRow : ReceiptElements {}

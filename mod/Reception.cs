@@ -13,10 +13,21 @@ namespace WhiteDragon.Ledger
 
         private bool ClosePrompt => StoreUIManager.Instance.closeShutterConfirmationPanel.activeInHierarchy;
 
+        private string RingBlocker(PlayerStore store, int? expectedWaiting = null)
+        {
+            if (store.storeState != PlayerStore.StoreState.OPEN) return "shop_closed";
+            if (WildNetworkUI.IsOpen) return "wild_network_open";
+            if (ResponseInventory() != null) return "response_required";
+            if (store.currentClientInstance != null) return "occupied";
+            if (expectedWaiting.HasValue && store.GetClientInQueueCount() != expectedWaiting.Value) return "queue_changed";
+            if (store.lockNextBellFlag > 0 || !store.CanNextClient()) return "bell_unavailable";
+            return null;
+        }
+
         private bool CanCloseShop()
         {
             var store = PlayerStore.Instance;
-            return store.storeState == PlayerStore.StoreState.OPEN && StoreShutterButton.Instance != null &&
+            return ResponseInventory() == null && !WildNetworkUI.IsOpen && store.storeState == PlayerStore.StoreState.OPEN && StoreShutterButton.Instance != null &&
                 store.lockShutterButtonFlag <= 0 && !store.isClientBeingArrested && !store.isHandlingShootout &&
                 store.currentClientInstance == null && EmporiumEntry.Instance.backInvinvElement.childItems.Count == 0 &&
                 store.CanEndDay();
@@ -24,7 +35,7 @@ namespace WhiteDragon.Ledger
 
         private bool CanDismissCustomer(PlayerStore store)
         {
-            if (phase != "OPEN" || visit == null || store.currentClientInstance != visit ||
+            if (ResponseInventory() != null || WildNetworkUI.IsOpen || phase != "OPEN" || visit == null || store.currentClientInstance != visit ||
                 !store.isClientArrived || store.lockNextBellFlag > 0 || !store.IsClientDimissable() ||
                 Interactable.isPaused || order != null || store.isClientBeingArrested || store.isHandlingShootout)
                 return false;
@@ -64,7 +75,7 @@ namespace WhiteDragon.Ledger
                 receptionToken = Guid.NewGuid().ToString("N");
             }
             return new JObject { ["token"]=receptionToken, ["waiting"]=waiting, ["auto_receive"]=automatic,
-                ["close_prompt"]=prompt, ["can_close_shop"]=available, ["can_dismiss"]=CanDismissCustomer(store) };
+                ["close_prompt"]=prompt, ["can_ring"]=RingBlocker(store) == null, ["can_close_shop"]=available, ["can_dismiss"]=CanDismissCustomer(store) };
         }
 
         private void TickReception()
@@ -78,8 +89,7 @@ namespace WhiteDragon.Ledger
             }
             if (Time.realtimeSinceStartup < nextReceptionCheck) return;
             nextReceptionCheck = Time.realtimeSinceStartup + 0.25f;
-            if (ClosePrompt || Interactable.isPaused || StoreUIManager.Instance.IsTyping() ||
-                store.currentClientInstance != null || store.lockNextBellFlag > 0 || !store.CanNextClient() ||
+            if (RingBlocker(store) != null || ClosePrompt || Interactable.isPaused || StoreUIManager.Instance.IsTyping() ||
                 StoreUIManager.Instance.isAboutToStartMainDialog || EmporiumEntry.Instance.backInvinvElement.childItems.Count > 0) return;
             var talk = DialogUIManager.Instance;
             if (talk != null && (talk.GetCurrentDialog() != null || talk.HasPausedConversation || talk.IsChoice())) return;

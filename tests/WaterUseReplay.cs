@@ -23,7 +23,7 @@ namespace WhiteDragon.Ledger
         public TextMeshProUGUI bodyTMP = new TextMeshProUGUI { text="No charge" };
     }
     public static class DurabilityHelper { public static int GetRealDurability(GameItem item) => item.charge; }
-    public static class WaterHelper { public static int GetCurrentCapacityUL(GameItem item) => item.volume; }
+    public static class WaterHelper { public static int GetTotalCapacityML(GameItem item) => 500; public static int GetCurrentCapacityUL(GameItem item) => item.volume; }
     public class ItemBehaviourManager
     {
         public static ItemBehaviourManager current = new ItemBehaviourManager();

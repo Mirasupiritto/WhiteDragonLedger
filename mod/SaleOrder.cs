@@ -29,6 +29,8 @@ namespace WhiteDragon.Ledger
                     ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
             staged = null;
             order = null;
+            // LateUpdate publishes the desk before CheckOrder releases the finished receipt.
+            nextView = 0;
         }
 
         private string saleStage;
@@ -42,7 +44,9 @@ namespace WhiteDragon.Ledger
             Write("sale-progress-" + generation + ".json", new JObject {
                 ["status"]="sale_pending", ["stage"]=stage, ["command_id"]=order["command_id"],
                 ["generation"]=generation, ["visit"]=visitId, ["slot"]=slot, ["revision"]=sequence,
-                ["item_id"]=order["lines"][index]["item_id"], ["min_price"]=order["lines"][index]["min_price"]
+                ["current_line"]=order["lines"][index].DeepClone(), ["item_id"]=order["lines"][index]["item_id"],
+                ["min_price"]=order["lines"][index]["min_price"], ["items"]=results.DeepClone(),
+                ["remaining_budget"]=merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull()
             });
         }
 
@@ -68,7 +72,7 @@ namespace WhiteDragon.Ledger
                 ui.OpenUI();
             }
             else if (stage != "speaking" && stage != "awaiting_opening" && stage != "trade_locked" &&
-                     stage != "choice_required" && stage != "confirmation_required" &&
+                     stage != "wild_network" && stage != "choice_required" && stage != "response_required" && stage != "confirmation_required" &&
                      stage != "conversation_paused" && stage != "tablet_closed")
             {
                 StopLine("buyer_or_ui_changed");
@@ -95,36 +99,57 @@ namespace WhiteDragon.Ledger
         {
             if (saleSceneRevision != sceneRevision || (staged == null && orderRevision != sequence))
             { StopLine("state_changed"); return; }
+            var spec = order["lines"][index];
+            bool buying = (string)spec["side"] == "buy";
+            bool onTable = (bool?)order["on_table"] == true;
             if (phase != "OPEN" || visitId != (string)order["visit"] || merchant == null ||
-                !merchant.IsClientBuying() || merchant.isBusinessComplete || !PlayerStore.Instance.isClientArrived)
+                merchant.isBusinessComplete || !PlayerStore.Instance.isClientArrived)
             { StopLine("buyer_or_ui_changed"); return; }
+            bool sideAvailable = buying ? merchant.IsClientSelling() && !merchant.isOfferWholesale && !merchant.isRegularSellDisable
+                                        : merchant.IsClientBuying();
+            if (!sideAvailable)
+            {
+                if (staged != null || (string)order["tool"] != "trade_batch") { StopLine("buyer_or_ui_changed"); return; }
+                line = (JObject)spec.DeepClone();
+                line["status"] = "skipped_side_unavailable";
+                FinishLine();
+                return;
+            }
             var rows = (JArray)order["lines"];
             var table = EmporiumEntry.Instance.backInvinvElement;
             if (staged != null && (table.childItems.Count != 1 || table.childItems[0] != staged ||
-                staged.parentInventory != table || staged.unitCount != stagedQuantity || !GeneralHelper.IsItemOwned(staged)))
+                staged.parentInventory != table || staged.unitCount != stagedQuantity || GeneralHelper.IsItemOwned(staged) == buying))
             { StopLine("counter_changed"); return; }
             if (!SaleTabletReady()) return;
             if (staged == null)
             {
                 int id = (int)rows[index]["item_id"];
-                line = new JObject { ["item_id"] = id, ["min_price"] = rows[index]["min_price"] };
-                if (!itemsById.TryGetValue(id, out var item) || !GeneralHelper.IsItemOwned(item) ||
+                line = (JObject)spec.DeepClone();
+                if (!itemsById.TryGetValue(id, out var item) || GeneralHelper.IsItemOwned(item) == buying ||
                     item.parentInventory == null || !areas.TryGetValue(item.parentInventory, out var area) ||
-                    (area != "inventory" && area != "showcase")) { StopLine("source_changed"); return; }
+                    (onTable ? area != "back" : buying ? area != "front" && area != "back" : area != "inventory" && area != "showcase")) { StopLine("source_changed"); return; }
                 line["kind"] = item.identifier;
                 line["actual_area"] = area;
-                if (blockedKinds.Contains(item.identifier))
+                if (!buying && blockedKinds.Contains(item.identifier))
                 {
                     line["status"] = "skipped_same_kind_budget";
                     FinishLine();
                     return;
                 }
-                if (table.childItems.Count != 0 || table.IsInsertLocked() || !item.MayRemove())
+                if (onTable)
+                {
+                    var visible = TableQuote();
+                    if (visible == null || (int)visible["item_id"] != id || (bool)visible["allowed"] == false ||
+                        (string)visible["side"] != (string)spec["side"] || (long)visible["price"] != (long)spec["exact_price"])
+                    { line["quote"] = visible?["price"]; StopLine("quote_changed"); return; }
+                }
+                bool placed = item.parentInventory == table;
+                if (placed ? table.childItems.Count != 1 : table.childItems.Count != 0 || table.IsInsertLocked() || !item.MayRemove())
                 { StopLine("counter_unavailable"); return; }
                 original = item.parentInventory;
                 staged = item;
                 stagedQuantity = item.unitCount;
-                ModHelper.MoveItemToBackCounter(item);
+                if (!placed) ModHelper.MoveItemToBackCounter(item);
                 FlushChanges();
                 orderRevision = sequence;
                 if (item.parentInventory != table) StopLine("placement_failed");
@@ -139,19 +164,24 @@ namespace WhiteDragon.Ledger
             long quote = staged.GetNegociatedValue();
             line["quote"] = quote;
             line["budget_before"] = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull();
+            if (buying)
+            {
+                BuyOrderLine(spec, quote);
+                return;
+            }
             bool otherwiseEligible = store.CanSellThisItem(staged, true);
             bool overBudget = otherwiseEligible && merchant.useClientBudget && quote > merchant.GetBudget();
-            string refusal = overBudget ? "over_budget" : !otherwiseEligible ? "declined" :
+            string refusal = spec["exact_price"] != null && (long)spec["exact_price"] != quote ? "quote_changed" : overBudget ? "over_budget" : !otherwiseEligible ? "declined" :
                 quote < (long)rows[index]["min_price"] ? "below_minimum" : null;
             if (refusal != null)
             {
                 if (original == EmporiumEntry.Instance.invElement) ModHelper.MoveItemToInventory(staged);
-                else ModHelper.MoveItemToDisplayCase(staged);
+                else if (original == EmporiumEntry.Instance.showcaseElement) ModHelper.MoveItemToDisplayCase(staged);
                 FlushChanges();
                 if (staged.parentInventory != original) { StopLine("return_unconfirmed"); return; }
                 line["status"] = "returned_" + refusal;
                 line["actual_area"] = areas[original];
-                if (overBudget && (bool)order["stop_same_kind_on_budget"]) blockedKinds.Add(staged.identifier);
+                if (overBudget && (bool?)order["stop_same_kind_on_budget"] == true) blockedKinds.Add(staged.identifier);
                 FinishLine();
                 return;
             }

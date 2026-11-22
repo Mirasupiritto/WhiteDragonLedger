@@ -86,6 +86,9 @@ class ShopDeskReplay(unittest.TestCase):
         self.assertEqual((report["strip_summary"],row["available_strips"]),("全店可用試紙剩 1 張",1))
         self.assertTrue(row["same_bottle_as_last_night"] and row["ready_to_take_and_test"])
         self.assertFalse(row["can_power"])
+        self.put(f"desk-{self.gen}.json", dict(snap, phase="OPEN"))
+        open_row=machines(self.folder)["machines"][0]
+        self.assertFalse(open_row["can_remove_to_inventory"] or open_row["ready_to_take_and_test"])
         machine["bottle_key"]=302
         snap["available_strips"]=0
         self.put(f"desk-{self.gen}.json",snap)

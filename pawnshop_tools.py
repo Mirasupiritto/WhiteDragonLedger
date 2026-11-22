@@ -3,10 +3,12 @@ from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+import trade_journal
+import trade_tools
 import shopdesk
 import counter
 import shop_day
-from ledger import lookup
+from ledger import lookup, same_observation
 from moves import move_item as submit_move, move_items as submit_batch
 
 
@@ -16,7 +18,37 @@ class SaleLine(BaseModel):
 
 
 def register_pawnshop_tools(server, folder, database):
+    trade_tools.register(server, folder, database)
     shop_day.register_day_tools(server, folder, database)
+
+    @server.tool()
+    def advance_dialogue(generation: str, revision: int, visit: str, page: str) -> dict:
+        """Advance just the observed manual counter page. Get its page token from get_trade_context."""
+        return counter.command(folder, "advance", generation, revision, visit=visit, page=page)
+
+    @server.tool()
+    def choose_dialogue(generation: str, revision: int, visit: str, page: str, choice_id: int) -> dict:
+        """Select an enabled dialog_choices ID from the observed counter page."""
+        return counter.command(folder, "choose_dialogue", generation, revision, visit=visit, page=page, choice_id=choice_id)
+
+    @server.tool()
+    def response_choice(generation: str, revision: int, page: str, choice_id: int, visit: str | None = None) -> dict:
+        """Activate one visible response_choices item ID from get_trade_context. Pass its visit, including null."""
+        return counter.command(folder, "response_choice", generation, revision, visit=visit, page=page, choice_id=choice_id)
+
+    @server.tool()
+    def get_shop_ledger(slot: int, ticket_id: str | None = None, inventory: bool = False,
+                        name: str | None = None, area: str | None = None, owned: bool | None = None) -> dict:
+        """Read unfinished trade tickets for this save slot. Pass a ticket ID for its original tool,
+        arguments and latest receipt. inventory=true or name, area, owned filters read the last cached stock
+        for this slot, including when the game is closed."""
+        return trade_journal.ledger(folder, database, slot, ticket_id, inventory=inventory, name=name, area=area, owned=owned)
+
+    @server.tool()
+    def dismiss_trade_ticket(slot: int, ticket_id: str, version: int) -> dict:
+        """Archive the reviewed ticket locally using its last observed version. Already submitted
+        game actions may finish independently; this tool never places, cancels or repeats a trade."""
+        return trade_journal.dismiss(folder, database, slot, ticket_id, version)
 
     @server.tool()
     def query_inventory(name: str | None = None,
@@ -28,9 +60,36 @@ def register_pawnshop_tools(server, folder, database):
         account = lookup(folder, database, name, area, owned)
         if account["status"] == "observed":
             status = shop_day.shop_status(folder)
-            if status.get("generation") == account["generation"]:
+            if status["status"] == "observed":
+                if not same_observation(account, status):
+                    return {"status": "observation_changed"}
                 account.update(calendar=status["calendar"], trash=shop_day.trash_contents(folder, database, status))
+            elif status["status"] in {"load_changed", "waiting_for_load"}:
+                return {"status": "observation_changed"}
         return account
+
+    @server.tool()
+    def list_stock_tags(search: str | None = None, in_stock_only: bool = False) -> dict:
+        """List native merchandise categories (code, localized label, in-stock flag) and observed bottle labels.
+        Search by partial localized name, alias or code. Stock includes the four shop areas and tracked purifier slots."""
+        return lookup(folder, database, stock_query=dict(list_tags=True, search=search, in_stock_only=in_stock_only))
+
+    @server.tool()
+    def find_stock(bottle_label: str | None = None, categories: list[str] | None = None,
+                   exclude_categories: list[str] | None = None, owned: bool | None = None,
+                   area: Literal["inventory", "showcase", "front", "back", "purifier"] | None = None,
+                   exclude_contraband: bool = False, kinds: list[str] | None = None, exclude_kinds: list[str] | None = None) -> dict:
+        """Pick stock by exact visible label, area, ownership and native item categories.
+        Match any requested category or kind, then apply all exclusions. Use list_stock_tags to discover category names, codes and observed bottle labels.
+        Visible variety restrictions group sellable matches by kind, one per kind for this visit.
+        Includes purifier slots. Apply exclude_contraband when the visible tablet shows that restriction."""
+        return shopdesk.allocation_stock(folder, database, dict(bottle_label=bottle_label, categories=categories,
+            exclude_categories=exclude_categories, owned=owned, area=area, exclude_contraband=exclude_contraband, kinds=kinds, exclude_kinds=exclude_kinds))
+
+    @server.tool()
+    def get_stock_items(item_ids: list[int], generation: str) -> dict:
+        """Read this load's stock IDs in request order, with current locations, labels and missing IDs."""
+        return lookup(folder, database, stock_query=dict(item_ids=item_ids, generation=generation))
 
     @server.tool()
     def move_item(item_id: int, source: Literal["inventory", "showcase"],
@@ -153,7 +212,7 @@ def register_pawnshop_tools(server, folder, database):
         A staged item waits through dialogue and a closed tablet. Reuse identical arguments (including the original
         revision) to read sale_pending or the final receipt with actual received and remaining_budget."""
         return shopdesk.sell_order(folder, [line.model_dump() for line in lines],
-                                  generation, revision, visit, stop_same_kind_on_budget)
+                                  generation, revision, visit, stop_same_kind_on_budget, database=database)
 
     @server.tool()
     def get_counter() -> dict:
@@ -181,7 +240,7 @@ def register_pawnshop_tools(server, folder, database):
         if max_total < 0:
             raise ValueError("Expected a non-negative batch price limit")
         return counter.command(folder, "buy", generation, revision, visit=visit,
-                               offer_token=offer_token, max_total=max_total)
+                               offer_token=offer_token, max_total=max_total, database=database)
 
     @server.tool()
     def pay_info_receipt(generation: str, revision: int, visit: str, receipt_token: str, price: int) -> dict:
@@ -189,7 +248,7 @@ def register_pawnshop_tools(server, folder, database):
         if price < 0 or price > 2147483647:
             raise ValueError("Expected a game credit amount")
         return counter.command(folder, "pay_info", generation, revision, visit=visit,
-                               receipt_token=receipt_token, price=price)
+                               receipt_token=receipt_token, price=price, database=database)
 
     @server.tool()
     def open_shop(generation: str, revision: int) -> dict:
@@ -198,7 +257,7 @@ def register_pawnshop_tools(server, folder, database):
 
     @server.tool()
     def dismiss_customer(generation: str, revision: int, visit: str) -> dict:
-        """Dismiss this visit when reception.can_dismiss is true. Repeat identical arguments to read its receipt."""
+        """Dismiss this visit when reception.can_dismiss is true. A newer inventory revision rechecks the same visit. After dismiss_unavailable, retry the original arguments when this visit can leave. A completed dismissal returns its original receipt."""
         return counter.command(folder, "dismiss", generation, revision, visit=visit)
 
     @server.tool()
@@ -213,6 +272,32 @@ def register_pawnshop_tools(server, folder, database):
             raise ValueError("Expected the displayed remaining queue count")
         return counter.command(folder, "close_shop", generation, revision, reception_token=reception_token,
                                confirm_remaining=confirm_remaining)
+
+    @server.tool()
+    def wild_network(mode: Literal["read", "tab", "select", "buy", "close"] = "read",
+                     generation: str | None = None, revision: int | None = None, panel_token: str | None = None,
+                     target: str | None = None, cost: int | None = None, since_token: str | None = None) -> dict:
+        """Inspect Joe's open network. Read again after selecting a tab or service. since_token suppresses
+        unchanged reads. Mutations require the observed generation, revision and panel_token. Buying requires
+        the selected service ID and its exact cost; the receipt reports favor and cash separately."""
+        if mode == "read":
+            view = counter.context(folder)
+            if view["status"] != "observed":
+                return view
+            if view.get("wild_network_protocol") != 1:
+                return {"status":"reload_updated_mod"}
+            if view["stage"] != "wild_network":
+                return {"status":"panel_closed", "slot":view["slot"]}
+            return counter.command(folder, "wild_network", view["generation"], view["revision"],
+                                   mode=mode, since_token=since_token, read_id=uuid4().hex)
+        if not generation or revision is None or not panel_token:
+            raise ValueError("Use generation, revision and panel_token from the open panel")
+        if mode in {"tab","select","buy"} and not target:
+            raise ValueError("Use the visible tab or service ID")
+        if mode == "buy" and (cost is None or cost < 0):
+            raise ValueError("Use the exact displayed service cost")
+        return counter.command(folder, "wild_network", generation, revision, mode=mode,
+                               panel_token=panel_token, target=target, cost=cost)
 
     @server.tool()
     def get_phone_contacts() -> dict:

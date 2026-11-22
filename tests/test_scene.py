@@ -36,12 +36,17 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 init = await client.initialize()
                 self.assertTrue(init.capabilities.tools.listChanged)
                 tools = {t.name for t in (await client.list_tools()).tools}
+                self.assertIn("get_shop_ledger", tools)
+                self.assertIn("dismiss_trade_ticket", tools)
                 self.assertIn("water_use", tools)
                 self.assertIn("dismiss_customer", tools)
                 self.assertIn("water_panel", tools)
                 self.assertIn("pay_info_receipt", tools)
                 self.assertIn("get_phone_contacts", tools)
                 self.assertIn("query_inventory", tools)
+                self.assertIn("find_stock", tools)
+                self.assertIn("list_stock_tags", tools)
+                self.assertIn("get_stock_items", tools)
                 self.assertNotIn("get_travel_options", tools)
                 common = {"get_scene", "wait_for_scene"}
                 options = {"destinations": [{"id": "forest", "available": True}], "selected_id": None}
@@ -55,6 +60,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual((await read("get_travel_options"))["options"], options)
                 self.assertNotIn("travel_options", await read("get_scene"))
                 self.assertEqual((await read("query_inventory"))["tool_status"], "unavailable_in_scene")
+                self.assertEqual((await read("find_stock", owned=True))["tool_status"], "unavailable_in_scene")
                 self.assertEqual((await read("wait_for_scene", session="test", after_revision=1, timeout=0))["wait_result"], "timeout")
                 publish(3, "transitioning", "pawnshop")
                 await asyncio.wait_for(changes.get(), 4)
@@ -67,7 +73,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 arrived = json.loads(arrival.content[0].text)
                 self.assertEqual((arrived["wait_result"], arrived["location"]), ("arrived", "dumping_ground"))
                 (folder/"head.json").write_text("store must not be read", encoding="utf-8")
-                for name, args in (("query_inventory", {}), ("open_shop", {"generation":"old", "revision":1})):
+                for name, args in (("get_shop_ledger", {"slot":4}), ("query_inventory", {}), ("open_shop", {"generation":"old", "revision":1})):
                     reply = await client.call_tool(name, args)
                     self.assertFalse(reply.isError, reply.content)
                     self.assertEqual(json.loads(reply.content[0].text)["tool_status"], "unavailable_in_scene")
@@ -76,3 +82,8 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 publish(5, "ready", "pawnshop")
                 await asyncio.wait_for(changes.get(), 4)
                 self.assertEqual({t.name for t in (await client.list_tools()).tools}, tools)
+                publish(6, "waiting_for_load", None)
+                await asyncio.wait_for(changes.get(), 4)
+                self.assertEqual({t.name for t in (await client.list_tools()).tools},
+                                 common | {"get_shop_ledger", "dismiss_trade_ticket"})
+                self.assertEqual((await read("get_shop_ledger", slot=4))["open_tickets"], [])

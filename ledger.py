@@ -1,10 +1,18 @@
 """Import the game observer's published changes, then query the local account."""
 import json
 import re
-import sqlite3
 import time
-from contextlib import closing
+import book_history
 from pathlib import Path
+
+from database import transaction
+from stock_query import select_stock
+
+
+def same_observation(left, right):
+    return (left.get("status") == right.get("status") == "observed"
+            and left["generation"] == right["generation"]
+            and left["revision"] == right["revision"])
 
 
 def read_head(folder):
@@ -20,11 +28,8 @@ def read_head(folder):
             time.sleep(0.025)
 
 
-def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, save_ids=None):
-    database.parent.mkdir(parents=True, exist_ok=True)
-    with closing(sqlite3.connect(database, timeout=8)) as db, db:
-        db.row_factory = sqlite3.Row
-        db.execute("BEGIN IMMEDIATE")
+def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, save_ids=None, stock_query=None, sync_only=False):
+    with transaction(database) as db:
         head = read_head(folder)
         if head["status"] == "waiting_for_load":
             return {"status": "waiting_for_load", "items": []}
@@ -41,12 +46,36 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
         if "save_id" not in columns:
             db.execute("ALTER TABLE stock ADD COLUMN save_id INTEGER")
             db.execute("CREATE INDEX IF NOT EXISTS stock_save_id ON stock(save_id)")
+        if "categories" not in columns:
+            db.execute("ALTER TABLE stock ADD COLUMN categories TEXT")
+            db.execute("CREATE INDEX stock_categories ON stock(categories)")
+            db.execute("CREATE INDEX stock_label ON stock(bottle_label)")
+        if "contraband" not in columns:
+            db.execute("ALTER TABLE stock ADD COLUMN contraband INTEGER")
+        for column in ("trade_contraband", "machine_id", "can_take_now"):
+            if column not in columns:
+                db.execute(f"ALTER TABLE stock ADD COLUMN {column} INTEGER")
+        db.execute("CREATE INDEX IF NOT EXISTS stock_kind ON stock(kind)")
         previous = db.execute("SELECT generation, revision FROM checkpoint WHERE id=1").fetchone()
         cursor = previous["revision"] if previous and previous["generation"] == generation else 0
         if cursor > revision:
             raise ValueError("Game journal revision moved backwards in the same load")
+        # An older MCP process can import this load while omitting its new columns.
+        # Rebuild the local cache from published records; the game keeps its scan count.
+        if cursor and head.get("stock_categories_protocol") and db.execute(
+            "SELECT 1 FROM stock WHERE categories IS NULL LIMIT 1"
+        ).fetchone():
+            cursor = 0
+        if head.get("trade_panel_protocol"):
+            # Older readers advance checkpoint 1 without importing purifier snapshots.
+            extended = db.execute("SELECT revision FROM checkpoint WHERE id=2 AND generation=?", (generation,)).fetchone()
+            cursor = min(cursor, extended["revision"]) if extended else 0
+        book_history.schema(db)
+        recorded = db.execute("SELECT MAX(rev) FROM book_events WHERE gen=?", (generation,)).fetchone()[0]
+        cursor = min(cursor, recorded or 0)
         for number in range(cursor + 1, revision + 1):
             event = json.loads((folder / f"{generation}-{number}.json").read_text(encoding="utf-8-sig"))
+            book_history.record(db, head, number, event)
             if number == 1 and event["op"] == "baseline":
                 db.execute("DELETE FROM stock")
                 rows = event["items"]
@@ -55,11 +84,25 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
                 rows = event["upsert"]
             else:
                 raise ValueError(f"Unexpected game journal event at {number}")
-            db.executemany("INSERT OR REPLACE INTO stock(id,name,kind,area,owned,quantity,save_id,bottle_label) VALUES(:id,:name,:kind,:area,:owned,:quantity,:save_id,:bottle_label)",
-                           ({"save_id": None, "bottle_label": None, **row} for row in rows))
+            if "purifier_stock" in event:
+                db.execute("DELETE FROM stock WHERE area='purifier'")
+                rows = [*rows, *event["purifier_stock"]]
+            db.executemany("INSERT OR REPLACE INTO stock(id,name,kind,area,owned,quantity,save_id,bottle_label,categories,contraband,trade_contraband,machine_id,can_take_now) VALUES(:id,:name,:kind,:area,:owned,:quantity,:save_id,:bottle_label,:categories,:contraband,:trade_contraband,:machine_id,:can_take_now)",
+                           ({"save_id": None, "bottle_label": None, "contraband": None,
+                             "trade_contraband": None, "machine_id": None, "can_take_now": None, **row,
+                             "categories": json.dumps(sorted(set(row["categories"]))) if "categories" in row else None}
+                            for row in rows))
         if cursor != revision:
             db.execute("INSERT OR REPLACE INTO checkpoint VALUES(1,?,?)", (generation, revision))
+            if head.get("trade_panel_protocol"):
+                db.execute("INSERT OR REPLACE INTO checkpoint VALUES(2,?,?)", (generation, revision))
+        if sync_only:
+            return head
+        if stock_query is not None:
+            return select_stock(folder, db, head, stock_query)
         filters, values = [], []
+        if save_ids is None:
+            filters.append("area != 'purifier'")
         if name is not None:
             filters.append("instr(name,?) > 0")
             values.append(name)
@@ -71,7 +114,7 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
             filters.append("save_id IN (SELECT value FROM json_each(?))")
             values.append(json.dumps(sorted(save_ids)))
         condition = " WHERE " + " AND ".join(filters) if filters else ""
-        items = [dict(row) for row in db.execute("SELECT * FROM stock" + condition + " ORDER BY id", values)]
+        items = [dict(row) for row in db.execute("SELECT id,name,kind,area,owned,quantity,bottle_label,save_id FROM stock" + condition + " ORDER BY id", values)]
         for item in items:
             item["owned"] = bool(item["owned"])
             if item["bottle_label"] is None:

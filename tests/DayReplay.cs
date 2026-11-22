@@ -8,7 +8,7 @@ namespace WhiteDragon.Ledger
         public Action<GameItem,GameInventory,SlotMarker> onSlotAddItemLateFunc,onSlotRemoveItemLateFunc,onSlotChangeAmountItemFunc;
     }
     public partial class EmporiumEntry { public GameInventory trashcanInvElement=new GameInventory(); }
-    public class StoreService { public bool unlocked=true,isUsing=true; public int cost; }
+    public class StoreService { public bool unlocked=true,isUsing=true,isMandatory; public int cost,currentCooldown; public string id,displayName; public bool IsOnCooldown()=>currentCooldown>0; }
     public class StoreCalendar { public string GetDayOfWeek() => "local weekday"; }
     public static class StartingPerk { public static bool IsUnsubscribed() => false; }
     public class StoreEvent
@@ -46,7 +46,7 @@ namespace WhiteDragon.Ledger
         public int GetRentValue()=>100;
         public int GetRentDayCounter()=>(7-StoreStation.Instance.dayCounter%7)%7;
     }
-    public class EndOfDayUIManager {
+    public partial class EndOfDayUIManager {
         public static EndOfDayUIManager Instance=new EndOfDayUIManager();
         public bool IsOpen; public int submissions;
         public void OnEndDayButtonClick(){submissions++;IsOpen=false;}

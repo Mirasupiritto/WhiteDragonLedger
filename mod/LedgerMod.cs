@@ -32,6 +32,7 @@ namespace WhiteDragon.Ledger
         private readonly Dictionary<int, JObject> known = new Dictionary<int, JObject>();
 
         private readonly HashSet<GameItem> bottles = new HashSet<GameItem>();
+        private JArray purifierStock;
         private string generation;
         private int sequence, fullScans, loadScans, nextId, slot;
         private bool pending;
@@ -63,8 +64,11 @@ namespace WhiteDragon.Ledger
         {
             ResetScene();
             ResetCalendar();
+            observedNetworkFrame = null;
+            previousNetwork = null;
             workstations.Clear();
             observedWaterPanel = null;
+            stripReadings.Clear();
             waterPlan = null;
             autoReceiveDay = 0;
             receptionToken = null;
@@ -74,6 +78,7 @@ namespace WhiteDragon.Ledger
             DisconnectVisit();
             received.Clear();
             payments.Clear();
+            purifierStock = null;
             purifiers.Clear();
             stripSupplies.Clear();
             phoneCards.Clear();
@@ -124,22 +129,51 @@ namespace WhiteDragon.Ledger
             if (CardNumber(item.identifier) != 0) phoneCards.Add(item);
             if (item.identifier == "water_purifier") purifiers.Add(item);
             if (item.identifier == "water_test_strip" || item.identifier == "water_test_container") stripSupplies.Add(item);
+            var row = StockRow(item, area);
+            if (row["bottle_label"] != null) bottles.Add(item);
+            return row;
+        }
+
+        private JObject StockRow(GameItem item, string area)
+        {
             var row = new JObject { ["id"] = LocalId(item), ["save_id"] = item.uniqueId, ["name"] = item.GetDisplayName(true),
                 ["kind"] = item.identifier, ["area"] = area, ["owned"] = GeneralHelper.IsItemOwned(item),
-                ["quantity"] = item.unitCount };
+                ["quantity"] = item.unitCount, ["categories"] = new JArray(item.GetGameItemType()),
+                ["contraband"] = item.IsTag(TypeHelper.CONTRABAND),
+                ["trade_contraband"] = ContrabandHelper.IsContraband(item) };
             if (BottleLabel(item) is string label)
-            {
-                bottles.Add(item);
                 row["bottle_label"] = label;
-            }
             return row;
+        }
+
+        private JArray ReadPurifierStock()
+        {
+            var rows = new JArray();
+            foreach (var machine in purifiers)
+            {
+                if (machine.parentInventory == null || !areas.ContainsKey(machine.parentInventory) ||
+                    !GeneralHelper.IsItemOwned(machine)) continue;
+                var slotInventory = MachineHelper.GetBodyStorage(machine, 2) as GameSlotInventory;
+                var bottle = slotInventory?.childItem;
+                if (bottle == null) continue;
+                var row = StockRow(bottle, "purifier");
+                row["machine_id"] = LocalId(machine);
+                var state = PlayerStore.Instance.storeState;
+                row["can_take_now"] = (state == PlayerStore.StoreState.MORNING || state == PlayerStore.StoreState.CLOSED) &&
+                    bottle.MayRemove() && !EmporiumEntry.Instance.invElement.IsInsertLocked() &&
+                    EmporiumEntry.Instance.invElement.TryFindOneValidInventorySlot(bottle) != null;
+                rows.Add(row);
+            }
+            return rows;
         }
 
         private void Publish(JObject record)
         {
             int revision = sequence + 1;
+            record["phase"] = phase;
+            record["day"] = StoreStation.Instance.dayCounter;
             Write(generation + "-" + revision + ".json", record);
-            Write("head.json", new JObject { ["status"] = "observed", ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
+            Write("head.json", new JObject { ["status"] = "observed", ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
                 ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
                 ["full_scans"] = fullScans, ["load_scans"] = loadScans });
             sequence = revision;
@@ -156,6 +190,12 @@ namespace WhiteDragon.Ledger
             Track(shop.frontInvinvElement, "front");
             Track(shop.backInvinvElement, "back");
             var rows = new JArray();
+            var categoryNames = new JObject();
+            foreach (string code in TypeHelper.ALL_TYPES_LIST)
+                categoryNames[code] = TypeHelper.GetTypeDisplayName(code);
+            foreach (string code in TypeHelper.MAJOR_TYPES_LIST)
+                categoryNames[code] = TypeHelper.GetTypeDisplayName(code);
+            Write(generation + "-stock-categories.json", categoryNames);
             ++fullScans;
             ++loadScans;
             foreach (var area in areas)
@@ -166,7 +206,8 @@ namespace WhiteDragon.Ledger
                     rows.Add(row);
                 }
             LoadDesk();
-            Publish(new JObject { ["op"] = "baseline", ["items"] = rows });
+            purifierStock = ReadPurifierStock();
+            Publish(new JObject { ["op"] = "baseline", ["items"] = rows, ["purifier_stock"] = purifierStock });
             RefreshDesk();
         }
 
@@ -205,7 +246,7 @@ namespace WhiteDragon.Ledger
         private void FlushChanges()
         {
             var currentPhase = PlayerStore.Instance.storeState.ToString();
-            if (changed.Count == 0 && phase == currentPhase) return;
+            if (changed.Count == 0 && phase == currentPhase && Time.realtimeSinceStartup < nextView) return;
             var upserts = new JArray();
             var removed = new JArray();
             foreach (var item in changed)
@@ -229,9 +270,17 @@ namespace WhiteDragon.Ledger
                 }
             }
             changed.Clear();
-            if (upserts.Count == 0 && removed.Count == 0 && phase == currentPhase) return;
+            var slots = ReadPurifierStock();
+            bool slotsChanged = !JToken.DeepEquals(slots, purifierStock);
+            if (upserts.Count == 0 && removed.Count == 0 && phase == currentPhase && !slotsChanged) return;
             phase = currentPhase;
-            Publish(new JObject { ["op"] = "delta", ["upsert"] = upserts, ["remove"] = removed });
+            var record = new JObject { ["op"] = "delta", ["upsert"] = upserts, ["remove"] = removed };
+            if (slotsChanged)
+            {
+                purifierStock = slots;
+                record["purifier_stock"] = slots;
+            }
+            Publish(record);
         }
 
         private void OnDestroy()

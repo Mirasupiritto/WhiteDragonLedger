@@ -40,7 +40,7 @@ namespace WhiteDragon.Ledger {
         public void AutoCall(long n){calls++;currentPhoneClient=PlayerStore.Instance.PhoneClientDict[n];}
     }
     public class DialogChoiceBubble {
-        public int index, clicks; public Window gameObject=new Window(); public Label TMP=new Label(); public bool enabled;
+        public int type, index, clicks; public Window gameObject=new Window(); public Label TMP=new Label(); public bool enabled;
         public bool IsInteractable()=>enabled;
         public void OnDialogChoiceClick(){clicks++;}
     }

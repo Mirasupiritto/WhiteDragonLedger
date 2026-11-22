@@ -72,15 +72,17 @@ namespace WhiteDragon.Ledger
         {
             int day = StoreStation.Instance.dayCounter;
             int cost = ServiceCost();
-            return new JObject { ["calendar"]=CalendarView(day), ["trash"]=TrashSummary(day),
-                ["sleep"]=new JObject { ["service_cost"]=cost, ["available"]=phase=="CLOSED" &&
-                    sleepSubmittedDay!=day && PlayerStore.Instance.playerCash >= cost } };
+            var sleep = new JObject { ["service_cost"]=cost, ["available"]=phase=="CLOSED" &&
+                sleepSubmittedDay!=day && PlayerStore.Instance.playerCash >= cost };
+            if (phase == "CLOSED") sleep["bill"] = NightBill();
+            return new JObject { ["calendar"]=CalendarView(day), ["trash"]=TrashSummary(day), ["sleep"]=sleep };
         }
 
         private string SubmitSleep(JObject request, JObject reply)
         {
             var store = PlayerStore.Instance;
             if (store.storeState != PlayerStore.StoreState.CLOSED) return "sleep_requires_closed_shop";
+            if (ResponseInventory() != null) return "response_required";
             int day = StoreStation.Instance.dayCounter;
             if (day != (int)request["day"] || sleepSubmittedDay == day) return "day_changed_or_pending";
             int cost = ServiceCost();
@@ -89,14 +91,10 @@ namespace WhiteDragon.Ledger
             if (cost != (int)request["service_cost"]) return "service_cost_changed";
             if (store.playerCash < cost) return "insufficient_cash";
             var summary = EndOfDayUIManager.Instance;
-            if (summary == null) return "bedroll_unavailable";
-            if (!summary.IsOpen)
-            {
-                var bed = UnityEngine.Object.FindObjectOfType<StoreBedroll>();
-                if (bed == null) return "bedroll_unavailable";
-                bed.OnClick();
-            }
-            if (!summary.IsOpen || ServiceCost()!=cost) return "review_nightly_cost";
+            if (request["bill_token"] != null && ((string)NightBill()["bill_token"] != (string)request["bill_token"] ||
+                summary == null || !summary.IsOpen)) return "bill_changed";
+            if (!OpenBill(summary)) return "bedroll_unavailable";
+            if (ServiceCost()!=cost) return "review_nightly_cost";
             sleepSubmittedDay = day;
             summary.OnEndDayButtonClick();
             return "sleep_submitted";

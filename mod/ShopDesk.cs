@@ -46,6 +46,7 @@ namespace WhiteDragon.Ledger
             visit = null;
             merchant = null;
             visitId = null;
+            observedVariety = false;
             informationToken = null;
         }
 

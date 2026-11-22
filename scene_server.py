@@ -1,4 +1,7 @@
 """Expose only tools for the current game area on this stdio connection."""
+import json
+import sqlite3
+
 import anyio
 from mcp.server.fastmcp import FastMCP
 from mcp.server.lowlevel.server import NotificationOptions
@@ -12,6 +15,8 @@ def tool_region(scene):
         return "pawnshop"
     if scene.get("status") == "selecting_destination":
         return "destination_selection"
+    if scene.get("status") in {"waiting_for_load", "waiting_for_scene_observer"}:
+        return "offline"
     return "scene_only"
 
 
@@ -20,6 +25,7 @@ class SceneServer(FastMCP):
         super().__init__("白龍店帳")
         self.folder = folder
         self.global_tools = {"get_scene", "wait_for_scene"}
+        self.ledger_tools = {"get_shop_ledger", "dismiss_trade_ticket"}
         self.client_session = None
         self.listed_region = None
 
@@ -32,6 +38,8 @@ class SceneServer(FastMCP):
         if region == "pawnshop":
             return [tool for tool in registered if tool.name != "get_travel_options"]
         allowed = self.global_tools
+        if region == "offline":
+            allowed = allowed | self.ledger_tools
         if region == "destination_selection":
             allowed = allowed | {"get_travel_options"}
         return [tool for tool in registered if tool.name in allowed]
@@ -39,10 +47,27 @@ class SceneServer(FastMCP):
     async def call_tool(self, name, arguments):
         if name != "get_travel_options" and name not in self.global_tools:
             scene = read_scene(self.folder)
+            if name in self.ledger_tools and tool_region(scene) == "offline":
+                return await super().call_tool(name, arguments)
             if not at_shop(scene):
                 return {**scene, "tool_status": "unavailable_in_scene"}
             token = shop_visit.set((scene["session"], scene["revision"]))
             try:
+                mutations = {"move_item","move_items","sell_order","trade_batch","confirm_trade","buy_merchant_batch",
+                             "pay_info_receipt","open_shop","close_shop","ring_customer","dismiss_customer",
+                             "advance_dialogue","choose_dialogue","response_choice","prepare_sleep","night_service",
+                             "set_auto_receive","sleep","transfer_slot_item","press_machine_button","put_purifier_bottle",
+                             "take_purifier_bottle","water_use","water_panel","dial_contact","choose_phone_service",
+                             "advance_phone_dialogue","inspect_archive","inspect_item_window","wait_for_opening"}
+                if (name in mutations or (name == "wild_network" and arguments.get("mode", "read") != "read")) and self.updates.cursor is not None:
+                    tool = self._tool_manager.get_tool(name)
+                    result = await tool.run(arguments, context=self.get_context())
+                    try:
+                        result["shop_update"] = self.updates.report()
+                    except (OSError, sqlite3.Error, json.JSONDecodeError) as error:
+                        # The action may already have settled. Keep its receipt even when the next read fails.
+                        result["shop_update"] = {"status":"update_unavailable", "detail":str(error)}
+                    return tool.fn_metadata.convert_result(result)
                 return await super().call_tool(name, arguments)
             finally:
                 shop_visit.reset(token)

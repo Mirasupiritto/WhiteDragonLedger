@@ -6,7 +6,7 @@ using Newtonsoft.Json.Linq;
 namespace UnityEngine {
     public static class Time { public static float realtimeSinceStartup = 1; }
     public static class Debug { public static void LogException(Exception e) { throw e; } }
-    public class Object { public static T FindObjectOfType<T>() where T:class { return typeof(T)==typeof(WhiteDragon.Ledger.StoreBell)?new WhiteDragon.Ledger.StoreBell() as T:null; } }
+    public class Object { public static T FindObjectOfType<T>() where T:class { if (typeof(T)==typeof(WhiteDragon.Ledger.StoreBedroll)) return new WhiteDragon.Ledger.StoreBedroll() as T; return typeof(T)==typeof(WhiteDragon.Ledger.StoreBell)?new WhiteDragon.Ledger.StoreBell() as T:null; } }
 }
 namespace WhiteDragon.Ledger {
     public class Label { public string text; }
@@ -20,7 +20,7 @@ namespace WhiteDragon.Ledger {
         public static int TryAcceptOnce(GameSlotInventory slot, GameItem item) { item.To(slot); return 1; }
     }
     public class Window { public bool activeInHierarchy; }
-    public class NegotiationTabletFrame { public Window confirmRoot; }
+    public class NegotiationTabletFrame { public PanelNode infoHost; public Window confirmRoot; }
     public class StoreUIManager {
         public static StoreUIManager Instance = new StoreUIManager();
         public SceneFade blackscreen;
@@ -30,6 +30,7 @@ namespace WhiteDragon.Ledger {
         public bool isAboutToStartMainDialog;
     }
     public class DialogUIManager {
+        public List<DialogChoiceBubble> dialogChoiceBubbles=new List<DialogChoiceBubble>();
         public static DialogUIManager Instance;
         public Label clientNameTMP;
         public Bubble clientBubble;
@@ -51,6 +52,8 @@ namespace WhiteDragon.Ledger {
     }
     public class GameSlotInventory:GameInventory { public GameItem childItem; }
     public partial class EmporiumEntry {
+        public PixelWindow responseWindowClosable,responseWindow;
+        public GameInventory responseInventoryClosable,responseInventory;
         public static EmporiumEntry Instance = new EmporiumEntry();
         public List<GameItem> GetAllNonOwnedItem() {
             var result=frontInvinvElement.childItems.FindAll(i=>!i.owned);
@@ -77,6 +80,8 @@ namespace WhiteDragon.Ledger {
         public bool owned=true;
         public GameInventory parentInventory;
         public int GetUniqueID() => uniqueId;
+        public bool MayActivateSlotItem() => true;
+        public bool CanActivateSlotItem() => true;
         public string GetDisplayName(bool custom) => identifier;
         public bool MayRemove() => true;
         public long GetNegociatedValue() => price;
@@ -99,6 +104,9 @@ namespace WhiteDragon.Ledger {
         public int serviceCost;
         public string displayName="喬治奧", identifier="georgio";
         public bool isOfferWholesale, useClientBudget=true, isBusinessComplete;
+        public List<string> clientBuyingTagList = new List<string>(), clientBlackTagList = new List<string>(),
+            clientBuyingIdList = new List<string>(), clientBlackIdList = new List<string>();
+        public List<string> varietyTrackingList=new List<string>();
         public int budget=5;
         public Action<GameItem,int> onItemSold, onItemBought;
         public int GetBudget() => budget;
@@ -117,6 +125,7 @@ namespace WhiteDragon.Ledger {
         public static PlayerStore Instance=new PlayerStore();
         public StoreClientInstance currentClientInstance=new StoreClientInstance();
         public int playerCash=100;
+        public bool CanBuyItemFromTable() => !GetCurrentlyNegociatedItem().owned;
         public bool CanPay(int price) => playerCash >= price;
         public int lockNextBellFlag;
         public int waiting = 1;
@@ -139,6 +148,14 @@ namespace WhiteDragon.Ledger {
         public int extraFee, paymentCalls;
         public void OpenUI() { IsOpen=true; }
         public void OnWholesaleClick() { Purchase(true); }
+        public void BuyItem() {
+            var store=PlayerStore.Instance;
+            var item=store.GetCurrentlyNegociatedItem();
+            store.playerCash-=item.price;
+            store.currentClientInstance.client.onItemSold?.Invoke(item,item.price);
+            item.owned=true;
+            item.To(EmporiumEntry.Instance.invElement);
+        }
         public void OnBuyAllClick() { Purchase(false); }
         private void Purchase(bool wholesale) {
             var store=PlayerStore.Instance;
@@ -195,6 +212,7 @@ namespace WhiteDragon.Ledger {
         public static string ReadModDataFileText(string m,string k) => data[k];
         public static void WriteModDataFileText(string m,string k,string v) { data[k]=v; }
         public static void DeleteModDataFile(string m,string k) { data.Remove(k); }
+        public static void MoveItemToFrontCounter(GameItem i) { i.To(EmporiumEntry.Instance.frontInvinvElement); }
         public static void MoveItemToInventory(GameItem i) { i.To(EmporiumEntry.Instance.invElement); }
         public static void MoveItemToDisplayCase(GameItem i) { i.To(EmporiumEntry.Instance.showcaseElement); }
         public static void MoveItemToBackCounter(GameItem i) { placed.Add(i.uniqueId); i.To(EmporiumEntry.Instance.backInvinvElement); }
@@ -352,7 +370,11 @@ namespace WhiteDragon.Ledger {
             dialog.current=null;
             dialog.HasPausedConversation=true;
             Expect((string)CounterView()["stage"]=="conversation_paused" && CounterView()["offer"]==null,"paused opening");
+            merchant.clientBuyingTagList.Add("FOOD");
+            merchant.clientBlackTagList.Add("MATERIAL");
+            Expect(CounterView()["demand"]==null,"wait for speech before publishing demand");
             dialog.HasPausedConversation=false;
+            ReplayPanelDemand();
             buy["offer_token"]=CounterView()["offer_token"];
             Expect(buy["offer_token"].Type==JTokenType.String,"offer after conversation end");
             int cash=PlayerStore.Instance.playerCash;
@@ -385,7 +407,10 @@ namespace WhiteDragon.Ledger {
             ReplayWaterPanel();
             ReplayWaterUse();
             ReplaySaleResume();
+            ReplayMixedTrades();
+            ReplayNetwork();
             ReplayDismiss();
+            ReplayCounterDay();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }
@@ -398,6 +423,9 @@ namespace WhiteDragon.Ledger {
             var req=new JObject { ["action"]="dismiss",["generation"]=generation,["revision"]=sequence,["visit"]=visitId,
                 ["expires_ms"]=DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds() };
             var receipt=new JObject();
+            // The sale changed the ledger after MCP observed this visitor.
+            ++sequence;
+            observedVariety=true;
             store.dismissable=false;
             Expect(ActAtCounter(req,receipt)=="dismiss_unavailable","native dismissal locked");
             store.dismissable=true;
@@ -406,10 +434,17 @@ namespace WhiteDragon.Ledger {
             store.interceptDismiss=true;
             Expect(ActAtCounter(req,receipt)=="dismiss_intercepted","intercept keeps original visit");
             store.interceptDismiss=false;
-            Expect(ActAtCounter(req,receipt)=="dismissed" && visitId==null && store.waiting==waiting,"dismiss never calls next");
+            Expect(ActAtCounter(req,receipt)=="dismissed" && visitId==null && store.waiting==waiting &&
+                   (bool)receipt["revision_rechecked"],"same visit is dismissed once after the sale revision advances");
             store.currentClientInstance=new StoreClientInstance();
-            ObserveVisit();
+            Expect((string)receipt["customer"]=="喬治奧" && (int)receipt["waiting"]==waiting,"dismiss identifies guest and remaining queue");
+            Expect(!observedVariety,"dismissal clears the previous visitor's variety rule");
+            // The new arrival has the same display name. Only the visit identity is authoritative.
             Expect(ActAtCounter(req,receipt)=="visit_changed" && store.currentClientInstance!=null,"old visit cannot dismiss new arrival");
+            req["visit"]=visitId;
+            req["revision"]=sequence+1;
+            Expect(ActAtCounter(req,receipt)=="stale_observation" && store.currentClientInstance!=null,"future revision rejected");
+            Console.WriteLine("Dismiss replay passed: older revision, same visitor, ineligible visitor, replacement and future revision.");
         }
 
         private void ReplayReception()
@@ -424,6 +459,28 @@ namespace WhiteDragon.Ledger {
             var request=new JObject { ["action"]="auto_receive", ["enabled"]=true, ["reception_token"]=ReceptionView()["token"] };
             var receipt=new JObject();
             Expect(ActOnReception(request,receipt)=="auto_receive_enabled","enable today");
+            var ring = new JObject { ["action"]="ring", ["generation"]=generation, ["revision"]=sequence,
+                ["waiting"]=3, ["expires_ms"]=DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds() };
+            var shop = EmporiumEntry.Instance;
+            shop.responseWindow=new PixelWindow {visible=true};
+            shop.responseInventory=new GameInventory();
+            Expect(!(bool)ReceptionView()["can_ring"] && ActAtCounter(ring,receipt)=="response_required",
+                "visible response blocks both ring preview and manual bell");
+            TickReception();
+            Expect(store.waiting==3 && store.currentClientInstance==null,"auto receive waits for response");
+            shop.responseWindow.visible=false;
+            UnityEngine.Time.realtimeSinceStartup++;
+            store.lockNextBellFlag=1;
+            Expect(!(bool)ReceptionView()["can_ring"] && ActAtCounter(ring,receipt)=="bell_unavailable","bell locked");
+            TickReception();
+            Expect(store.currentClientInstance==null,"auto receive respects bell lock");
+            store.lockNextBellFlag=0;
+            UnityEngine.Time.realtimeSinceStartup++;
+            DialogUIManager.Instance=new DialogUIManager { HasPausedConversation=true };
+            Expect((bool)ReceptionView()["can_ring"],"manual eligibility restored");
+            TickReception();
+            Expect(store.currentClientInstance==null,"auto receive also waits for paused speech");
+            UnityEngine.Time.realtimeSinceStartup++;
             DialogUIManager.Instance=null;
             TickReception();
             Expect(store.currentClientInstance!=null && store.waiting==2,"receive exactly one guest");

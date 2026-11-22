@@ -5,7 +5,7 @@ using UnityEngine.UI;
 
 namespace UnityEngine.UI
 {
-    public class Button
+    public partial class Button
     {
         public bool isActiveAndEnabled = true, interactable = true;
         public bool IsInteractable() => interactable;
