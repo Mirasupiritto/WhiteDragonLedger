@@ -41,28 +41,58 @@ def command(folder, tool, mode, session, revision, view_token, **args):
     return exchange(folder, folder / f"journey-{session}.json", {**plan, "command_id": command_id}, receipt)
 
 
+def _compact_feedback(result):
+    if "factions" not in result:
+        return result
+    factions = []
+    for faction in result["factions"]:
+        effects = faction.get("effects", [])
+        active = [e for e in effects if e.get("active")]
+        inactive = [e for e in effects if not e.get("active") and "threshold" in e]
+        pos = [e for e in inactive if e["threshold"] >= 0]
+        neg = [e for e in inactive if e["threshold"] < 0]
+        next_thresholds = []
+        if pos:
+            nearest = min(pos, key=lambda e: e["threshold"])
+            next_thresholds.append({k: nearest[k] for k in ("id", "name", "threshold") if k in nearest})
+        if neg:
+            nearest = max(neg, key=lambda e: e["threshold"])
+            next_thresholds.append({k: nearest[k] for k in ("id", "name", "threshold") if k in nearest})
+        entry = {k: faction[k] for k in ("id", "name", "reputation", "standing") if k in faction}
+        entry["active_effects"] = active
+        if next_thresholds:
+            entry["next_thresholds"] = next_thresholds
+        hidden = len(inactive) - len(next_thresholds)
+        if hidden > 0:
+            entry["hidden_inactive_count"] = hidden
+        factions.append(entry)
+    return {**result, "factions": factions}
+
+
 def register(server, folder):
     @server.tool()
-    def scratch_card(item_id: int, save_id: int, mode: Literal["read", "open", "reveal"] = "read",
+    def scratch_card(item_id: int, save_id: int, mode: Literal["read", "open", "reveal", "reveal_all", "close"] = "read",
                      position: Literal[1, 2, 3] | None = None, session: str = "", revision: int = 0,
                      view_token: str = "") -> dict:
-        """Inspect or open an owned inventory scratcher. Reveal exactly one position (1 left, 2 middle, 3 right).
-        Read first, then reuse the latest session, revision and view_token. Only reveal returns a symbol."""
+        """Inspect, open, reveal, reveal_all or close an owned inventory scratcher. Use reveal with position (1 left, 2 middle, 3 right)
+        or reveal_all to scratch all remaining positions in one call. Read first, then reuse the latest session, revision and view_token.
+        Close the panel before opening another card."""
         if (mode == "reveal") != (position is not None):
             raise ValueError("supply position only for reveal")
         return command(folder, "scratch_card", mode, session, revision, view_token,
                        item_id=item_id, save_id=save_id, position=position)
 
     @server.tool()
-    def feedback_box(full: bool = False) -> dict:
+    def feedback_box(full: bool = False, verbose: bool = False) -> dict:
         """Read shop faction reputation, effects and thresholds. After a baseline, return only changes.
-        A new save load starts a fresh baseline. Use full=True to repeat the full list."""
+        A new save load starts a fresh baseline. Use full=True to repeat the full list.
+        By default (verbose=False), inactive effects are summarized to the nearest positive and negative thresholds; pass verbose=True for every inactive description."""
         if read_scene(folder).get("feedback_protocol") != 1:
             return {"status": "reload_updated_mod"}
         result = command(folder, "feedback_box", "read", "", 0, "", full=full)
         if result["status"] == "unchanged":
             return {"message": "無變動"}
-        return result
+        return result if verbose else _compact_feedback(result)
 
     @server.tool()
     def starting_difficulty(mode: Literal["read", "select"] = "read", difficulty_id: str = "",
@@ -94,19 +124,23 @@ def register(server, folder):
                       session: str = "", revision: int = 0, view_token: str = "", visit: str = "",
                       confirm_fire: bool = False) -> dict:
         """Inspect shop door, packing confirmation, report and current in-game encounter. Read before acting.
-        After confirming packing, use the counter response choices. Fire requires the player's identification and current visit."""
+        If door or confirm_packing immediately opens bag selection, page and response_choices are attached to the receipt;
+        otherwise use get_trade_context. Fire requires the player's identification and current visit."""
         return command(folder, "shop_activity", mode, session, revision, view_token, visit=visit, confirm_fire=confirm_fire)
 
     @server.tool()
     def travel_menu(mode: Literal["read", "previous", "next", "select", "depart", "close"] = "read",
                     session: str = "", revision: int = 0, view_token: str = "", location_id: str = "") -> dict:
-        """Read active destination cards. Select or depart only for the displayed location ID; wait_for_scene confirms arrival."""
+        """Read active destination cards. Select, previous, and next return the updated revision, view_token and view.
+        Depart can select and depart in one call for any displayed available location_id; wait_for_scene confirms arrival."""
         return command(folder, "travel_menu", mode, session, revision, view_token, location_id=location_id)
 
     @server.tool()
     def explore(mode: Literal["read", "move", "open_bag", "close_bag", "scavenge", "return"] = "read",
                 session: str = "", revision: int = 0, view_token: str = "", item_id: int = 0,
-                source: str = "", target: str = "") -> dict:
+                source: str = "", target: str = "", abandon_ground: bool = False) -> dict:
         """Read visible night inventory, pockets, bag slots and scavenging conditions. Move one observed item
-        by its scene-local game ID and slot keys. Use the returned view.slots and view_token for the next action. Collect the ground before returning."""
-        return command(folder, "explore", mode, session, revision, view_token, item_id=item_id, source=source, target=target)
+        by its scene-local game ID and slot keys. Use the returned view.slots and view_token for the next action.
+        Collect the ground before returning, or pass abandon_ground=True with mode='return' to discard remaining ground items."""
+        return command(folder, "explore", mode, session, revision, view_token, item_id=item_id, source=source,
+                       target=target, abandon_ground=abandon_ground)

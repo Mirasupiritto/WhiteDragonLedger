@@ -1,5 +1,7 @@
 using System;
+using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
+using TMPro;
 
 namespace WhiteDragon.Ledger
 {
@@ -68,6 +70,82 @@ namespace WhiteDragon.Ledger
             return total;
         }
 
+        private static string CleanReportText(string raw) =>
+            string.IsNullOrWhiteSpace(raw) ? "" : Regex.Replace(raw, "<.*?>", "").Trim();
+
+        private static JObject NightReportView()
+        {
+            var lines = new JArray();
+            var reminders = new JArray();
+            var startOfDay = StartOfDayUIManager.Instance;
+            if (startOfDay?.contentGroupObject != null)
+            {
+                foreach (var label in startOfDay.contentGroupObject.GetComponentsInChildren<TextMeshProUGUI>(true))
+                {
+                    string text = CleanReportText(label?.text);
+                    if (text.Length > 0) lines.Add(text);
+                }
+            }
+            if (lines.Count == 0 && PlayerStore.Instance.nightLogs != null)
+            {
+                foreach (var entry in PlayerStore.Instance.nightLogs)
+                {
+                    string text = CleanReportText(entry);
+                    if (text.Length > 0) lines.Add(text);
+                }
+            }
+            if (startOfDay?.displayCaseReminder != null && startOfDay.displayCaseReminder.activeSelf)
+            {
+                string reminder = "";
+                foreach (var label in startOfDay.displayCaseReminder.GetComponentsInChildren<TextMeshProUGUI>(true))
+                {
+                    string text = CleanReportText(label?.text);
+                    if (text.Length > 0) reminder = reminder.Length == 0 ? text : reminder + " " + text;
+                }
+                reminders.Add(reminder.Length > 0 ? reminder : "display_case_reminder");
+            }
+            if (startOfDay?.rentReminder != null && startOfDay.rentReminder.activeSelf)
+            {
+                string text = CleanReportText(startOfDay.rentReminderTMP?.text);
+                if (text.Length > 0) reminders.Add(text);
+            }
+            var report = new JObject { ["lines"] = lines };
+            if (reminders.Count > 0) report["reminders"] = reminders;
+            if (AdvCalendarUIManager.Instance?.UIPanel?.activeInHierarchy == true) report["panel_open"] = true;
+            return report;
+        }
+
+        private static JObject AppealView()
+        {
+            var store = PlayerStore.Instance;
+            var result = new JObject {
+                ["total"] = store.GetCurrentStoreAttractiveness(),
+                ["base"] = store.baseStoreAttractiveness,
+                ["trash_penalty"] = store.GetTrashAttPenalty(),
+                ["projector_bonus"] = store.projectorAttractivenessBonus,
+                ["garbage_level"] = store.garbageLevel
+            };
+            string display = CleanReportText(AdvCalendarUIManager.Instance?.storeAttractivenessTMP?.text);
+            if (display.Length > 0) result["display"] = display;
+            return result;
+        }
+
+        private static JObject StatusSummaryView()
+        {
+            var store = PlayerStore.Instance;
+            var result = new JObject { ["estimated_net_worth"] = store.GetTotalEstimatedValue() };
+            if (store.isStampIntroduced && store.commissaryData != null)
+                result["redeemed_tokens"] = store.commissaryData.redeemedCredit;
+            if (store.startingPerks != null && store.startingPerks.Count > 0)
+            {
+                var perks = new JArray();
+                foreach (var perk in store.startingPerks)
+                    if (perk != null && !string.IsNullOrEmpty(perk.id)) perks.Add(perk.id);
+                if (perks.Count > 0) result["active_perks"] = perks;
+            }
+            return result;
+        }
+
         private JObject DayView()
         {
             int day = StoreStation.Instance.dayCounter;
@@ -75,7 +153,10 @@ namespace WhiteDragon.Ledger
             var sleep = new JObject { ["service_cost"]=cost, ["available"]=phase=="CLOSED" &&
                 sleepSubmittedDay!=day && PlayerStore.Instance.playerCash >= cost };
             if (phase == "CLOSED") sleep["bill"] = NightBill();
-            return new JObject { ["calendar"]=CalendarView(day), ["trash"]=TrashSummary(day), ["sleep"]=sleep };
+            return new JObject {
+                ["calendar"]=CalendarView(day), ["trash"]=TrashSummary(day), ["sleep"]=sleep,
+                ["night_report"]=NightReportView(), ["appeal"]=AppealView(), ["status_summary"]=StatusSummaryView()
+            };
         }
 
         private string SubmitSleep(JObject request, JObject reply)

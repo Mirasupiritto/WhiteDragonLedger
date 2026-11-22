@@ -17,7 +17,9 @@ namespace WhiteDragon.Ledger
         public bool IsShowingGoOutsideConfirm() => packing;
         public void OnGoOutsideConfirm(){packing=false;}
         public void CloseUI(){TransitUI.IsOpen=false;}
+        public int returnNowCalls;
         public void Return(){IsInTransit=true;}
+        public void ReturnNow(){returnNowCalls++; IsInTransit=true;}
         public int attempts;
         public void ScavengeButtonClick(){attempts++;}
     }
@@ -32,6 +34,7 @@ namespace WhiteDragon.Ledger
     {
         public static AdvCalendarUIManager Instance=new AdvCalendarUIManager();
         public Window UIPanel = new Window();
+        public TMPro.TextMeshProUGUI storeAttractivenessTMP = new TMPro.TextMeshProUGUI();
         public void CloseUI(){UIPanel.activeInHierarchy=false;}
     }
     public partial class StoreUIManager
@@ -101,10 +104,18 @@ namespace WhiteDragon.Ledger
             foreach (var item in shop.backInvinvElement.childItems.ToArray()) item.To(shop.invElement);
             r=JourneyRequest("shop_activity");ActOnJourney(r,receipt);
             r["view_token"]=receipt["view_token"];r["action"]="door";
-            Expect(ActOnJourney(r,receipt)=="door_requested" && map.packing,"closed store opens native confirmation");
+            Expect(ActOnJourney(r,receipt)=="door_requested" && map.packing && receipt["response_choices"]==null,"closed store opens native confirmation");
             r=JourneyRequest("shop_activity");ActOnJourney(r,receipt);
             r["view_token"]=receipt["view_token"];r["action"]="confirm_packing";
-            Expect(ActOnJourney(r,receipt)=="packing_requested" && !map.packing,"confirm native packing prompt");
+            var packBag = new GameItem { uniqueId=9799, identifier="small_bag" };
+            shop.responseWindow = new PixelWindow { visible=true };
+            shop.responseInventory = new GameInventory();
+            packBag.To(shop.responseInventory);
+            var packReceipt = new JObject();
+            Expect(ActOnJourney(r,packReceipt)=="packing_requested" && !map.packing &&
+                (string)packReceipt["page"]!=null && ((JArray)packReceipt["response_choices"]).Count==1 &&
+                (string)packReceipt["response_choices"][0]["text"]=="small_bag","confirm packing attaches immediate bag choices");
+            shop.responseWindow = null; shop.responseInventory = null;
             var forest=new TransitCardView {location=AfterhourLocation.Get("forest"),available=true};
             TransitUI.Show(0,false,forest);
             CanObserveStore();r=JourneyRequest("travel_menu");ActOnJourney(r,receipt);
@@ -113,13 +124,25 @@ namespace WhiteDragon.Ledger
             Expect(ActOnJourney(r,receipt)=="view_changed","availability changes without a page switch");
             forest.available=true;r["action"]="read";ActOnJourney(r,receipt);
             r["action"]="select";r["view_token"]=receipt["view_token"];
-            Expect(ActOnJourney(r,receipt)=="selection_submitted","choose visible destination");
-            CanObserveStore();r=JourneyRequest("travel_menu");ActOnJourney(r,receipt);
-            r["view_token"]=receipt["view_token"];r["action"]="depart";r["location_id"]="forest";
+            var selectReceipt = new JObject();
+            Expect(ActOnJourney(r,selectReceipt)=="selection_submitted" &&
+                (string)selectReceipt["view"]["selected_id"]=="forest" &&
+                (string)selectReceipt["view_token"]!=null,"select returns chainable view_token and view");
+            // CanObserveStore does not invalidate the revision/token minted by select
+            CanObserveStore();
+            r=JourneyRequest("travel_menu");
+            r["revision"]=selectReceipt["revision"];
+            r["view_token"]=selectReceipt["view_token"];r["action"]="depart";r["location_id"]="forest";
             int departures=0;TransitUI.Root.frame.travelButton.onClick=()=>departures++;
             Expect(ActOnJourney(r,receipt)=="departure_requested" && departures==1 && (string)receipt["destination"]=="forest" &&
-                (string)receipt["destination_title"]==forest.location.GetTitle(),"departure receipt names the selected destination");
+                (string)receipt["destination_title"]==forest.location.GetTitle(),"depart directly using select receipt token");
             Expect(ActOnJourney(r,receipt)=="view_changed" && departures==1,"no second departure");
+            // Also verify one-step depart without prior select on an unselected available card
+            TransitUI.Show(0,false,forest);
+            CanObserveStore();r=JourneyRequest("travel_menu");ActOnJourney(r,receipt);
+            r["view_token"]=receipt["view_token"];r["action"]="depart";r["location_id"]="forest";
+            Expect(ActOnJourney(r,receipt)=="departure_requested" && departures==2 &&
+                (string)receipt["destination"]=="forest","one-step select+depart on unselected available card");
             TransitUI.IsOpen=false;
             map.Current=AfterhourLocation.Get("dumping_ground");
             CanObserveStore();shop.afterhourWindow.visible=true;
@@ -128,8 +151,15 @@ namespace WhiteDragon.Ledger
             var bag=new GameItem {uniqueId=9802,identifier="bag",contentWindow=new PixelWindow { childElement=new GameInventory() }};
             bag.To(shop.afterhourPocketSlotInvBackpack);
             r=JourneyRequest("explore");ActOnJourney(r,receipt);
+            Expect(!(bool)receipt["view"]["can_return"] && (bool)receipt["view"]["can_return_abandoning_ground"],"ground blocks default return but allows abandon");
             r["action"]="return";r["view_token"]=receipt["view_token"];
             Expect(ActOnJourney(r,receipt)=="collect_ground_first" && !map.IsInTransit,"protect ground loot");
+            r["action"]="return";r["abandon_ground"]=true;r["view_token"]=receipt["view_token"];
+            var abandonReceipt=new JObject();
+            Expect(ActOnJourney(r,abandonReceipt)=="return_requested" && map.IsInTransit && map.returnNowCalls==1 &&
+                (int)abandonReceipt["abandoned_ground_count"]==1,"abandon ground items on explicit return");
+            map.IsInTransit=false;
+            r.Remove("abandon_ground");
             r["action"]="read";ActOnJourney(r,receipt);
             r["action"]="open_bag";r["item_id"]=9802;r["view_token"]=receipt["view_token"];
             Expect(ActOnJourney(r,receipt)=="opened","native backpack open");

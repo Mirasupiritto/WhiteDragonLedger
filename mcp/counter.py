@@ -6,7 +6,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from command_transport import exchange, read_command_receipt
 import trade_journal
-from shopdesk import published
+from shopdesk import published, strip_protocols
 
 
 def context(folder):
@@ -154,9 +154,9 @@ def wait_opening(folder, generation, visit, timeout=25):
             return {"status": "visit_changed"}
         stage = view["stage"]
         if stage not in {"arriving", "awaiting_opening", "speaking", "advance_required", "tablet_closed", "no_goods", "awaiting_information_receipt"}:
-            return with_barter(folder, view)
+            return strip_protocols(with_barter(folder, view))
         if time.monotonic() >= deadline:
-            return {**view, "status": "still_waiting"}
+            return strip_protocols({**view, "status": "still_waiting"})
         if stage in {"advance_required", "tablet_closed"}:
             action = "advance" if stage == "advance_required" else "tablet"
             extra = {"page": view["page"]} if action == "advance" else {}

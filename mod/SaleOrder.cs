@@ -13,6 +13,10 @@ namespace WhiteDragon.Ledger
         private GameItem staged, observedSale;
         private int observedRevenue;
         private GameInventory original;
+        private readonly List<GameItem> stagedBundle = new List<GameItem>();
+        private readonly Dictionary<GameItem, GameInventory> bundleOrigins = new Dictionary<GameItem, GameInventory>();
+        private readonly Dictionary<GameItem, int> bundleQuantities = new Dictionary<GameItem, int>();
+        private readonly Dictionary<GameItem, int> observedBundleSales = new Dictionary<GameItem, int>();
         private readonly HashSet<string> blockedKinds = new HashSet<string>();
         private float nextOrderPoll;
         private JObject completedOrder;
@@ -28,6 +32,10 @@ namespace WhiteDragon.Ledger
                 ["remaining_budget"] = merchant != null && visitId == (string)order["visit"] && merchant.useClientBudget
                     ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
             staged = null;
+            stagedBundle.Clear();
+            bundleOrigins.Clear();
+            bundleQuantities.Clear();
+            observedBundleSales.Clear();
             order = null;
             // LateUpdate publishes the desk before CheckOrder releases the finished receipt.
             nextView = 0;
@@ -95,8 +103,208 @@ namespace WhiteDragon.Ledger
             EndOrder(reason);
         }
 
+        private static void ReturnToOrigin(GameItem item, GameInventory origin)
+        {
+            if (origin == EmporiumEntry.Instance.invElement) ModHelper.MoveItemToInventory(item);
+            else if (origin == EmporiumEntry.Instance.showcaseElement) ModHelper.MoveItemToDisplayCase(item);
+        }
+
+        private void StopBundle(string reason)
+        {
+            var rows = (JArray)order["lines"];
+            for (int i = results.Count; i < rows.Count; i++)
+            {
+                var row = (JObject)rows[i].DeepClone();
+                row["status"] = reason;
+                if (i < stagedBundle.Count)
+                {
+                    var item = stagedBundle[i];
+                    row["kind"] = item.identifier;
+                    row["actual_area"] = item.parentInventory != null && areas.TryGetValue(item.parentInventory, out var area)
+                        ? (JToken)area : JValue.CreateNull();
+                }
+                results.Add(row);
+            }
+            EndOrder(reason);
+        }
+
+        private void OrderBundleStep()
+        {
+            if (saleSceneRevision != sceneRevision || (stagedBundle.Count == 0 && orderRevision != sequence))
+            { StopBundle("state_changed"); return; }
+            if (phase != "OPEN" || visitId != (string)order["visit"] || merchant == null ||
+                merchant.isBusinessComplete || !PlayerStore.Instance.isClientArrived || !merchant.IsClientBuying())
+            { StopBundle("buyer_or_ui_changed"); return; }
+            var rows = (JArray)order["lines"];
+            var table = EmporiumEntry.Instance.backInvinvElement;
+            if (stagedBundle.Count > 0)
+            {
+                if (table.childItems.Count != stagedBundle.Count)
+                { StopBundle("counter_changed"); return; }
+                for (int i = 0; i < stagedBundle.Count; i++)
+                {
+                    var item = stagedBundle[i];
+                    if (item.parentInventory != table || item.unitCount != bundleQuantities[item] || !GeneralHelper.IsItemOwned(item))
+                    { StopBundle("counter_changed"); return; }
+                }
+            }
+            if (!SaleTabletReady()) return;
+            if (stagedBundle.Count == 0)
+            {
+                if (table.childItems.Count != 0 || table.IsInsertLocked())
+                { StopBundle("counter_unavailable"); return; }
+                var toStage = new List<GameItem>(rows.Count);
+                var origins = new List<GameInventory>(rows.Count);
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    int id = (int)rows[i]["item_id"];
+                    if (!itemsById.TryGetValue(id, out var item) || !GeneralHelper.IsItemOwned(item) ||
+                        item.parentInventory == null || !areas.TryGetValue(item.parentInventory, out var area) ||
+                        (area != "inventory" && area != "showcase"))
+                    { StopBundle("source_changed"); return; }
+                    if (GeneralHelper.IsItemLocked(item) || !item.MayRemove() || item.parentInventory.IsRemoveLocked())
+                    { StopBundle("counter_unavailable"); return; }
+                    toStage.Add(item);
+                    origins.Add(item.parentInventory);
+                }
+                for (int i = 0; i < toStage.Count; i++)
+                {
+                    var item = toStage[i];
+                    var origin = origins[i];
+                    int qty = item.unitCount;
+                    ModHelper.MoveItemToBackCounter(item);
+                    if (item.parentInventory != table)
+                    {
+                        for (int j = stagedBundle.Count - 1; j >= 0; j--)
+                            ReturnToOrigin(stagedBundle[j], bundleOrigins[stagedBundle[j]]);
+                        FlushChanges();
+                        for (int j = 0; j < stagedBundle.Count; j++)
+                        {
+                            var rolled = (JObject)rows[j].DeepClone();
+                            var prev = stagedBundle[j];
+                            rolled["kind"] = prev.identifier;
+                            rolled["actual_area"] = prev.parentInventory != null && areas.TryGetValue(prev.parentInventory, out var a)
+                                ? (JToken)a : JValue.CreateNull();
+                            rolled["status"] = prev.parentInventory == bundleOrigins[prev] ? "returned_placement_failed" : "return_unconfirmed";
+                            results.Add(rolled);
+                        }
+                        var failed = (JObject)rows[i].DeepClone();
+                        failed["kind"] = item.identifier;
+                        failed["actual_area"] = item.parentInventory != null && areas.TryGetValue(item.parentInventory, out var fa)
+                            ? (JToken)fa : JValue.CreateNull();
+                        failed["status"] = "placement_failed";
+                        results.Add(failed);
+                        EndOrder("placement_failed");
+                        return;
+                    }
+                    stagedBundle.Add(item);
+                    bundleOrigins[item] = origin;
+                    bundleQuantities[item] = qty;
+                }
+                FlushChanges();
+                orderRevision = sequence;
+                ReportSaleStage("staged");
+                return;
+            }
+
+            var store = PlayerStore.Instance;
+            long totalQuote = 0;
+            JToken budgetBefore = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull();
+            var seenKinds = new HashSet<string>();
+            string bundleRefusal = null;
+            var quotes = new long[rows.Count];
+            var refusals = new string[rows.Count];
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var spec = (JObject)rows[i];
+                var item = stagedBundle[i];
+                long quote = item.GetNegociatedValue();
+                quotes[i] = quote;
+                totalQuote += quote;
+                bool eligible = store.CanSellThisItem(item, true);
+                bool duplicateVariety = merchant.isRequireVariety && !seenKinds.Add(item.identifier);
+                string itemRefusal = !eligible ? "declined" : duplicateVariety ? "duplicate_variety" :
+                    quote < (long)spec["min_price"] ? "below_minimum" : null;
+                refusals[i] = itemRefusal;
+                if (bundleRefusal == null && itemRefusal != null) bundleRefusal = itemRefusal;
+            }
+            if (bundleRefusal == null && merchant.useClientBudget && totalQuote > merchant.GetBudget())
+                bundleRefusal = "over_budget";
+            if (bundleRefusal != null)
+            {
+                for (int i = stagedBundle.Count - 1; i >= 0; i--)
+                    ReturnToOrigin(stagedBundle[i], bundleOrigins[stagedBundle[i]]);
+                FlushChanges();
+                bool allReturned = true;
+                JToken budgetAfter = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull();
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    var row = (JObject)rows[i].DeepClone();
+                    var item = stagedBundle[i];
+                    row["kind"] = item.identifier;
+                    row["quote"] = quotes[i];
+                    row["budget_before"] = budgetBefore;
+                    row["budget_after"] = budgetAfter;
+                    bool returned = item.parentInventory == bundleOrigins[item];
+                    if (!returned) allReturned = false;
+                    row["actual_area"] = item.parentInventory != null && areas.TryGetValue(item.parentInventory, out var area)
+                        ? (JToken)area : JValue.CreateNull();
+                    row["status"] = returned ? "returned_" + (refusals[i] ?? bundleRefusal) : "return_unconfirmed";
+                    results.Add(row);
+                }
+                EndOrder(allReturned ? "finished" : "return_unconfirmed");
+                return;
+            }
+
+            int beforeCash = store.playerCash;
+            observedBundleSales.Clear();
+            NegociationUIManager.Instance.OnSellAllClick();
+            FlushChanges();
+            long totalReceived = 0;
+            bool allSold = true;
+            for (int i = 0; i < stagedBundle.Count; i++)
+            {
+                var item = stagedBundle[i];
+                if (observedBundleSales.TryGetValue(item, out int rev) && !GeneralHelper.IsItemOwned(item))
+                    totalReceived += rev;
+                else
+                    allSold = false;
+            }
+            bool cashMatches = store.playerCash - beforeCash == totalReceived;
+            JToken finalBudget = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull();
+            for (int i = 0; i < rows.Count; i++)
+            {
+                var row = (JObject)rows[i].DeepClone();
+                var item = stagedBundle[i];
+                row["kind"] = item.identifier;
+                row["quote"] = quotes[i];
+                row["budget_before"] = budgetBefore;
+                row["budget_after"] = finalBudget;
+                if (observedBundleSales.TryGetValue(item, out int rev) && !GeneralHelper.IsItemOwned(item))
+                {
+                    row["status"] = "sold";
+                    row["actual_area"] = "buyer";
+                    row["received"] = rev;
+                    row["cash_after"] = store.playerCash;
+                }
+                else
+                {
+                    row["status"] = "sale_unconfirmed";
+                    row["actual_area"] = item.parentInventory != null && areas.TryGetValue(item.parentInventory, out var area)
+                        ? (JToken)area : JValue.CreateNull();
+                }
+                results.Add(row);
+            }
+            EndOrder(allSold && cashMatches ? "finished" : "sale_unconfirmed");
+        }
+
         private void OrderStep()
         {
+            if ((bool?)order["bundle"] == true)
+            {
+                OrderBundleStep();
+                return;
+            }
             if (saleSceneRevision != sceneRevision || (staged == null && orderRevision != sequence))
             { StopLine("state_changed"); return; }
             var spec = order["lines"][index];

@@ -102,7 +102,7 @@ namespace WhiteDragon.Ledger
             if (card != null)
             {
                 string result = ScratchCard.Act(card, action, (int?)request["position"], view, receipt);
-                if (result == "opened" || result == "already_open" || result == "revealed")
+                if (result == "opened" || result == "already_open" || result == "revealed" || result == "closed" || result == "already_closed")
                 {
                     journeyView = ScratchCard.View(card, (int)request["item_id"]);
                     journeyToken = Guid.NewGuid().ToString("N");
@@ -128,9 +128,26 @@ namespace WhiteDragon.Ledger
                 string result = TravelOptions.Act(action, (string)request["location_id"], receipt);
                 if (result == "departure_requested" && sceneStatus == Picker && MapUIManager.Instance.IsInTransit)
                     StartTravel((string)receipt["destination"]);
+                else if ((result == "selection_submitted" || result == "page_requested") && sceneStatus == Picker && TransitUI.IsOpen)
+                {
+                    var updated = TravelOptions.Read(ref firstTravelCard, travelOptions);
+                    if ((string)updated["status"] == "visible")
+                    {
+                        if (updated != travelOptions)
+                        {
+                            travelOptions = updated;
+                            PublishScene(Picker);
+                            receipt["revision"] = sceneRevision;
+                        }
+                        journeyView = updated;
+                        journeyToken = Guid.NewGuid().ToString("N");
+                        receipt["view_token"] = journeyToken;
+                        receipt["view"] = journeyView.DeepClone();
+                    }
+                }
                 return result;
             }
-            return ActInShop(action, view, request);
+            return ActInShop(action, view, request, receipt);
         }
 
     }

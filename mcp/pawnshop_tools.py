@@ -66,7 +66,7 @@ def register_pawnshop_tools(server, folder, database):
                 account.update(calendar=status["calendar"], trash=shop_day.trash_contents(folder, database, status))
             elif status["status"] in {"load_changed", "waiting_for_load"}:
                 return {"status": "observation_changed"}
-        return account
+        return shopdesk.strip_protocols(account)
 
     @server.tool()
     def list_stock_tags(search: str | None = None, in_stock_only: bool = False) -> dict:
@@ -96,7 +96,8 @@ def register_pawnshop_tools(server, folder, database):
                   destination: Literal["inventory", "showcase", "front", "back"], generation: str,
                   revision: int, command_id: str | None = None, visit: str | None = None) -> dict:
         """While closed, move owned stock between inventory and showcase. During trade pass the observed visit
-        to stage one item on the empty trade table (back), or return it. Guest goods return to front and
+        to stage items on the trade table (back), or return them (multiple owned items may be staged together
+        during regular selling; guest goods require an empty table). Guest goods return to front and
         owned goods to inventory/showcase. Owned goods left on back when no customer is present can also be
         cleared to inventory/showcase with visit omitted. Placement alone does not confirm a trade. Reuse the command ID to retry."""
         return submit_move(folder, item_id, source, destination, generation, revision, command_id, visit=visit)
@@ -214,17 +215,20 @@ def register_pawnshop_tools(server, folder, database):
     @server.tool()
     def get_buyer_context() -> dict:
         """Read the current customer's visit token, remaining budget and revision before submitting an order."""
-        return shopdesk.buyer(folder)
+        return shopdesk.strip_protocols(shopdesk.buyer(folder))
 
     @server.tool()
     def sell_order(lines: list[SaleLine], generation: str, revision: int, visit: str,
-                   stop_same_kind_on_budget: bool = False) -> dict:
-        """Sell only the listed owned items, each with its own minimum. Opt in to skipping the same
-        native item kind after a budget rejection has been returned. Other kinds stay in order.
+                   stop_same_kind_on_budget: bool = False, bundle: bool = False) -> dict:
+        """Sell only the listed owned items, each with its own minimum. Set bundle=True to stage all listed
+        items onto the trade table together and settle in one click (rolling all items back to their original
+        areas if any item is declined, below minimum, duplicate variety, or the combined quote exceeds budget).
+        With bundle=False (default), sells one item at a time and can opt in to stop_same_kind_on_budget.
         A staged item waits through dialogue and a closed tablet. Reuse identical arguments (including the original
         revision) to read sale_pending or the final receipt with actual received and remaining_budget."""
         return shopdesk.sell_order(folder, [line.model_dump() for line in lines],
-                                  generation, revision, visit, stop_same_kind_on_budget, database=database)
+                                  generation, revision, visit, stop_same_kind_on_budget,
+                                  database=database, bundle=bundle)
 
     @server.tool()
     def get_counter() -> dict:
@@ -232,9 +236,10 @@ def register_pawnshop_tools(server, folder, database):
         view = shopdesk.published(folder)
         if view["status"] != "observed" or view.get("counter_protocol") != 2:
             return counter.context(folder)
-        result = {**{k:view[k] for k in ("status","slot","phase","generation","revision","day")}, **view["counter"], **view["day_info"]}
+        day_info = {k: v for k, v in view["day_info"].items() if k in {"calendar", "trash", "sleep"}}
+        result = {**{k:view[k] for k in ("status","slot","phase","generation","revision","day")}, **view["counter"], **day_info}
         result["trash"] = shop_day.trash_contents(folder, database, result)
-        return counter.with_barter(folder, result)
+        return shopdesk.strip_protocols(counter.with_barter(folder, result))
 
     @server.tool()
     def ring_customer(generation: str, revision: int, waiting: int) -> dict:
@@ -324,7 +329,7 @@ def register_pawnshop_tools(server, folder, database):
     @server.tool()
     def get_phone_contacts() -> dict:
         """Read known phonebook and owned business-card contacts, services, answerability and visible call choices. Never dials."""
-        return counter.phone_context(folder)
+        return shopdesk.strip_protocols(counter.phone_context(folder))
 
     @server.tool()
     def phone_keypad(mode: Literal["open", "close", "dial"], generation: str, revision: int,

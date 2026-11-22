@@ -19,7 +19,11 @@ namespace WhiteDragon.Ledger {
         public static bool CanAccept(GameSlotInventory slot, GameItem item) => slot.childItem == null && item.identifier == "bottle";
         public static int TryAcceptOnce(GameSlotInventory slot, GameItem item) { item.To(slot); return 1; }
     }
-    public class Window { public bool activeInHierarchy; }
+    public class Window {
+        public bool activeInHierarchy, activeSelf;
+        public TMPro.TextMeshProUGUI[] labels = new TMPro.TextMeshProUGUI[0];
+        public T[] GetComponentsInChildren<T>(bool includeInactive = false) => labels as T[] ?? new T[0];
+    }
     public class NegotiationTabletFrame { public PanelNode infoHost; public Window confirmRoot; }
     public partial class StoreUIManager {
         public static StoreUIManager Instance = new StoreUIManager();
@@ -104,7 +108,7 @@ namespace WhiteDragon.Ledger {
         public bool isIntroduced;
         public int serviceCost;
         public string displayName="喬治奧", identifier="georgio";
-        public bool isOfferWholesale, useClientBudget=true, isBusinessComplete;
+        public bool isOfferWholesale, useClientBudget=true, isBusinessComplete, isRequireVariety;
         public List<string> clientBuyingTagList = new List<string>(), clientBlackTagList = new List<string>(),
             clientBuyingIdList = new List<string>(), clientBlackIdList = new List<string>();
         public List<string> varietyTrackingList=new List<string>();
@@ -146,8 +150,24 @@ namespace WhiteDragon.Ledger {
         public static NegociationUIManager Instance=new NegociationUIManager();
         public bool IsOpen=true;
         public ReceiptElements uiObject = new ReceiptElements();
-        public int extraFee, paymentCalls;
+        public int extraFee, paymentCalls, sellAllCalls;
         public void OpenUI() { IsOpen=true; }
+        public void OnSellAllClick() {
+            ++sellAllCalls;
+            var store=PlayerStore.Instance;
+            var client=store.currentClientInstance.client;
+            var items=EmporiumEntry.Instance.backInvinvElement.childItems.FindAll(i => i.owned);
+            for (int idx=items.Count-1; idx>=0; idx--) {
+                var item=items[idx];
+                if (!store.CanSellThisItem(item, false)) continue;
+                if (client.isRequireVariety) client.varietyTrackingList.Add(item.identifier);
+                client.budget-=item.price;
+                client.onItemBought?.Invoke(item, item.price);
+                store.playerCash+=item.price;
+                item.owned=false;
+                item.To(null);
+            }
+        }
         public void OnWholesaleClick() { Purchase(true); }
         public void BuyItem() {
             var store=PlayerStore.Instance;
@@ -221,7 +241,12 @@ namespace WhiteDragon.Ledger {
         public static void MoveItemToFrontCounter(GameItem i) { i.To(EmporiumEntry.Instance.frontInvinvElement); }
         public static void MoveItemToInventory(GameItem i) { i.To(EmporiumEntry.Instance.invElement); }
         public static void MoveItemToDisplayCase(GameItem i) { i.To(EmporiumEntry.Instance.showcaseElement); }
-        public static void MoveItemToBackCounter(GameItem i) { placed.Add(i.uniqueId); i.To(EmporiumEntry.Instance.backInvinvElement); }
+        public static Func<GameItem, bool> blockBackPlacement;
+        public static void MoveItemToBackCounter(GameItem i) {
+            placed.Add(i.uniqueId);
+            if (blockBackPlacement != null && blockBackPlacement(i)) return;
+            i.To(EmporiumEntry.Instance.backInvinvElement);
+        }
     }
     public sealed partial class InventoryObserver {
         private const string ModId="replay";
@@ -418,6 +443,7 @@ namespace WhiteDragon.Ledger {
             ReplayWaterUse();
             ReplaySaleResume();
             ReplayMixedTrades();
+            ReplayBundleSale();
             ReplayNetwork();
             ReplayDismiss();
             ReplayCounterDay();
@@ -425,6 +451,112 @@ namespace WhiteDragon.Ledger {
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
         }
+        private void ReplayBundleSale()
+        {
+            var store = PlayerStore.Instance;
+            var shop = EmporiumEntry.Instance;
+            var ui = NegociationUIManager.Instance;
+            phase = "OPEN";
+            store.storeState = PlayerStore.StoreState.OPEN;
+            store.currentClientInstance = new StoreClientInstance();
+            ObserveVisit();
+            DialogUIManager.Instance = new DialogUIManager();
+            shop.backInvinvElement.childItems.Clear();
+
+            JObject RunBundle(JArray lines)
+            {
+                string cmd = Guid.NewGuid().ToString("N");
+                Write("sale-" + generation + ".json", new JObject {
+                    ["command_id"] = cmd, ["generation"] = generation, ["revision"] = sequence,
+                    ["visit"] = visitId, ["lines"] = lines, ["bundle"] = true,
+                    ["expires_ms"] = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds()
+                });
+                for (int n = 0; n < 8; n++) { UnityEngine.Time.realtimeSinceStartup++; CheckOrder(); CloseTransactions(); }
+                return JObject.Parse(ModHelper.ReadModDataFileText(ModId, "receipt-" + cmd + ".json"));
+            }
+
+            // 1. Success: stage from inventory and showcase, settle in one click.
+            var a = Item(8101, "soap", 4);
+            var b = Item(8102, "ore", 6);
+            b.To(shop.showcaseElement);
+            merchant.budget = 15;
+            int cashBefore = store.playerCash;
+            int callsBefore = ui.sellAllCalls;
+            var reply = RunBundle(new JArray(
+                new JObject { ["item_id"] = LocalId(a), ["min_price"] = 4 },
+                new JObject { ["item_id"] = LocalId(b), ["min_price"] = 5 }
+            ));
+            Expect((string)reply["status"] == "finished" && ui.sellAllCalls == callsBefore + 1 &&
+                store.playerCash == cashBefore + 10 && merchant.budget == 5 &&
+                (string)reply["items"][0]["status"] == "sold" && (int)reply["items"][0]["received"] == 4 &&
+                (string)reply["items"][1]["status"] == "sold" && (int)reply["items"][1]["received"] == 6 &&
+                shop.backInvinvElement.childItems.Count == 0, "bundle sell settles in one click");
+
+            // 2. Below minimum rollback: returns all items to original areas.
+            var c = Item(8103, "soap", 4);
+            var d = Item(8104, "ore", 3);
+            d.To(shop.showcaseElement);
+            merchant.budget = 20;
+            cashBefore = store.playerCash;
+            callsBefore = ui.sellAllCalls;
+            reply = RunBundle(new JArray(
+                new JObject { ["item_id"] = LocalId(c), ["min_price"] = 4 },
+                new JObject { ["item_id"] = LocalId(d), ["min_price"] = 5 }
+            ));
+            Expect((string)reply["status"] == "finished" && ui.sellAllCalls == callsBefore &&
+                store.playerCash == cashBefore && c.parentInventory == shop.invElement &&
+                d.parentInventory == shop.showcaseElement && shop.backInvinvElement.childItems.Count == 0 &&
+                (string)reply["items"][0]["status"] == "returned_below_minimum" && (string)reply["items"][0]["actual_area"] == "inventory" &&
+                (string)reply["items"][1]["status"] == "returned_below_minimum" && (string)reply["items"][1]["actual_area"] == "showcase",
+                "bundle below-min rolls back all items to original areas");
+
+            // 3. Over combined budget rollback (each item individually <= budget).
+            merchant.budget = 5;
+            reply = RunBundle(new JArray(
+                new JObject { ["item_id"] = LocalId(c), ["min_price"] = 1 },
+                new JObject { ["item_id"] = LocalId(d), ["min_price"] = 1 }
+            ));
+            Expect((string)reply["status"] == "finished" && ui.sellAllCalls == callsBefore &&
+                store.playerCash == cashBefore && c.parentInventory == shop.invElement &&
+                d.parentInventory == shop.showcaseElement &&
+                (string)reply["items"][0]["status"] == "returned_over_budget" &&
+                (string)reply["items"][1]["status"] == "returned_over_budget",
+                "bundle over-budget rolls back all items");
+
+            // 4. Duplicate variety rollback.
+            var dup = Item(8105, "soap", 2);
+            merchant.budget = 20;
+            merchant.isRequireVariety = true;
+            reply = RunBundle(new JArray(
+                new JObject { ["item_id"] = LocalId(c), ["min_price"] = 1 },
+                new JObject { ["item_id"] = LocalId(dup), ["min_price"] = 1 }
+            ));
+            merchant.isRequireVariety = false;
+            Expect((string)reply["status"] == "finished" && ui.sellAllCalls == callsBefore &&
+                c.parentInventory == shop.invElement && dup.parentInventory == shop.invElement &&
+                (string)reply["items"][1]["status"] == "returned_duplicate_variety",
+                "bundle duplicate variety rolls back all items");
+
+            // 5. Partial/space placement failure rollback.
+            var third = Item(8106, "battery", 2);
+            ModHelper.blockBackPlacement = item => item == d;
+            reply = RunBundle(new JArray(
+                new JObject { ["item_id"] = LocalId(c), ["min_price"] = 1 },
+                new JObject { ["item_id"] = LocalId(d), ["min_price"] = 1 },
+                new JObject { ["item_id"] = LocalId(third), ["min_price"] = 1 }
+            ));
+            ModHelper.blockBackPlacement = null;
+            Expect((string)reply["status"] == "placement_failed" && ui.sellAllCalls == callsBefore &&
+                c.parentInventory == shop.invElement && d.parentInventory == shop.showcaseElement &&
+                third.parentInventory == shop.invElement && shop.backInvinvElement.childItems.Count == 0 &&
+                (string)reply["items"][0]["status"] == "returned_placement_failed" &&
+                (string)reply["items"][1]["status"] == "placement_failed" &&
+                (string)reply["items"][2]["status"] == "not_attempted",
+                "bundle placement failure rolls back already-staged items");
+
+            Console.WriteLine("Bundle sale replay passed: one-click sale, below-min, over-budget, variety and placement-failure rollbacks.");
+        }
+
         private void ReplayDismiss()
         {
             var store=PlayerStore.Instance;

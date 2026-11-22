@@ -134,8 +134,7 @@ class Updates:
             else:
                 old = json.loads(row[0])
                 upsert, remove = book_history.delta(db, gen, base, rev)
-                result.update(mode="delta", upsert=upsert, remove=remove,
-                              fields={k:v for k,v in fields.items() if old.get(k)!=v})
+                changed = {k:v for k,v in fields.items() if old.get(k)!=v}
                 checkpoints = []
                 last = old["phase"]
                 for step in db.execute("SELECT rev,day,phase FROM book_events WHERE gen=? AND rev>? AND rev<=? ORDER BY rev",
@@ -145,8 +144,12 @@ class Updates:
                         last = step["phase"]
                 if last != fields["phase"]:
                     checkpoints.append(dict(rev=rev, day=fields["day"], phase=fields["phase"]))
-                if checkpoints:
-                    result["checkpoints"] = checkpoints
+                if not upsert and not remove and not changed and not checkpoints:
+                    result = dict(status="unchanged", revision=rev, cursor=token)
+                else:
+                    result.update(mode="delta", upsert=upsert, remove=remove, fields=changed)
+                    if checkpoints:
+                        result["checkpoints"] = checkpoints
             db.execute("INSERT OR IGNORE INTO book_cursors VALUES(?,?)", (token,encoded))
         self.cursor = token
         return result
@@ -193,9 +196,9 @@ def register(server, folder, database):
             items = book_history.snapshot(db, gen, rev)
         day = {**view, **view["day_info"]}
         trash = shop_day.trash_contents(folder, database, day)
-        return {**view, "trash":trash, "items":items, "load_scans":head["load_scans"],
+        return shopdesk.strip_protocols({**view, "trash":trash, "items":items, "load_scans":head["load_scans"],
                 "windows":windows.get("windows"), "windows_status":windows["status"],
-                "dialog_choices":windows.get("dialog_choices"), "response_choices":windows.get("response_choices")}
+                "dialog_choices":windows.get("dialog_choices"), "response_choices":windows.get("response_choices")})
 
     @server.tool()
     def trade_batch(generation: str, revision: int, visit: str, orders: list[BatchLine]) -> dict:

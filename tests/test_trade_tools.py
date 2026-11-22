@@ -92,7 +92,9 @@ class TradeTools(unittest.TestCase):
         self.assertEqual([row["phase"] for row in change["checkpoints"]], ["OPEN","CLOSED"])
         self.assertEqual([(row["id"],row["area"]) for row in change["upsert"]],[(27,"inventory")])
         self.assertEqual(trade_tools.Updates(self.folder,self.db).report(base["cursor"]), change)
-        self.assertFalse(updates.report()["upsert"])
+        unchanged = updates.report()
+        self.assertEqual(set(unchanged.keys()), {"status", "revision", "cursor"})
+        self.assertEqual((unchanged["status"], unchanged["revision"]), ("unchanged", 3))
         old = self.generation
         self.generation = "c"*32
         self.publish(1,"MORNING",dict(op="baseline",items=[],purifier_stock=[]))
@@ -186,7 +188,11 @@ class TradeTools(unittest.TestCase):
                     inbox.unlink()
                     first = await pending
                     self.assertEqual(first["status"],status)
-                    self.assertEqual(first["shop_update"]["load_scans"],1)
+                    su = first["shop_update"]
+                    if su["status"] == "unchanged":
+                        self.assertEqual(set(su.keys()), {"status", "revision", "cursor"})
+                    else:
+                        self.assertEqual(su["load_scans"],1)
                     again = await call(tool,**args)
                     self.assertEqual(again["command_id"],first["command_id"])
                     self.assertFalse(inbox.exists())
@@ -230,7 +236,24 @@ class TradeTools(unittest.TestCase):
                                   ("confirm_trade", dict(item_id=27,side="sell",price=4))]:
                     result=await call(name,generation=self.generation,revision=1,visit=self.visit,**args)
                     self.assertEqual(result["status"],"reload_updated_mod")
-                    self.assertEqual(result["shop_update"]["mode"],"delta")
+                    self.assertEqual(result["shop_update"]["status"],"unchanged")
+                    self.assertEqual(set(result["shop_update"].keys()),{"status","revision","cursor"})
                 self.assertEqual(await call("get_shop_ledger",slot=4),dict(slot=4,status="observed",open_tickets=[]))
                 self.assertFalse(list(self.folder.glob("sale-*.json")))
         asyncio.run(run())
+
+    def test_strip_protocols_from_llm_responses(self):
+        from shopdesk import strip_protocols
+        nested = dict(
+            status="observed", desk_protocol=1, counter_protocol=2,
+            counter=dict(stage="ready", barter_protocol=1, dialogue_protocol=1, visit=self.visit),
+            phone=dict(phone_token="p1", keypad_protocol=1),
+        )
+        cleaned = strip_protocols(nested)
+        self.assertNotIn("desk_protocol", cleaned)
+        self.assertNotIn("counter_protocol", cleaned)
+        self.assertNotIn("barter_protocol", cleaned["counter"])
+        self.assertNotIn("dialogue_protocol", cleaned["counter"])
+        self.assertNotIn("keypad_protocol", cleaned["phone"])
+        self.assertEqual(cleaned["counter"]["visit"], self.visit)
+        self.assertEqual(cleaned["phone"]["phone_token"], "p1")

@@ -134,3 +134,92 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual({t.name for t in (await client.list_tools()).tools},
                                  common | {"get_shop_ledger", "dismiss_trade_ticket"})
                 self.assertEqual((await read("get_shop_ledger", slot=4))["open_tickets"], [])
+
+    async def test_explore_abandon_ground_and_scratch_card_close(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            folder = Path(temp)
+            session = "f" * 32
+            def publish(status, location, revision):
+                (folder / "scene.json").write_text(json.dumps(dict(
+                    session=session, status=status, location=location, revision=revision,
+                    journey_protocol=1, scratch_card_protocol=2)), encoding="utf-8")
+            publish("ready", "dumping_ground", 2)
+            server = StdioServerParameters(command=sys.executable, args=["-B",
+                str(Path(__file__).resolve().parents[1] / "mcp" / "ledger_mcp.py"), "--journal", temp,
+                "--database", str(folder / "ledger.sqlite")])
+            inbox = folder / f"journey-{session}.json"
+            async with stdio_client(server) as streams, ClientSession(*streams) as client:
+                await client.initialize()
+                submitted = asyncio.create_task(client.call_tool("explore", dict(
+                    mode="return", session=session, revision=2, view_token="tok1", abandon_ground=True)))
+                async with asyncio.timeout(5):
+                    while not inbox.exists():
+                        await asyncio.sleep(.02)
+                plan = json.loads(inbox.read_text())
+                self.assertEqual((plan["tool"], plan["action"], plan["abandon_ground"]), ("explore", "return", True))
+                receipt = dict(command_id=plan["command_id"], generation=session, status="return_requested", abandoned_ground_count=4)
+                (folder / f"receipt-{plan['command_id']}.json").write_text(json.dumps(receipt))
+                inbox.unlink()
+                self.assertEqual(json.loads((await submitted).content[0].text), receipt)
+
+                publish("ready", "pawnshop", 3)
+                bad_close = await client.call_tool("scratch_card", dict(
+                    item_id=1, save_id=122, mode="close", position=1, session=session, revision=3, view_token="tok2"))
+                self.assertTrue(bad_close.isError)
+                closing = asyncio.create_task(client.call_tool("scratch_card", dict(
+                    item_id=1, save_id=122, mode="close", session=session, revision=3, view_token="tok2")))
+                async with asyncio.timeout(5):
+                    while not inbox.exists():
+                        await asyncio.sleep(.02)
+                plan = json.loads(inbox.read_text())
+                self.assertEqual((plan["tool"], plan["action"], plan["position"]), ("scratch_card", "close", None))
+                receipt = dict(command_id=plan["command_id"], generation=session, status="closed", view_token="tok3")
+                (folder / f"receipt-{plan['command_id']}.json").write_text(json.dumps(receipt))
+                inbox.unlink()
+                self.assertEqual(json.loads((await closing).content[0].text), receipt)
+
+                bad_reveal_all = await client.call_tool("scratch_card", dict(
+                    item_id=1, save_id=122, mode="reveal_all", position=1, session=session, revision=3, view_token="tok3"))
+                self.assertTrue(bad_reveal_all.isError)
+                revealing = asyncio.create_task(client.call_tool("scratch_card", dict(
+                    item_id=1, save_id=122, mode="reveal_all", session=session, revision=3, view_token="tok3")))
+                async with asyncio.timeout(5):
+                    while not inbox.exists():
+                        await asyncio.sleep(.02)
+                plan = json.loads(inbox.read_text())
+                self.assertEqual((plan["tool"], plan["action"], plan["position"]), ("scratch_card", "reveal_all", None))
+                receipt = dict(command_id=plan["command_id"], generation=session, status="revealed",
+                               symbols=[{"position": 1, "symbol": {"id": 1, "texture": "fruit"}}], view_token="tok4")
+                (folder / f"receipt-{plan['command_id']}.json").write_text(json.dumps(receipt))
+                inbox.unlink()
+                self.assertEqual(json.loads((await revealing).content[0].text), receipt)
+
+    def test_feedback_box_compact_and_verbose(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
+        from journey import _compact_feedback
+        raw = {
+            "status": "baseline",
+            "reputation_scale": 200,
+            "factions": [{
+                "id": "lower",
+                "name": "Lower",
+                "reputation": "5.00",
+                "standing": "neutral",
+                "effects": [
+                    {"id": "p0", "name": "Active", "description": "long active desc", "threshold": 0, "always_active": True, "active": True},
+                    {"id": "p20", "name": "NextPos", "description": "long pos 20", "threshold": 20, "always_active": False, "active": False},
+                    {"id": "p100", "name": "FarPos", "description": "long pos 100", "threshold": 100, "always_active": False, "active": False},
+                    {"id": "n20", "name": "NextNeg", "description": "long neg -20", "threshold": -20, "always_active": False, "active": False},
+                    {"id": "n100", "name": "FarNeg", "description": "long neg -100", "threshold": -100, "always_active": False, "active": False},
+                ],
+            }],
+        }
+        compact = _compact_feedback(raw)
+        f = compact["factions"][0]
+        self.assertEqual([e["id"] for e in f["active_effects"]], ["p0"])
+        self.assertEqual(f["next_thresholds"], [
+            {"id": "p20", "name": "NextPos", "threshold": 20},
+            {"id": "n20", "name": "NextNeg", "threshold": -20},
+        ])
+        self.assertEqual(f["hidden_inactive_count"], 2)
+        self.assertNotIn("effects", f)

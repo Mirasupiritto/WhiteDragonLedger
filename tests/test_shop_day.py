@@ -29,3 +29,28 @@ class TrashLedger(unittest.TestCase):
             self.assertEqual(replay("a",3,10,[first,second])["items"], [first,second])
             self.assertEqual(replay("a",4,11,[second])["items"], [second])
             self.assertEqual(replay("b",1,10,[])["items"], [])
+
+    def test_shop_status_exposes_night_report_appeal_and_status_summary(self):
+        from shop_day import shop_status
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            folder = Path(temp)
+            gen = "a" * 32
+            (folder / "head.json").write_text(json.dumps({
+                "status": "observed", "desk_protocol": 1, "generation": gen, "slot": 4, "revision": 2
+            }), encoding="utf-8")
+            day_info = {
+                "calendar": {"day": 3},
+                "trash": {"status": "unavailable"},
+                "sleep": {"service_cost": 0, "available": False},
+                "night_report": {"lines": ["- 电费已结清。"], "reminders": ["别忘了补充展示柜存货！"]},
+                "appeal": {"total": 14, "base": 25, "trash_penalty": 15, "projector_bonus": 4, "garbage_level": 3},
+                "status_summary": {"estimated_net_worth": 320, "active_perks": ["thrifty"]},
+            }
+            (folder / f"desk-{gen}.json").write_text(json.dumps({
+                "generation": gen, "slot": 4, "revision": 2, "phase": "MORNING", "day": 3,
+                "counter": {"cash": 120}, "day_info": day_info,
+            }), encoding="utf-8")
+            status = shop_status(folder)
+            self.assertEqual(status["night_report"]["lines"], ["- 电费已结清。"])
+            self.assertEqual(status["appeal"]["total"], 14)
+            self.assertEqual(status["status_summary"]["estimated_net_worth"], 320)

@@ -48,7 +48,7 @@ def trash_contents(folder, database, view):
 def register_day_tools(server, folder, database):
     @server.tool()
     def get_shop_status() -> dict:
-        """Current cash, calendar events, rent, trash contents and sleep costs inside the pawnshop."""
+        """Current cash, calendar events, rent, trash contents, night report, shop appeal, status summary and sleep costs inside the pawnshop."""
         view = shop_status(folder)
         if view["status"] == "observed":
             view["trash"] = trash_contents(folder, database, view)
@@ -89,8 +89,12 @@ def register_day_tools(server, folder, database):
         while True:
             view=shop_status(folder)
             if view.get("slot")==result["slot"] and view.get("generation")==generation and view.get("day")==day+1 and view.get("phase")=="MORNING":
-                return {**result,"status":"slept","day_after":view["day"],"calendar":view["calendar"],
-                        "trash":trash_contents(folder,database,view)}
+                slept = {**result,"status":"slept","day_after":view["day"],"calendar":view["calendar"],
+                         "trash":trash_contents(folder,database,view)}
+                for key in ("night_report", "appeal", "status_summary"):
+                    if key in view:
+                        slept[key] = view[key]
+                return slept
             if time.monotonic()>=deadline or (view.get("generation") and view["generation"]!=generation):
                 return result
             time.sleep(.15)

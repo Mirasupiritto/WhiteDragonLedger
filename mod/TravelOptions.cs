@@ -26,6 +26,7 @@ namespace WhiteDragon.Ledger
                 var card = cards.Find(c => c.location.Id == id && c.available && c.location.IsAvailable());
                 if (card == null) return "destination_unavailable";
                 if (action == "select") { TransitUI.Select(card.location); return "selection_submitted"; }
+                if (Selected.GetValue(null) != card.location) TransitUI.Select(card.location);
                 if (Selected.GetValue(null) != card.location || !NativeButton.Enabled(frame.travelButton)) return "selection_changed";
                 string title = card.location.GetTitle();
                 frame.travelButton.onClick.Invoke();

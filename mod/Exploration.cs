@@ -23,6 +23,7 @@ namespace WhiteDragon.Ledger
                 View["inventory_visible"] = visible;
                 View["can_move"] = visible && !shop.afterhourWindow.isLocked && PlayerStore.Instance.lockAllInventoryFlag == 0;
                 View["can_return"] = shop.afterhourInventory.childItems.Count == 0;
+                View["can_return_abandoning_ground"] = !MapUIManager.Instance.IsInTransit;
                 if ((string)View["location"] == "dumping_ground")
                 {
                     View["can_scavenge"] = ScavHelper.CanScavenge();
@@ -64,8 +65,17 @@ namespace WhiteDragon.Ledger
             var map = MapUIManager.Instance;
             if (action == "return")
             {
-                if (!(bool)night.View["can_return"]) return "collect_ground_first";
-                map.Return();
+                bool abandonGround = (bool?)request["abandon_ground"] == true;
+                if (!(bool)night.View["can_return"] && !abandonGround) return "collect_ground_first";
+                if (abandonGround && !(bool)night.View["can_return"])
+                {
+                    receipt["abandoned_ground_count"] = EmporiumEntry.Instance.afterhourInventory.childItems.Count;
+                    map.ReturnNow();
+                }
+                else
+                {
+                    map.Return();
+                }
                 return "return_requested";
             }
             if (action == "scavenge")

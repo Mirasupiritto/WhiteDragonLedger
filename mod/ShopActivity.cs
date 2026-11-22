@@ -28,17 +28,32 @@ namespace WhiteDragon.Ledger
             };
         }
 
-        private string ActInShop(string action, JObject view, JObject request)
+        private void AttachResponseChoicesIfOpen(JObject receipt)
+        {
+            if (ResponseInventory() == null) return;
+            ObserveDecision("response_required", receipt);
+            if (generation != null && deskFile != null)
+            {
+                receipt["shop_generation"] = generation;
+                receipt["shop_revision"] = sequence;
+                nextView = 0;
+                RefreshDesk();
+            }
+        }
+
+        private string ActInShop(string action, JObject view, JObject request, JObject receipt)
         {
             switch (action)
             {
                 case "door":
                     if (!(bool)view["can_request_door"]) return "door_unavailable";
                     UnityEngine.Object.FindObjectOfType<StoreDoor>().OnClick();
+                    AttachResponseChoicesIfOpen(receipt);
                     return "door_requested";
                 case "confirm_packing":
                     if (!(bool)view["packing_confirmation"]) return "no_confirmation";
                     MapUIManager.Instance.OnGoOutsideConfirm();
+                    AttachResponseChoicesIfOpen(receipt);
                     return "packing_requested";
                 case "close_report":
                     if (!(bool)view["report_open"]) return "report_closed";

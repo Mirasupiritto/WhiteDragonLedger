@@ -11,6 +11,12 @@ from command_transport import exchange, read_command_receipt, read_optional_json
 import trade_journal
 
 
+def strip_protocols(data):
+    if isinstance(data, dict):
+        return {k: strip_protocols(v) for k, v in data.items() if not k.endswith("_protocol")}
+    return data
+
+
 def published(folder, stream="desk"):
     changed = interrupted_shop_call(folder)
     if changed:
@@ -139,7 +145,7 @@ def buyer(folder):
     return result
 
 
-def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_budget=False, *, database=None, tool="sell_order", on_table=False):
+def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_budget=False, *, database=None, tool="sell_order", on_table=False, bundle=False):
     if not all(re.fullmatch("[a-f0-9]{32}", token) for token in (generation, visit)) or revision < 1:
         raise ValueError("Use the generation, revision and visit from the buyer context")
     ids = [line["item_id"] for line in lines]
@@ -147,6 +153,8 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
         raise ValueError("Expected distinct positive item IDs and a non-negative minimum for each")
     plan = dict(lines=lines, generation=generation, revision=revision, visit=visit,
                 stop_same_kind_on_budget=stop_same_kind_on_budget)
+    if bundle:
+        plan["bundle"] = True
     if tool != "sell_order":
         plan.update(tool=tool, on_table=on_table)
     command = uuid5(NAMESPACE_URL, "white-dragon/sell-order/"+json.dumps(plan,sort_keys=True)).hex

@@ -37,6 +37,13 @@ namespace WhiteDragon.Ledger
             var staged=Move("inventory","back");
             Expect((string)staged["status"]=="moved" && (bool)staged["same_item_at_destination"] &&
                 (string)staged["actual_area"]=="back" && store.playerCash==cash,"stage only, same item");
+            var secondOwned=Item(63008,"soap",2);
+            req["item_id"]=LocalId(secondOwned);
+            Expect((string)Move("inventory","back")["status"]=="moved" && shop.backInvinvElement.childItems.Count==2,
+                "stage multiple owned items onto trade table");
+            Expect((string)Move("back","inventory")["status"]=="moved" && secondOwned.parentInventory==shop.invElement,
+                "return second staged owned item");
+            req["item_id"]=LocalId(item);
             Expect((string)Move("back","front")["status"]=="invalid_route","owned stays on owner side");
             Expect((string)Move("back","showcase")["status"]=="moved","return to display");
             item.To(shop.frontInvinvElement); item.owned=false;

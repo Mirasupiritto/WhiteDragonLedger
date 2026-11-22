@@ -1,3 +1,4 @@
+using System.Linq;
 using Newtonsoft.Json.Linq;
 
 namespace WhiteDragon.Ledger
@@ -30,7 +31,8 @@ namespace WhiteDragon.Ledger
             bool allowed = destination == "back" ? (owned ? stock : source == "front") :
                 source == "back" && (owned ? destination == "inventory" || destination == "showcase" : destination == "front");
             if (!allowed) return Receipt(request,"invalid_route");
-            if (destination == "back" && shop.backInvinvElement.childItems.Count != 0)
+            if (destination == "back" && shop.backInvinvElement.childItems.Count != 0 &&
+                (!owned || stage != "ready" || shop.backInvinvElement.childItems.Any(existing => !GeneralHelper.IsItemOwned(existing))))
                 return Receipt(request,"table_occupied");
             var target = destination == "back" ? shop.backInvinvElement : destination == "front" ? shop.frontInvinvElement :
                 destination == "showcase" ? shop.showcaseElement : shop.invElement;

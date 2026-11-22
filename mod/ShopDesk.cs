@@ -71,6 +71,7 @@ namespace WhiteDragon.Ledger
         {
             observedSale = item;
             observedRevenue = actualPayment;
+            if (stagedBundle.Count > 0) observedBundleSales[item] = actualPayment;
             if (unsold.ContainsKey(item.uniqueId)) payments[item] = actualPayment;
         }
 

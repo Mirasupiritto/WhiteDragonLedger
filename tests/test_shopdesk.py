@@ -99,3 +99,26 @@ class ShopDeskReplay(unittest.TestCase):
         self.assertFalse(any("quality" in k or "purity" in k for k in row))
         self.assertEqual(sell_order(self.folder,[dict(item_id=26,min_price=10)],self.gen,1,"d"*32,True)["status"],"shop_closed")
         self.assertFalse(any(self.folder.glob("sale-*")))
+
+    def test_bundle_sell_order_sends_bundle_flag_and_distinct_command_id(self):
+        from unittest.mock import patch
+        visit = "c" * 32
+        lines = [dict(item_id=10, min_price=4), dict(item_id=11, min_price=6)]
+        snap = dict(status="observed", phase="OPEN", generation=self.gen, revision=5, slot=4,
+                    customer=dict(visit=visit, name="Buyer"))
+        captured = []
+
+        def fake_exchange(folder, inbox, request, read_receipt):
+            captured.append(request)
+            return dict(command_id=request["command_id"], generation=self.gen, status="finished",
+                        items=[dict(item_id=10, status="sold", received=4), dict(item_id=11, status="sold", received=6)])
+
+        with patch("shopdesk.buyer", return_value=snap), patch("shopdesk.exchange", side_effect=fake_exchange):
+            single = sell_order(self.folder, lines, self.gen, 5, visit, bundle=False)
+            bundled = sell_order(self.folder, lines, self.gen, 5, visit, bundle=True)
+        self.assertEqual(len(captured), 2)
+        self.assertNotIn("bundle", captured[0])
+        self.assertTrue(captured[1]["bundle"])
+        self.assertNotEqual(captured[0]["command_id"], captured[1]["command_id"])
+        self.assertEqual(single["status"], "finished")
+        self.assertEqual(bundled["status"], "finished")
