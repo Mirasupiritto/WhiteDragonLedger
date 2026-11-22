@@ -75,6 +75,30 @@ class MoveMailbox(unittest.TestCase):
             stage("c"*32)
         self.assertFalse(self.inbox.exists())
 
+    def test_idle_back_clear_without_visit(self):
+        self.head["counter_move_protocol"] = 1
+        for phase, dest, cmd in (("OPEN", "inventory", "c"*32), ("CLOSED", "showcase", "d"*32), ("MORNING", "inventory", "e"*32)):
+            self.head["phase"] = phase
+            self.publish_head()
+            def tick(_, destination=dest, command=cmd):
+                plan = json.loads(self.inbox.read_text())
+                self.assertNotIn("visit", plan)
+                receipt = dict(status="moved", command_id=command, generation=self.generation, expected_revision=2,
+                               item_id=16, requested_area=destination, actual_area=destination, load_scans=1)
+                receipt["from"] = "back"
+                (self.folder / f"receipt-{command}.json").write_text(json.dumps(receipt))
+                self.inbox.unlink()
+            with patch("command_transport.time.sleep", side_effect=tick):
+                settled = move_item(self.folder, 16, "back", dest, self.generation, 2, cmd)
+            self.assertEqual((settled["status"], settled["actual_area"]), ("moved", dest))
+            self.assertEqual(move_item(self.folder, 16, "back", dest, self.generation, 2, cmd), settled)
+            with self.assertRaises(ValueError):
+                move_item(self.folder, 16, "back", dest, self.generation, 2, cmd, visit="b"*32)
+        for src, dst in (("back", "front"), ("inventory", "back"), ("showcase", "back")):
+            with self.assertRaises(ValueError):
+                move_item(self.folder, 16, src, dst, self.generation, 2)
+        self.assertFalse(self.inbox.exists())
+
     def test_preconditions_and_contention(self):
         self.assertEqual(self.request(1)["status"], "stale_observation")
         self.head["phase"] = "OPEN"
@@ -95,24 +119,45 @@ class MoveMailbox(unittest.TestCase):
         return move_items(self.folder, ids, "showcase", "inventory", self.generation, 2)
 
     def test_batch_chains_native_receipts_and_replays(self):
+        self.check_batch_replay("showcase")
+
+    def test_idle_back_batch_via_registered_tool(self):
+        self.head.update(phase="OPEN", counter_move_protocol=1)
+        self.publish_head()
+        self.check_batch_replay("back")
+
+    def check_batch_replay(self, source):
+        import asyncio
+        from mcp.server.fastmcp import FastMCP
+        from pawnshop_tools import register_pawnshop_tools
+
+        server = FastMCP("replay")
+        register_pawnshop_tools(server, self.folder, self.folder / "ledger.sqlite")
+        args = dict(item_ids=[25, 26], source=source, destination="inventory",
+                    generation=self.generation, revision=2)
+        def call():
+            content = asyncio.run(server.call_tool("move_items", args))
+            return json.loads(content[0].text)
         posted = []
         def game_tick(_):
             request = json.loads(self.inbox.read_text(encoding="utf-8"))
+            self.assertNotIn("visit", request)
+            self.assertEqual((request["source"], request["destination"]), (source, "inventory"))
             posted.append((request["item_id"], request["revision"]))
             revision = request["revision"] + 1
             receipt = dict(command_id=request["command_id"], item_id=request["item_id"],
                            generation=self.generation, expected_revision=request["revision"],
-                           revision=revision, slot=4, phase="MORNING", full_scans=2,
+                           revision=revision, slot=4, phase=self.head["phase"], full_scans=2,
                            load_scans=1, status="moved", actual_area="inventory",
                            requested_area="inventory")
-            receipt["from"] = "showcase"
+            receipt["from"] = source
             self.head["revision"] = revision
             self.publish_head()
             (self.folder / ("receipt-" + request["command_id"] + ".json")).write_text(json.dumps(receipt))
             self.inbox.unlink()
         with patch("command_transport.time.sleep", side_effect=game_tick):
-            result = self.batch([25, 26])
-            self.assertEqual(self.batch([25, 26]), result)
+            result = call()
+            self.assertEqual(call(), result)
         self.assertEqual(posted, [(25, 2), (26, 3)])
         self.assertEqual([(r["item_id"], r["actual_area"]) for r in result["items"]],
                          [(25, "inventory"), (26, "inventory")])
@@ -128,6 +173,27 @@ class MoveMailbox(unittest.TestCase):
         self.assertEqual([(r["item_id"],r["status"]) for r in result["items"]],
                          [(25,"moved"),(26,"unconfirmed"),(27,"not_attempted")])
         self.assertIsNone(result["items"][1]["actual_area"])
+
+    def test_back_batch_customer_arrives_or_stack_moves_partway(self):
+        def clear():
+            return move_items(self.folder, [25, 26, 27], "back", "inventory", self.generation, 2)
+        first = dict(status="moved", actual_area="inventory", slot=4, phase="OPEN",
+                     revision=3, load_scans=1, full_scans=2)
+        with patch("moves.move_item", side_effect=[first, {"status": "visit_changed"}]) as submit:
+            result = clear()
+            self.assertEqual(submit.call_count, 2)
+        self.assertEqual((result["status"], result["moved_count"]), ("partial", 1))
+        self.assertEqual([(row["status"], row["actual_area"]) for row in result["items"]],
+                         [("moved", "inventory"), ("visit_changed", None), ("not_attempted", None)])
+        with patch("moves.move_item", return_value=dict(status="partial", actual_area="back",
+                                                        quantity=5, observed_quantity=2)) as submit:
+            result = clear()
+            self.assertEqual(submit.call_count, 1)
+        self.assertEqual((result["status"], result["moved_count"]), ("partial", 0))
+        row = result["items"][0]
+        self.assertEqual((row["actual_area"], row["quantity"], row["observed_quantity"]), ("back", 5, 2))
+        with self.assertRaises(ValueError):
+            move_items(self.folder, [25], "back", "showcase", self.generation, 2)
 
     def test_invalid_batch_has_no_side_effect(self):
         for invalid in ([], [25,25], [25,0]):

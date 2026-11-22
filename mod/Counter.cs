@@ -85,7 +85,7 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (stage == "ready" || stage == "not_selling" || stage == "tablet_closed" || stage == "confirmation_required")
                 view["demand"] = PanelDemand();
@@ -157,7 +157,7 @@ namespace WhiteDragon.Ledger
                 return "stale_observation";
             if (action == "wild_network") return NetworkAction(request, receipt);
             if (WildNetworkUI.IsOpen && action != "visible_windows") return "wild_network_open";
-            if (action == "inspect_window" || action == "transfer_slot" || action == "press_control" ||
+            if (action == "inspect_window" || action == "transfer_slot" || action == "transfer_slots" || action == "press_control" ||
                 action == "inspect_archive" || action == "close_archive")
                 return WorkstationAction(request, receipt);
             if (action == "visible_windows") return ObserveTradeWindows(receipt);

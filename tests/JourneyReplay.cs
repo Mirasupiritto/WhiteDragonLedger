@@ -133,9 +133,10 @@ namespace WhiteDragon.Ledger
             r["action"]="read";ActOnJourney(r,receipt);
             r["action"]="open_bag";r["item_id"]=9802;r["view_token"]=receipt["view_token"];
             Expect(ActOnJourney(r,receipt)=="opened","native backpack open");
-            r["action"]="read";ActOnJourney(r,receipt);
+            Expect((string)receipt["view"]["bag_display"]=="window","open bag returns updated view");
             r["action"]="move";r["source"]="ground";r["target"]="bag";r["item_id"]=9801;r["view_token"]=receipt["view_token"];
             Expect(ActOnJourney(r,receipt)=="moved" && (int)receipt["observed_quantity"]==1 && !changed.Contains(loot),"night transfer outside shop ledger");
+            Expect((int)receipt["view"]["slots"]["bag"][0]["id"]==9801 && ((JArray)receipt["view"]["slots"]["ground"]).Count==0,"move returns current slots");
             shop.afterhourPocketSlotInvBackpack.stealUI=true;
             shop.afterhourPocketSlotInvBackpack.children.Add(bag.contentWindow.childElement);
             bag.contentWindow.Hide();r["action"]="read";ActOnJourney(r,receipt);
@@ -150,7 +151,8 @@ namespace WhiteDragon.Ledger
             Write(inbox,r);nextJourneyPoll=0;CheckJourney();
             Write(inbox,r);nextJourneyPoll=0;CheckJourney();
             Expect(map.attempts==1 && ModHelper.ModDataFileExists(ModId,"receipt-"+id+".json"),"repeat envelope spends one night attempt");
-            r["action"]="read";ActOnJourney(r,receipt);
+            receipt=JObject.Parse(ModHelper.ReadModDataFileText(ModId,"receipt-"+id+".json"));
+            Expect(receipt["view"]["slots"]!=null && (string)receipt["view_token"]!=null,"scavenge returns chainable view");
             r["action"]="return";r["view_token"]=receipt["view_token"];
             Expect(ActOnJourney(r,receipt)=="return_requested" && map.IsInTransit,"return once ground empty");
             Console.WriteLine("Journey replay passed: door, packing, report, visit identity, destination, bag slots, scavenging, replay and return.");

@@ -86,7 +86,7 @@ namespace WhiteDragon.Ledger {
         public bool MayRemove() => true;
         public long GetNegociatedValue() => price;
         public bool IsTag(string key) => (key=="LIQUID_CONTAINER_TAG" && identifier=="bottle") || waterTags.Contains(key);
-        public GameItem GetTagReadonly(string key) => this;
+        public GameItem GetTagReadonly(string key) => scratchTagReader == null ? this : scratchTagReader(key);
         public int GetInt() => associatedId;
         public List<GameItem> FindAllChildItems() => new List<GameItem>();
         public void To(GameInventory target) {
@@ -408,10 +408,12 @@ namespace WhiteDragon.Ledger {
             ReplayBarter();
             ReplayPhone();
             ReplayScenes();
+            ReplayScratchCard();
             ReplayJourney();
             ReplayDay();
             ReplayReception();
             ReplayWorkstation();
+            ReplayShopDocuments();
             ReplayWaterPanel();
             ReplayWaterUse();
             ReplaySaleResume();
@@ -513,6 +515,13 @@ namespace WhiteDragon.Ledger {
             store.storeState=PlayerStore.StoreState.OPEN;
             store.waiting=0;
             request.Remove("confirm_remaining");
+            var stray=Item(99001,"newspaper",1);
+            stray.To(EmporiumEntry.Instance.backInvinvElement);
+            request["reception_token"]=ReceptionView()["token"];
+            var blocked=new JObject();
+            Expect(ActOnReception(request,blocked)=="shutter_unavailable" && (string)blocked["reason"]=="trade_table_not_empty",
+                "occupied trade table reports clear close blocker");
+            stray.To(EmporiumEntry.Instance.invElement);
             request["reception_token"]=ReceptionView()["token"];
             Expect(ActOnReception(request,receipt)=="closed" && (int)receipt["forfeited"]==0,"empty queue closes directly");
         }

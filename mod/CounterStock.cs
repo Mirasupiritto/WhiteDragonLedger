@@ -6,11 +6,21 @@ namespace WhiteDragon.Ledger
     {
         private JObject MoveCounterStock(JObject request, GameItem item, string source, string destination)
         {
-            if (phase != "OPEN") return Receipt(request,"shop_closed");
+            bool idleClear = request["visit"] == null && source == "back" && (destination == "inventory" || destination == "showcase");
+            if (!idleClear && phase != "OPEN") return Receipt(request,"shop_closed");
             ObserveVisit();
-            if (visitId == null || (string)request["visit"] != visitId) return Receipt(request,"visit_changed");
-            string stage = CounterStage(true);
-            if ((stage != "ready" && stage != "barter") || order != null || Interactable.isPaused) return Receipt(request,"trade_unavailable");
+            string stage = null;
+            if (idleClear)
+            {
+                if (visitId != null || PlayerStore.Instance.currentClientInstance != null) return Receipt(request,"visit_changed");
+                if (order != null || Interactable.isPaused) return Receipt(request,"trade_unavailable");
+            }
+            else
+            {
+                if (visitId == null || (string)request["visit"] != visitId) return Receipt(request,"visit_changed");
+                stage = CounterStage(true);
+                if ((stage != "ready" && stage != "barter") || order != null || Interactable.isPaused) return Receipt(request,"trade_unavailable");
+            }
             if (!areas.TryGetValue(item.parentInventory,out var actual) || actual != source)
                 return Receipt(request,"source_changed");
             var shop = EmporiumEntry.Instance;

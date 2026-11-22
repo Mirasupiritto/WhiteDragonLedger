@@ -52,7 +52,7 @@ class SceneServer(FastMCP):
                 mutations = {"move_item","move_items","sell_order","trade_batch","confirm_trade","buy_merchant_batch",
                              "barter_offer","pay_info_receipt","open_shop","close_shop","ring_customer","dismiss_customer",
                              "advance_dialogue","choose_dialogue","response_choice","prepare_sleep","night_service",
-                             "set_auto_receive","sleep","transfer_slot_item","press_machine_button","put_purifier_bottle",
+                             "set_auto_receive","sleep","transfer_slot_item","transfer_slot_items","press_machine_button","put_purifier_bottle",
                              "take_purifier_bottle","water_use","water_panel","dial_contact","phone_keypad","choose_phone_service",
                              "advance_phone_dialogue","inspect_archive","inspect_item_window","wait_for_opening"}
                 if (name in mutations or (name == "wild_network" and arguments.get("mode", "read") != "read")) and self.updates.cursor is not None:

@@ -53,6 +53,48 @@ namespace WhiteDragon.Ledger
             Expect((string)Move("front","back")["status"]=="moved" && (string)Move("back","inventory")["status"]=="invalid_route" &&
                 (string)Move("back","front")["status"]=="moved" && !item.owned && store.playerCash==cash,"guest goods returned");
 
+            var stray=Item(63007,"newspaper",1);
+            stray.To(shop.backInvinvElement);
+            var idleReq=new JObject { ["generation"]=generation, ["expires_ms"]=DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(),
+                ["item_id"]=LocalId(stray), ["command_id"]="idle_clear", ["source"]="back", ["destination"]="inventory" };
+            idleReq["revision"]=sequence;
+            Expect((string)ExecuteMove(idleReq)["status"]=="visit_changed","idle clear blocked while customer present");
+            var savedClient=store.currentClientInstance;
+            store.currentClientInstance=null;
+            ObserveVisit();
+            stray.owned=false;
+            idleReq["revision"]=sequence;
+            Expect((string)ExecuteMove(idleReq)["status"]=="invalid_route","idle clear rejects unowned item");
+            stray.owned=true;
+            idleReq["revision"]=sequence;
+            other.To(shop.backInvinvElement);
+            var cleared=ExecuteMove(idleReq);
+            Expect((string)cleared["status"]=="moved" && (string)cleared["actual_area"]=="inventory" &&
+                stray.parentInventory==shop.invElement && other.parentInventory==shop.backInvinvElement,"first owned item cleared");
+            idleReq["item_id"]=LocalId(other);
+            idleReq["revision"]=sequence;
+            store.currentClientInstance=savedClient;
+            Expect((string)ExecuteMove(idleReq)["status"]=="visit_changed" && other.parentInventory==shop.backInvinvElement,
+                "customer arriving between clear commands blocks second move");
+            store.currentClientInstance=null;
+            ObserveVisit();
+            idleReq["revision"]=sequence;
+            Expect((string)ExecuteMove(idleReq)["actual_area"]=="inventory" && other.parentInventory==shop.invElement,
+                "remaining item can be cleared when idle again");
+            idleReq["item_id"]=LocalId(stray);
+            phase="CLOSED";
+            store.storeState=PlayerStore.StoreState.CLOSED;
+            stray.To(shop.backInvinvElement);
+            idleReq["destination"]="showcase";
+            idleReq["revision"]=sequence;
+            var clearedClosed=ExecuteMove(idleReq);
+            Expect((string)clearedClosed["status"]=="moved" && (string)clearedClosed["actual_area"]=="showcase" &&
+                shop.backInvinvElement.childItems.Count==0,"idle clear moves owned back item while CLOSED");
+            phase="OPEN";
+            store.storeState=PlayerStore.StoreState.OPEN;
+            store.currentClientInstance=savedClient;
+            ObserveVisit();
+
             phase="CLOSED";
             var bag=Item(63003,"bag",2);
             var inner=Item(63004,"bottle_case",2);

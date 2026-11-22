@@ -92,7 +92,9 @@ def command(folder, action, generation, revision, *, database=None, **args):
             return {"status": "reload_updated_mod"}
         if (action == "close_archive" or args.get("open_if_closed")) and view["phase"] == "OPEN":
             return {"status": "shop_open"}
-    elif action in {"inspect_window", "transfer_slot", "press_control"}:
+    elif action in {"inspect_window", "transfer_slot", "transfer_slots", "press_control"}:
+        if action == "transfer_slots" and view.get("batch_slot_protocol") != 1:
+            return {"status": "reload_updated_mod"}
         if view.get("workstation_protocol") != 1:
             return {"status": "reload_updated_mod"}
         if action != "inspect_window" and view["phase"] == "OPEN":

@@ -30,11 +30,21 @@ namespace WhiteDragon.Ledger
             if (tool == "feedback_box" && action == "read" && sceneStatus == "ready" && currentLocation == ShopScene)
                 return ReadFeedbackBox((bool?)request["full"] == true, receipt);
             JObject view;
+            GameItem card = null;
             NightInventory night = null;
             bool choosing = tool == "specializations" && sceneStatus == SpecializationPicker && NewGameSpecializationUI.IsOpen;
             bool perks = tool == "starting_perks" && sceneStatus == PerkPicker && NewGamePerksUI.IsOpen;
             bool difficulty = tool == "starting_difficulty" && sceneStatus == DifficultyPicker && NewGameDifficultyUI.IsOpen;
-            if (difficulty)
+            if (tool == "scratch_card" && sceneStatus == "ready" && currentLocation == ShopScene)
+            {
+                if (!itemsById.TryGetValue((int)request["item_id"], out card) ||
+                    card.GetUniqueID() != (int)request["save_id"] || !card.IsTag("SCRATCHER_TAG") ||
+                    card.parentInventory != EmporiumEntry.Instance.invElement || !GeneralHelper.IsItemOwned(card))
+                    return "card_unavailable";
+                if (ScratcherUIManager.Instance == null) return "panel_unavailable";
+                view = ScratchCard.View(card, (int)request["item_id"]);
+            }
+            else if (difficulty)
             {
                 if (!StartingDifficulty.Supported) return "unsupported_layout";
                 view = StartingDifficulty.View();
@@ -89,7 +99,30 @@ namespace WhiteDragon.Ledger
             }
             if (choosing) return Specializations.Choose(action, (string)request["scenario_id"], receipt);
             if (Interactable.isPaused || Time.timeScale <= 0f) return "paused";
-            if (night != null) return ActOutside(night, request, receipt);
+            if (card != null)
+            {
+                string result = ScratchCard.Act(card, action, (int?)request["position"], view, receipt);
+                if (result == "opened" || result == "already_open" || result == "revealed")
+                {
+                    journeyView = ScratchCard.View(card, (int)request["item_id"]);
+                    journeyToken = Guid.NewGuid().ToString("N");
+                    receipt["view_token"] = journeyToken;
+                }
+                return result;
+            }
+            if (night != null)
+            {
+                string result = ActOutside(night, request, receipt);
+                var map = MapUIManager.Instance;
+                if (result != "return_requested" && sceneStatus == "ready" && !map.IsInTransit && map.Current?.Id == currentLocation)
+                {
+                    journeyView = new NightInventory().View;
+                    journeyToken = Guid.NewGuid().ToString("N");
+                    receipt["view_token"] = journeyToken;
+                    receipt["view"] = journeyView.DeepClone();
+                }
+                return result;
+            }
             if (tool == "travel_menu")
             {
                 string result = TravelOptions.Act(action, (string)request["location_id"], receipt);

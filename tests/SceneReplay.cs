@@ -32,6 +32,16 @@ namespace WhiteDragon.Ledger
             ReplayFeedback();
             ReplayPerks();
             ReplayDifficulty();
+            string savedGen = generation;
+            generation = null;
+            pending = false;
+            ResetScene();
+            Expect(!CanObserveStore() && sceneStatus=="waiting_for_load", "wait until load or new-game hook arms baseline");
+            pending = true;
+            Expect(CanObserveStore(), "armed new game may prepare baseline");
+            pending = false;
+            generation = savedGen;
+            MarkSceneReady(ShopScene,"當鋪");
             ReplayTravelOptions();
             map.IsInTransit=true;
             Expect(!CanObserveStore() && sceneStatus=="transitioning" && destination=="forest", "first transit keeps selected native destination");

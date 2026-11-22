@@ -17,10 +17,14 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     if not re.fullmatch("[a-f0-9]{32}", generation) or not re.fullmatch("[a-f0-9]{32}", command):
         raise ValueError("generation and command_id must be lowercase 32-digit hex values")
     counter_move = source in {"front", "back"} or destination in {"front", "back"}
-    if counter_move:
+    idle_clear = source == "back" and destination in {"inventory", "showcase"} and visit is None
+    if counter_move and not idle_clear:
         other = source if destination == "back" else destination
         if ("back" not in (source, destination) or other not in {"front","inventory","showcase"} or machine_id is not None
                 or not re.fullmatch("[a-f0-9]{32}", visit or "")):
+            raise ValueError("Use the current visit and a route to or from the trade table (back)")
+    elif idle_clear:
+        if machine_id is not None:
             raise ValueError("Use the current visit and a route to or from the trade table (back)")
     elif visit is not None:
         raise ValueError("A visit is only used for trade table moves")
@@ -35,7 +39,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         raise ValueError("Expected a positive item ID, revision and two different stock areas")
     request = dict(command_id=command, item_id=item_id, source=source, destination=destination,
                    generation=generation, revision=revision)
-    if counter_move:
+    if counter_move and not idle_clear:
         request["visit"] = visit
     if machine_id is not None:
         request["machine_id"] = machine_id
@@ -62,7 +66,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         return {"status": "reload_updated_mod", "command_id": command}
     if counter_move and head.get("counter_move_protocol") != 1:
         return {"status": "reload_updated_mod", "command_id": command}
-    if counter_move and head["phase"] != "OPEN":
+    if counter_move and not idle_clear and head["phase"] != "OPEN":
         return {"status":"shop_closed", "command_id":command}
     if not counter_move and head["phase"] not in ("CLOSED", "MORNING"):
         return {"status": "shop_open", "command_id": command}
@@ -72,6 +76,8 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
 
 def move_items(folder: Path, item_ids, source, destination, generation, revision):
     """Execute one ordered plan. An identical plan reuses its native receipts."""
+    if source == "back" and destination != "inventory":
+        raise ValueError("A batch from the back counter can only go to inventory")
     if not item_ids or any(item_id < 1 for item_id in item_ids):
         raise ValueError("Expected a nonempty list of positive item IDs")
     if len(set(item_ids)) != len(item_ids):
@@ -89,7 +95,7 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
                             previous_command=previous_command)
         row = {"item_id": item_id, "status": receipt["status"], "from": source,
                "actual_area": receipt.get("actual_area")}
-        for field in ("name", "kind", "quantity", "bottle_label", "revision"):
+        for field in ("name", "kind", "quantity", "observed_quantity", "bottle_label", "revision"):
             if field in receipt:
                 row[field] = receipt[field]
         result["items"].append(row)
@@ -97,7 +103,7 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
             for field in ("load_scans", "full_scans", "phase", "slot", "revision"):
                 result[field] = receipt[field]
         if receipt["status"] != "moved":
-            result["status"] = "partial" if result["moved_count"] else "stopped"
+            result["status"] = "partial" if result["moved_count"] or receipt["status"] == "partial" else "stopped"
             result["items"].extend({"item_id": pending, "status": "not_attempted", "actual_area": None}
                                    for pending in item_ids[position+1:])
             break

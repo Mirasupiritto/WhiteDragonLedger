@@ -20,10 +20,14 @@
 | 場景 | 怎麼做 |
 |---|---|
 | 新遊戲 | 玩家點「新遊戲」後，依序用 `get_specializations`、`choose_specialization`、`starting_perks` 和 `starting_difficulty`。配點後看剩餘點數、格數與互斥。難度的 `select` 只選中卡片。 |
-| 店務與設備 | `move_items` 批次搬自有貨。`inspect_purifiers` 查瓶貼、電力和試紙；`inspect_item_window` 讀機台或容器，按回執的槽位用 `transfer_slot_item` 存取。玩家親手驗水後，用 `water_panel` 核對瓶號與結果。 |
+| 後櫃收貨 | 空櫃檯用 `query_inventory(area="back", owned=True)` 查一次。將選好的 `item_ids` 和該次的 `generation`、`revision` 傳給 `move_items`，設 `source="back"`、`destination="inventory"`。打烊回執的 `reason` 是 `trade_table_not_empty` 時也走這條路。 |
+| 讀搬貨回執 | 逐件看 `items[].status` 和 `actual_area`。堆疊只搬了一部分時，`observed_quantity` 是實到數量。`visit_changed` 表示來客了，先停手；`not_attempted` 的項目留待櫃檯空下來再查。 |
+| 機台與容器 | `inspect_purifiers` 查瓶貼、電力和試紙。`inspect_item_window` 讀機台或容器，同一槽多件用 `transfer_slot_items` 傳一次編號清單、來源和視窗 token。玩家親手驗水後，用 `water_panel` 核對瓶號與結果。 |
+| 文件 | 讀自有報紙、便條或地下交易所清單，用 `inspect_item_window` 看 `window.document`。 |
 | 聲望與人脈 | `feedback_box()` 首查回全表、後續回差異；需要重看完整清單用 `full=True`。用 `get_phone_contacts` 查聯絡人與業務，決定聯絡才撥號。喬的人脈網路用 `wild_network` 查看服務價格和人情餘額。 |
 | 打烊與過夜 | `close_shop` 提早打烊時會列剩餘客數。歇業後用 `prepare_sleep` 看當晚帳單，`night_service` 改服務；要推進到隔天才用 `sleep`。 |
-| 夜間拾荒 | `shop_activity` 看門口與出門確認；有選包提示時用 `response_choice`。用 `travel_menu` 選目的地，`wait_for_scene` 等抵達，之後用 `explore` 看地面、背包和可用動作。返店後再查店帳。 |
+| 刮刮卡 | 從庫存明細取 `item_id`（帳本編號）與 `save_id`。依序呼叫 `scratch_card` 的 `read`、`open`、`reveal`，沿用上一張回執的 session、revision 和 view_token。position 1／2／3 為左／中／右。 |
+| 夜間拾荒 | `shop_activity` 看門口與出門確認；有選包提示時用 `response_choice`。用 `travel_menu` 選目的地，`wait_for_scene` 等抵達，之後用 `explore` 看地面、背包和可用動作。搬貨或搜索後直接沿用回執的 `view_token` 和 `view.slots`。返店後再查店帳。 |
 
 通緝照、可疑包裝或鑑定畫面需要玩家辨認時，指出是哪位客人或哪件物品，等玩家判斷。原生台詞、平板文字、瓶貼與數值優先用 MCP 讀。
 

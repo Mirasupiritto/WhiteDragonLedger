@@ -57,6 +57,7 @@ namespace WhiteDragon.Ledger
             ModHook.OnAfterhourLeaveLate += OnTravelLate;
             ModHook.OnGameLoadedInit += ResetLoad;
             ModHook.OnGameLoadedLate += Ready;
+            ModHook.OnNewGameStarted += StartNewGame;
             ModHook.OnGoingSleepEarly += BeforeSleep;
         }
 
@@ -100,6 +101,7 @@ namespace WhiteDragon.Ledger
         }
 
         private void Ready() { pending = true; }
+        private void StartNewGame(string _) { ResetLoad(); pending = true; }
 
         private void DetachAreas()
         {
@@ -298,6 +300,7 @@ namespace WhiteDragon.Ledger
             ModHook.OnAfterhourLeaveLate -= OnTravelLate;
             ModHook.OnGameLoadedInit -= ResetLoad;
             ModHook.OnGameLoadedLate -= Ready;
+            ModHook.OnNewGameStarted -= StartNewGame;
             ModHook.OnGoingSleepEarly -= BeforeSleep;
             DisconnectVisit();
         }

@@ -13,7 +13,10 @@ namespace WhiteDragon.Ledger
     public partial class StartingPerk { public static bool IsUnsubscribed() => false; }
     public class StoreEvent
     {
-        public enum EventType { Normal }
+        public enum EventType { Normal, COSMETIC }
+        public string newsName, newsDescription;
+        public bool isHiddenFromNewsPaper, isPermanent;
+        public int duration;
         public EventType eventType = EventType.Normal;
         public bool IsKnown;
         public int startDay = 10, totalDuration = 1;

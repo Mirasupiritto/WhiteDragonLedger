@@ -7,7 +7,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from command_transport import exchange, read_command_receipt
 from scene import read_scene, tool_region
 
-ACTION_REGIONS = {"shop_activity": "pawnshop", "travel_menu": "destination_selection", "explore": "afterhours"}
+ACTION_REGIONS = {"scratch_card": "pawnshop", "shop_activity": "pawnshop", "travel_menu": "destination_selection", "explore": "afterhours"}
 ACTION_REGIONS.update(choose_specialization="new_game", starting_perks="new_game_perks",
                       starting_difficulty="new_game_difficulty")
 REGIONS = {**ACTION_REGIONS, "feedback_box": "pawnshop", "get_specializations": "new_game", "get_travel_options": "destination_selection"}
@@ -36,10 +36,23 @@ def command(folder, tool, mode, session, revision, view_token, **args):
         return {"status": "scene_changed", "scene": scene}
     if scene.get("journey_protocol") != 1:
         return {"status": "reload_updated_mod"}
+    if tool == "scratch_card" and scene.get("scratch_card_protocol") != 2:
+        return {"status": "reload_updated_mod"}
     return exchange(folder, folder / f"journey-{session}.json", {**plan, "command_id": command_id}, receipt)
 
 
 def register(server, folder):
+    @server.tool()
+    def scratch_card(item_id: int, save_id: int, mode: Literal["read", "open", "reveal"] = "read",
+                     position: Literal[1, 2, 3] | None = None, session: str = "", revision: int = 0,
+                     view_token: str = "") -> dict:
+        """Inspect or open an owned inventory scratcher. Reveal exactly one position (1 left, 2 middle, 3 right).
+        Read first, then reuse the latest session, revision and view_token. Only reveal returns a symbol."""
+        if (mode == "reveal") != (position is not None):
+            raise ValueError("supply position only for reveal")
+        return command(folder, "scratch_card", mode, session, revision, view_token,
+                       item_id=item_id, save_id=save_id, position=position)
+
     @server.tool()
     def feedback_box(full: bool = False) -> dict:
         """Read shop faction reputation, effects and thresholds. After a baseline, return only changes.
@@ -95,5 +108,5 @@ def register(server, folder):
                 session: str = "", revision: int = 0, view_token: str = "", item_id: int = 0,
                 source: str = "", target: str = "") -> dict:
         """Read visible night inventory, pockets, bag slots and scavenging conditions. Move one observed item
-        by its scene-local game ID and slot keys, or request one night action. Collect the ground before returning."""
+        by its scene-local game ID and slot keys. Use the returned view.slots and view_token for the next action. Collect the ground before returning."""
         return command(folder, "explore", mode, session, revision, view_token, item_id=item_id, source=source, target=target)

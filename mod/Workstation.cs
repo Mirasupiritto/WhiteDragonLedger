@@ -203,7 +203,7 @@ namespace WhiteDragon.Ledger
             int id = LocalId(owner);
             receipt["owner_id"] = id;
             var window = owner.contentWindow;
-            if (window == null) return "no_content_window";
+            if (window == null) return inspecting ? ReadDocument(owner, location, (string)request["since_token"], receipt) : "no_content_window";
             if (!window.IsVisible())
             {
                 workstations.Remove(id);
@@ -250,9 +250,10 @@ namespace WhiteDragon.Ledger
             else
             {
                 if (!(element is GameInventory storage)) return "not_storage";
-                if ((string)request["source"] != "slot" && location?["containers"] is JArray parents &&
-                    parents.Any(parent => (int)parent["owner_id"] == (int)request["item_id"])) return "insert_blocked";
-                status = TransferStorage(owner, storage, row, request, receipt);
+                if (action == "transfer_slots")
+                    status = TransferBatch(owner, storage, row, location, request, receipt);
+                else
+                    status = TransferOne(owner, storage, row, location, (string)request["source"], (int)request["item_id"], receipt);
             }
             FlushChanges();
             receipt["owner_id"] = id;
@@ -267,12 +268,53 @@ namespace WhiteDragon.Ledger
             return status;
         }
 
-        private string TransferStorage(GameItem owner, GameInventory storage, JObject row, JObject request, JObject receipt)
+        private string TransferBatch(GameItem owner, GameInventory storage, JObject row, JObject location,
+            JObject request, JObject receipt)
         {
+            var ids = request["item_ids"] as JArray;
+            if (ids == null || ids.Count == 0 || ids.Any(id => id.Type != JTokenType.Integer || (long)id <= 0 || (long)id > int.MaxValue) ||
+                ids.Values<int>().Distinct().Count() != ids.Count) return "invalid_item_ids";
+            var results = new JArray();
+            receipt["items"] = results;
+            var window = owner.contentWindow;
             string source = (string)request["source"];
+            string control = (string)row["control"];
+            bool stopped = false;
+            foreach (int id in ids.Values<int>())
+            {
+                var item = new JObject { ["item_id"] = id };
+                results.Add(item);
+                string status = "skipped";
+                if (!stopped)
+                {
+                    if (owner.contentWindow != window || !window.IsVisible() || window.isLocked ||
+                        (owner != EmporiumEntry.Instance.dossier && (GeneralHelper.IsItemLocked(owner) ||
+                         !GeneralHelper.IsItemEffectivelyOwned(owner) || !JToken.DeepEquals(location, StockLocation(owner)))))
+                        status = "window_changed";
+                    else
+                    {
+                        // A native transfer can rebuild the window. Recheck the slot binding without relisting its contents.
+                        bool stillBound = false;
+                        WalkVisible(window.childElement, "content", null, null, (element, path, role, label) => {
+                            if (path == control && ReferenceEquals(element, storage) && (source == "slot" || role != "output"))
+                                stillBound = true;
+                        });
+                        status = stillBound ? TransferOne(owner, storage, row, location, source, id, item) : "window_changed";
+                    }
+                    stopped = status != "moved";
+                }
+                item["status"] = status;
+            }
+            return stopped ? "batch_incomplete" : "moved";
+        }
+
+        private string TransferOne(GameItem owner, GameInventory storage, JObject row, JObject location,
+            string source, int id, JObject receipt)
+        {
+            if (source != "slot" && location?["containers"] is JArray parents &&
+                parents.Any(parent => (int)parent["owner_id"] == id)) return "insert_blocked";
             bool retrieve = source == "slot";
             if (!retrieve && source != "inventory" && source != "showcase") return "invalid_source";
-            int id = (int)request["item_id"];
             var shop = EmporiumEntry.Instance;
             bool archive = owner == shop.dossier;
             if (!itemsById.TryGetValue(id, out var item) || item == owner || GeneralHelper.IsDisplayOnly(item))

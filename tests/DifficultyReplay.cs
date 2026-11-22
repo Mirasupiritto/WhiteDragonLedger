@@ -6,6 +6,8 @@ namespace WhiteDragon.Ledger
 {
     public class Difficulty
     {
+        public static Difficulty Rules = new Difficulty();
+        public bool eventEndCountdown;
         public string id;
         public List<string> lines = new List<string>();
         public string GetTitle() => "title " + id;

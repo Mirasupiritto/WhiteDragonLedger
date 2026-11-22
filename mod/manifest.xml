@@ -2,7 +2,7 @@
   <ID>white_dragon_ledger</ID>
   <Name>白龍店帳 · White Dragon Ledger</Name>
   <Author>鳴瀨與大白龍</Author>
-  <ModVersion>0.16.0</ModVersion>
+  <ModVersion>0.18.0</ModVersion>
   <Description>將讀檔盤點與貨區變動記入本機店帳，提供批發回本查詢、淨水器晨檢與逐件銷售訂單。</Description>
   <GameVersions><Version>0.46D</Version></GameVersions>
   <Prerequisites />

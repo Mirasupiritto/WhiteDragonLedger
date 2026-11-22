@@ -8,7 +8,7 @@ namespace WhiteDragon.Ledger
     public partial class GameItem
     {
         public int responseClicks;
-        public void ActivateSlotItem() { responseClicks++; }
+        public void ActivateSlotItem() { responseClicks++; onTestActivate?.Invoke(); }
     }
     public class TabletCheckbox
     {

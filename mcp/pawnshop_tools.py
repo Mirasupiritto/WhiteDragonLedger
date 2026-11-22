@@ -97,13 +97,15 @@ def register_pawnshop_tools(server, folder, database):
                   revision: int, command_id: str | None = None, visit: str | None = None) -> dict:
         """While closed, move owned stock between inventory and showcase. During trade pass the observed visit
         to stage one item on the empty trade table (back), or return it. Guest goods return to front and
-        owned goods to inventory/showcase. Placement alone does not confirm a trade. Reuse the command ID to retry."""
+        owned goods to inventory/showcase. Owned goods left on back when no customer is present can also be
+        cleared to inventory/showcase with visit omitted. Placement alone does not confirm a trade. Reuse the command ID to retry."""
         return submit_move(folder, item_id, source, destination, generation, revision, command_id, visit=visit)
 
     @server.tool()
-    def move_items(item_ids: list[int], source: Literal["inventory", "showcase"],
+    def move_items(item_ids: list[int], source: Literal["inventory", "showcase", "back"],
                    destination: Literal["inventory", "showcase"], generation: str, revision: int) -> dict:
-        """Move an ordered list of owned items with the shutter closed. Pass the generation and
+        """Move owned stock between inventory and showcase with the shutter closed, or clear back to inventory
+        while the counter has no customer. Each back item is checked at transfer time. Pass the generation and
         starting revision from query_inventory. Returns one receipt with each observed destination
         and game scan counters. Stops at the first unconfirmed or rejected item. The original
         arguments recover completed lines and can continue pending lines."""
@@ -120,7 +122,7 @@ def register_pawnshop_tools(server, folder, database):
                             since_token: str | None = None) -> dict:
         """Inspect an owned inventory/showcase item, or a directly held owned back-counter item after closing.
         Slot items include save_id for matching night loot. Optionally open a closed window.
-        First read returns visible slots, text and controls. Pass the last token as since_token for changes only."""
+        Newspapers, exchange lists, slips and handnotes return window.document. Other windows return visible slots, text and controls. Pass the last token as since_token for changes only."""
         return counter.command(folder, "inspect_window", generation, revision, owner_id=owner_id,
                                open_if_closed=open_if_closed, since_token=since_token, read_id=uuid4().hex)
 
@@ -142,6 +144,15 @@ def register_pawnshop_tools(server, folder, database):
         """Move owned goods into a visible slot, or from that slot into inventory. Reports observed quantity and changed controls."""
         return counter.command(folder, "transfer_slot", generation, revision, owner_id=owner_id, control=control,
                                window_token=window_token, item_id=item_id, source=source)
+
+    @server.tool()
+    def transfer_slot_items(owner_id: int, control: str, window_token: str, item_ids: list[int],
+                            source: Literal["inventory", "showcase", "slot"], generation: str, revision: int) -> dict:
+        """Transfer one batch to/from the same visible storage control. Inspect each result for partial or skipped moves."""
+        if not item_ids or any(i < 1 for i in item_ids) or len(set(item_ids)) != len(item_ids):
+            raise ValueError("Provide a nonempty list of distinct positive item IDs")
+        return counter.command(folder, "transfer_slots", generation, revision, owner_id=owner_id, control=control,
+                               window_token=window_token, item_ids=item_ids, source=source)
 
     @server.tool()
     def press_machine_button(owner_id: int, control: str, label: str, window_token: str,

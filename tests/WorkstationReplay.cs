@@ -96,6 +96,33 @@ namespace WhiteDragon.Ledger {
             reply=new JObject();
             Expect(WorkstationAction(request,reply)=="moved" && material.parentInventory==EmporiumEntry.Instance.invElement &&
                 (int)reply["window_delta"]["controls_updated"][0]["items_removed"][0]==LocalId(material),"recover to inventory");
+            request["action"]="transfer_slots";
+            request["source"]="inventory";
+            var more = Item(19079,"ore",0);
+            var batch = new JArray(LocalId(material),LocalId(more));
+            for (int i=0;i<4;i++) batch.Add(LocalId(Item(19110+i,"supply",0)));
+            request["item_ids"]=batch;
+            request["window_token"]=reply["window_token"];
+            reply=new JObject();
+            Expect(WorkstationAction(request,reply)=="moved" && input.childItems.Contains(material) &&
+                input.childItems.Contains(more) && ((JArray)reply["items"]).Count==6,"six-item batch insert");
+            request["source"]="slot";
+            request["window_token"]=reply["window_token"];
+            reply=new JObject();
+            Expect(WorkstationAction(request,reply)=="moved" && ((JArray)reply["items"]).Count==6 &&
+                input.childItems.Count==0,"six-item batch retrieval");
+            request["source"]="inventory";
+            request["window_token"]=reply["window_token"];
+            request["item_ids"]=new JArray(LocalId(material),LocalId(more));
+            reply=new JObject();
+            Expect(WorkstationAction(request,reply)=="moved","restage for partial batch");
+            request["source"]="slot";
+            request["window_token"]=reply["window_token"];
+            request["item_ids"]=new JArray(LocalId(material),999999,LocalId(more));
+            reply=new JObject();
+            Expect(WorkstationAction(request,reply)=="batch_incomplete" && (string)reply["items"][0]["status"]=="moved" &&
+                (string)reply["items"][1]["status"]=="item_unavailable" && (string)reply["items"][2]["status"]=="skipped" &&
+                input.childItems.Contains(more), "batch stops with exact outcomes");
             request["action"]="press_control";
             request["control"]="content/2/body";
             request["label"]="Start";

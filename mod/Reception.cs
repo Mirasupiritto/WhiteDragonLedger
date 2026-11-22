@@ -113,7 +113,14 @@ namespace WhiteDragon.Ledger
                 receipt["reception"] = ReceptionView();
                 return enable ? "auto_receive_enabled" : "auto_receive_disabled";
             }
-            if (!CanCloseShop()) return "shutter_unavailable";
+            if (!CanCloseShop())
+            {
+                if (PlayerStore.Instance.storeState == PlayerStore.StoreState.OPEN &&
+                    PlayerStore.Instance.currentClientInstance == null &&
+                    EmporiumEntry.Instance.backInvinvElement.childItems.Count > 0)
+                    receipt["reason"] = "trade_table_not_empty";
+                return "shutter_unavailable";
+            }
             var shutter = StoreShutterButton.Instance;
             var confirmed = (int?)request["confirm_remaining"];
             if (confirmed.HasValue && (!ClosePrompt || confirmed.Value != waiting)) return "confirmation_changed";
