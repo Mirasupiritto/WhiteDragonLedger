@@ -23,12 +23,30 @@ namespace WhiteDragon.Ledger
             if ((long)request["expires_ms"] < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) return "expired";
             receipt["session"] = sceneSession;
             receipt["revision"] = sceneRevision;
+            if (IsSetupScene(sceneStatus)) receipt["slot"] = JValue.CreateNull();
             if ((string)request["generation"] != sceneSession || (int)request["revision"] != sceneRevision) return "scene_changed";
             string tool = (string)request["tool"];
             string action = (string)request["action"];
+            if (tool == "feedback_box" && action == "read" && sceneStatus == "ready" && currentLocation == ShopScene)
+                return ReadFeedbackBox((bool?)request["full"] == true, receipt);
             JObject view;
             NightInventory night = null;
-            if (tool == "shop_activity" && sceneStatus == "ready" && currentLocation == ShopScene)
+            bool choosing = tool == "specializations" && sceneStatus == SpecializationPicker && NewGameSpecializationUI.IsOpen;
+            bool perks = tool == "starting_perks" && sceneStatus == PerkPicker && NewGamePerksUI.IsOpen;
+            bool difficulty = tool == "starting_difficulty" && sceneStatus == DifficultyPicker && NewGameDifficultyUI.IsOpen;
+            if (difficulty)
+            {
+                if (!StartingDifficulty.Supported) return "unsupported_layout";
+                view = StartingDifficulty.View();
+            }
+            else if (perks)
+            {
+                if (!StartingPerks.Supported) return "unsupported_layout";
+                view = StartingPerks.View();
+            }
+            else if (choosing)
+                view = Specializations.View();
+            else if (tool == "shop_activity" && sceneStatus == "ready" && currentLocation == ShopScene)
                 view = ShopActivityView();
             else if (tool == "travel_menu" && sceneStatus == Picker && TransitUI.IsOpen)
             {
@@ -56,6 +74,20 @@ namespace WhiteDragon.Ledger
             if (journeyToken == null || (string)request["view_token"] != journeyToken || !JToken.DeepEquals(view, journeyView))
                 return "view_changed";
             journeyToken = null;
+            if (difficulty) return StartingDifficulty.Select(action, (string)request["difficulty_id"], receipt);
+            if (perks)
+            {
+                string status = StartingPerks.Act(action, (string)request["perk_id"], view, receipt);
+                if (NewGamePerksUI.IsOpen)
+                {
+                    journeyView = StartingPerks.View();
+                    journeyToken = Guid.NewGuid().ToString("N");
+                    receipt["view_token"] = journeyToken;
+                    receipt["state"] = journeyView["state"].DeepClone();
+                }
+                return status;
+            }
+            if (choosing) return Specializations.Choose(action, (string)request["scenario_id"], receipt);
             if (Interactable.isPaused || Time.timeScale <= 0f) return "paused";
             if (night != null) return ActOutside(night, request, receipt);
             if (tool == "travel_menu")

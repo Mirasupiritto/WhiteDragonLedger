@@ -10,7 +10,7 @@ namespace WhiteDragon.Ledger
     public partial class EmporiumEntry { public GameInventory trashcanInvElement=new GameInventory(); }
     public class StoreService { public bool unlocked=true,isUsing=true,isMandatory; public int cost,currentCooldown; public string id,displayName; public bool IsOnCooldown()=>currentCooldown>0; }
     public class StoreCalendar { public string GetDayOfWeek() => "local weekday"; }
-    public static class StartingPerk { public static bool IsUnsubscribed() => false; }
+    public partial class StartingPerk { public static bool IsUnsubscribed() => false; }
     public class StoreEvent
     {
         public enum EventType { Normal }

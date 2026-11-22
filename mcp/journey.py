@@ -8,7 +8,9 @@ from command_transport import exchange, read_command_receipt
 from scene import read_scene, tool_region
 
 ACTION_REGIONS = {"shop_activity": "pawnshop", "travel_menu": "destination_selection", "explore": "afterhours"}
-REGIONS = {**ACTION_REGIONS, "get_travel_options": "destination_selection"}
+ACTION_REGIONS.update(choose_specialization="new_game", starting_perks="new_game_perks",
+                      starting_difficulty="new_game_difficulty")
+REGIONS = {**ACTION_REGIONS, "feedback_box": "pawnshop", "get_specializations": "new_game", "get_travel_options": "destination_selection"}
 
 
 def command(folder, tool, mode, session, revision, view_token, **args):
@@ -20,7 +22,8 @@ def command(folder, tool, mode, session, revision, view_token, **args):
         session, revision = scene.get("session", ""), scene.get("revision", 0)
     if not re.fullmatch("[0-9a-f]{32}", session) or revision < 1 or (not reading and not view_token):
         return {"status": "observation_required"}
-    plan = dict(tool=tool, action=mode, generation=session, revision=revision, view_token=view_token, **args)
+    native_tool = "specializations" if tool in {"get_specializations", "choose_specialization"} else tool
+    plan = dict(tool=native_tool, action=mode, generation=session, revision=revision, view_token=view_token, **args)
     command_id = (uuid4() if reading else uuid5(NAMESPACE_URL, "ledger/journey/" + json.dumps(plan, sort_keys=True))).hex
 
     def receipt():
@@ -37,6 +40,42 @@ def command(folder, tool, mode, session, revision, view_token, **args):
 
 
 def register(server, folder):
+    @server.tool()
+    def feedback_box(full: bool = False) -> dict:
+        """Read shop faction reputation, effects and thresholds. After a baseline, return only changes.
+        A new save load starts a fresh baseline. Use full=True to repeat the full list."""
+        if read_scene(folder).get("feedback_protocol") != 1:
+            return {"status": "reload_updated_mod"}
+        result = command(folder, "feedback_box", "read", "", 0, "", full=full)
+        if result["status"] == "unchanged":
+            return {"message": "無變動"}
+        return result
+
+    @server.tool()
+    def starting_difficulty(mode: Literal["read", "select"] = "read", difficulty_id: str = "",
+                            session: str = "", revision: int = 0, view_token: str = "") -> dict:
+        """Compare all difficulty cards. Normal lists baseline effects; other cards list differences and notes.
+        Select a displayed ID to highlight its card and stay on the difficulty screen."""
+        return command(folder, "starting_difficulty", mode, session, revision, view_token, difficulty_id=difficulty_id)
+
+    @server.tool()
+    def starting_perks(mode: Literal["read", "add", "remove", "continue"] = "read", perk_id: str = "",
+                       session: str = "", revision: int = 0, view_token: str = "") -> dict:
+        """Read all starting traits, signed point costs, effects, exclusions, selection and limits.
+        Add/remove one ID or continue to difficulty. Reuse the returned token and state after each edit."""
+        return command(folder, "starting_perks", mode, session, revision, view_token, perk_id=perk_id)
+
+    @server.tool()
+    def get_specializations(view_token: str = "") -> dict:
+        """Read all visible new-game specializations across pages in game language. Each row includes
+        starting equipment, hint, description and eligibility. Pass the previous token for a compact recheck."""
+        return command(folder, "get_specializations", "read", "", 0, view_token)
+
+    @server.tool()
+    def choose_specialization(scenario_id: str, session: str, revision: int, view_token: str) -> dict:
+        """Choose a visible playable specialization and continue to the native confirmation or perks page."""
+        return command(folder, "choose_specialization", "choose", session, revision, view_token, scenario_id=scenario_id)
+
     @server.tool()
     def shop_activity(mode: Literal["read", "door", "confirm_packing", "close_report", "equip", "holster", "fire"] = "read",
                       session: str = "", revision: int = 0, view_token: str = "", visit: str = "",

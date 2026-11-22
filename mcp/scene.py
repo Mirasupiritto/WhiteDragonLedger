@@ -37,6 +37,12 @@ def at_shop(scene):
 def tool_region(scene):
     if at_shop(scene):
         return "pawnshop"
+    if scene.get("status") == "selecting_difficulty":
+        return "new_game_difficulty"
+    if scene.get("status") == "selecting_perks":
+        return "new_game_perks"
+    if scene.get("status") == "selecting_specialization":
+        return "new_game"
     if scene.get("status") == "selecting_destination":
         return "destination_selection"
     if scene.get("status") in {"waiting_for_load", "waiting_for_scene_observer"}:

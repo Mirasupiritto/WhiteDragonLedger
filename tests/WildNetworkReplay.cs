@@ -33,6 +33,7 @@ namespace WhiteDragon.Ledger
     {
         public string id;
         public Action<string> onClick;
+        public Action<string,bool> onHover;
         public Button button;
         public TextMeshProUGUI label=new TextMeshProUGUI();
         public T GetComponent<T>() where T:class => button as T;
