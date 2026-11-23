@@ -256,6 +256,22 @@ class MoveMailbox(unittest.TestCase):
         self.assertEqual(result["status"], "unconfirmed")
         self.assertEqual(result["command_id"], self.command)
 
+    def test_move_items_preserves_space_failure_details_and_identity_changed(self):
+        receipt_data = dict(
+            status="no_space", reason="inventory_full", actual_area="showcase", revision=3,
+            item_size={"w": 2, "h": 3},
+            target_capacity={"w": 24, "h": 10, "free_cells": 4, "largest_free": {"w": 2, "h": 2}},
+            identity_changed=[{"id": 26, "from": "紅牌香菸", "to": "紅牌香菸（贗品）"}],
+        )
+        with patch("moves.move_item", return_value=receipt_data):
+            res = move_items(self.folder, [26, 27], "showcase", "inventory", self.generation, 2)
+        self.assertEqual(res["status"], "stopped")
+        self.assertEqual(res["items"][0]["status"], "no_space")
+        self.assertEqual(res["items"][0]["item_size"], {"w": 2, "h": 3})
+        self.assertEqual(res["items"][0]["target_capacity"]["largest_free"], {"w": 2, "h": 2})
+        self.assertEqual(res["identity_changed"][0]["to"], "紅牌香菸（贗品）")
+        self.assertEqual(res["items"][1]["status"], "not_attempted")
+
 
 if __name__ == "__main__":
     unittest.main()

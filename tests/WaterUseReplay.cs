@@ -28,8 +28,15 @@ namespace WhiteDragon.Ledger
         public TextMeshProUGUI confirmButtonTMP = new TextMeshProUGUI { text="確認" };
         public TextMeshProUGUI cancelButtonTMP = new TextMeshProUGUI { text="取消" };
     }
-    public static class DurabilityHelper { public static int GetRealDurability(GameItem item) => item.charge; }
-    public static class WaterHelper { public static int GetTotalCapacityML(GameItem item) => 500; public static int GetCurrentCapacityUL(GameItem item) => item.volume; }
+    public static class DurabilityHelper {
+        public static int GetRealDurability(GameItem item) => item.charge;
+        public static int GetMaxDurability(GameItem item) => item.maxCharge;
+    }
+    public static class WaterHelper {
+        public static int GetTotalCapacityML(GameItem item) => 500;
+        public static int GetCurrentCapacityUL(GameItem item) => item.volume;
+        public static bool IsEmpty(GameItem item) => item == null || !item.IsTag("LIQUID_CONTAINER_TAG") || item.volume <= 0;
+    }
     public class ItemBehaviourManager
     {
         public static ItemBehaviourManager current = new ItemBehaviourManager();
@@ -42,7 +49,7 @@ namespace WhiteDragon.Ledger
     }
     public partial class GameItem
     {
-        public int volume, charge, associatedId, waterClicks;
+        public int volume, charge, maxCharge = 300, associatedId, waterClicks;
         public readonly HashSet<string> waterTags = new HashSet<string>();
         public bool MaySelectSlotItem() => true;
         public bool CanSelectSlotItem() => true;
@@ -130,14 +137,22 @@ namespace WhiteDragon.Ledger
             var ration = Item(974,"water_ration",1);
             Preview(ration,LocalId(dest));
             Expect(Apply()=="ration_used" && (int)receipt["units_used"]==1 && dest.volume==120,"water ration");
+            var tabletBox = Item(977, "water_tablet_container", 1);
+            Expect(Preview(tabletBox, LocalId(dest)) == "source_unavailable" &&
+                (string)receipt["reason"] == "open_container_first", "tablet container prompts open_container_first");
             var tablet = Item(975,"water_tablet",1);
             tablet.waterTags.Add("WATER_PURIFICATION_TABLET");
             Preview(tablet,LocalId(dest));
-            Expect(Apply()=="tablet_used" && tablet.waterClicks==0,"native behaviour consumed tablet before item callback");
+            Expect(Apply()=="tablet_used" && tablet.waterClicks==0 &&
+                (bool)receipt["effect_pending"] && !string.IsNullOrEmpty((string)receipt["effect_pending_reason"]),
+                "tablet_used reports effect_pending explanation");
             var purifier = Item(976,"portable_water_purifier",1);
-            purifier.charge=1;
+            purifier.charge=15;
             Preview(purifier,LocalId(dest));
-            Expect(Apply()=="purifier_used" && (int)receipt["charge_used"]==1 && (int)receipt["charge_remaining"]==0,"purifier charge");
+            Expect(Apply()=="purifier_used" && (int)receipt["charge_used"]==1 &&
+                (int)receipt["charge_remaining"]==14 && Math.Abs((double)receipt["liters_remaining"] - 1.4) < 0.01,
+                "purifier_used returns liters_remaining");
+            purifier.charge = 0;
             Preview(purifier,LocalId(dest));
             Expect(Apply()=="purifier_notice" && (string)receipt["notice"]=="mech_portable_purifier_not_enough_charge","native notice");
             GenericConfirmationUIManager.Instance.panel.activeInHierarchy=false;

@@ -79,11 +79,15 @@ class ShopDeskReplay(unittest.TestCase):
         machine=dict(machine_key=90,bottle_key=301,bottle_id=26,can_remove_bottle=True,inventory_has_room=True,
                      can_power=False,battery_present=True,energy_kj=0)
         snap=dict(generation=self.gen,revision=1,slot=4,phase="MORNING",day=11,customer=None,
-                  available_strips=1,machines=[machine],last_night=[dict(machine,bottle_id=15)])
+                  available_strips=1,machines=[machine],
+                  portable_purifiers=[dict(id=41,save_id=9001,name="微型淨水器",area="inventory",
+                                           charge_remaining=25,charge_max=300,liters_remaining=2.5)],
+                  last_night=[dict(machine,bottle_id=15)])
         self.put(f"desk-{self.gen}.json",snap)
         report=machines(self.folder)
         row=report["machines"][0]
         self.assertEqual((report["strip_summary"],row["available_strips"]),("全店可用試紙剩 1 張",1))
+        self.assertEqual(report["portable_purifiers"][0]["liters_remaining"], 2.5)
         self.assertTrue(row["same_bottle_as_last_night"] and row["ready_to_take_and_test"])
         self.assertFalse(row["can_power"])
         self.put(f"desk-{self.gen}.json", dict(snap, phase="OPEN"))

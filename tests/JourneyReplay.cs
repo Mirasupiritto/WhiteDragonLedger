@@ -48,7 +48,7 @@ namespace WhiteDragon.Ledger
     public partial class EmporiumEntry
     {
         public PixelWindow afterhourWindow = new PixelWindow();
-        public GameInventory afterhourInventory = new GameInventory();
+        public GameGridInventory afterhourInventory = new GameGridInventory(12, 9);
         public GameSlotInventory afterhourPocketSlotInvLeft=new GameSlotInventory(),afterhourPocketSlotInvRight=new GameSlotInventory(),
             afterhourPocketSlotInvBackpack=new GameSlotInventory();
     }
@@ -109,15 +109,26 @@ namespace WhiteDragon.Ledger
             Expect(ActOnJourney(r,receipt)=="door_requested" && map.packing && receipt["response_choices"]==null,"closed store opens native confirmation");
             r=JourneyRequest("shop_activity");ActOnJourney(r,receipt);
             r["view_token"]=receipt["view_token"];r["action"]="confirm_packing";
-            var packBag = new GameItem { uniqueId=9799, identifier="small_bag" };
+            var realBag = new GameItem { uniqueId = 9798, identifier = "small_backpack", name = "Small Backpack",
+                contentWindow = new PixelWindow { childElement = new GameGridInventory(6, 6) } };
+            realBag.waterTags.Add("BACKPACK_TAG");
+            realBag.To(shop.invElement);
+            var noBagChoice = new GameItem { uniqueId = 9799, identifier = "plastic_bag", name = "No backpack" };
+            var bagChoice = new GameItem { uniqueId = 9800, identifier = "", name = "Bring Small Backpack" };
             shop.responseWindow = new PixelWindow { visible=true };
             shop.responseInventory = new GameInventory();
-            packBag.To(shop.responseInventory);
+            noBagChoice.To(shop.responseInventory);
+            bagChoice.To(shop.responseInventory);
             var packReceipt = new JObject();
             Expect(ActOnJourney(r,packReceipt)=="packing_requested" && !map.packing &&
-                (string)packReceipt["page"]!=null && ((JArray)packReceipt["response_choices"]).Count==1 &&
-                (string)packReceipt["response_choices"][0]["text"]=="small_bag","confirm packing attaches immediate bag choices");
+                (string)packReceipt["page"]!=null && ((JArray)packReceipt["response_choices"]).Count==2 &&
+                !(bool)packReceipt["response_choices"][0]["has_backpack"] &&
+                (bool)packReceipt["response_choices"][1]["has_backpack"] &&
+                (int)packReceipt["response_choices"][1]["capacity"]["w"]==6 &&
+                (int)packReceipt["response_choices"][1]["capacity"]["free_cells"]==36,
+                "confirm packing attaches immediate bag choices with backpack capacities");
             shop.responseWindow = null; shop.responseInventory = null;
+            realBag.To(null);
             var forest=new TransitCardView {location=AfterhourLocation.Get("forest"),available=true};
             TransitUI.Show(0,false,forest);
             CanObserveStore();r=JourneyRequest("travel_menu");ActOnJourney(r,receipt);
@@ -148,11 +159,20 @@ namespace WhiteDragon.Ledger
             TransitUI.IsOpen=false;
             map.Current=AfterhourLocation.Get("dumping_ground");
             CanObserveStore();shop.afterhourWindow.visible=true;
-            var loot=new GameItem {uniqueId=9801,identifier="scrap"};
+            var loot=new GameItem {uniqueId=9801,identifier="scrap",
+                shape=new GridShape(2, 1), modifiedShape=new GridShape(2, 1) { minX=1, minY=2 }};
             loot.To(shop.afterhourInventory);
-            var bag=new GameItem {uniqueId=9802,identifier="bag",contentWindow=new PixelWindow { childElement=new GameInventory() }};
+            var bagGrid = new GameGridInventory(6, 6);
+            var bag=new GameItem {uniqueId=9802,identifier="bag",contentWindow=new PixelWindow { childElement=bagGrid }};
             bag.To(shop.afterhourPocketSlotInvBackpack);
             r=JourneyRequest("explore");ActOnJourney(r,receipt);
+            Expect((int)receipt["view"]["slots"]["ground"][0]["size"]["w"] == 2 &&
+                (int)receipt["view"]["slots"]["ground"][0]["slot"]["x"] == 1 &&
+                (bool)receipt["view"]["slots"]["ground"][0]["rotatable"] &&
+                (int)receipt["view"]["capacities"]["ground"]["w"] == 12 &&
+                (int)receipt["view"]["capacities"]["ground"]["free_cells"] == 106 &&
+                (int)receipt["view"]["capacities"]["left"]["free_cells"] == 1,
+                "explore view attaches item geometry and slot/ground capacities");
             Expect(!(bool)receipt["view"]["can_return"] && (bool)receipt["view"]["can_return_abandoning_ground"],"ground blocks default return but allows abandon");
             r["action"]="return";r["view_token"]=receipt["view_token"];
             Expect(ActOnJourney(r,receipt)=="collect_ground_first" && !map.IsInTransit,"protect ground loot");
@@ -166,6 +186,12 @@ namespace WhiteDragon.Ledger
             r["action"]="open_bag";r["item_id"]=9802;r["view_token"]=receipt["view_token"];
             Expect(ActOnJourney(r,receipt)=="opened","native backpack open");
             Expect((string)receipt["view"]["bag_display"]=="window","open bag returns updated view");
+            bagGrid.replayFull = true;
+            r["action"]="move";r["source"]="ground";r["target"]="bag";r["item_id"]=9801;r["view_token"]=receipt["view_token"];
+            Expect(ActOnJourney(r,receipt)=="no_space" && (int)receipt["item_size"]["w"]==2 &&
+                (int)receipt["target_capacity"]["w"]==6,"full night bag returns no_space with geometry");
+            bagGrid.replayFull = false;
+            r["action"]="read";ActOnJourney(r,receipt);
             r["action"]="move";r["source"]="ground";r["target"]="bag";r["item_id"]=9801;r["view_token"]=receipt["view_token"];
             Expect(ActOnJourney(r,receipt)=="moved" && (int)receipt["observed_quantity"]==1 && !changed.Contains(loot),"night transfer outside shop ledger");
             Expect((int)receipt["view"]["slots"]["bag"][0]["id"]==9801 && ((JArray)receipt["view"]["slots"]["ground"]).Count==0,"move returns current slots");

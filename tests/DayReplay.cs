@@ -158,7 +158,34 @@ namespace WhiteDragon.Ledger
             FinishMorningReport();
             var today = DayView()["night_report"];
             Expect((int)today["day"] == station.dayCounter && (string)today["lines"][0] == "-Garbage bags piled up" &&
-                (string)today["lines"][1] == "-Protection: 2 nights" && (string)today["alerts"][0]["name"] == "Odin", "second morning uses its own logs");
+                (string)today["lines"][1] == "-Protection: 2 nights" &&
+                (string)today["alerts"][0]["type"] == "garbage_warning" &&
+                (string)today["alerts"][1]["type"] == "wanted_visited" &&
+                (string)today["alerts"][1]["name"] == "Odin", "second morning parses garbage_warning and wanted_visited");
+            // P1-4: expanded alert templates & live reminder localization refresh
+            station.dayCounter++;
+            store.nightLogs.Add("Storefront not cleaned: Trash everywhere");
+            store.nightLogs.Add("Insurance unpaid for 3 day(s).");
+            store.nightLogs.Add("Insurance paid.");
+            store.nightLogs.Add("Your wound has fully healed.");
+            startUi.displayCaseReminder.labels[0].text = "Remeber to stock the display case";
+            CaptureMorningReport();
+            store.nightLogs.Clear();
+            FinishMorningReport();
+            startUi.displayCaseReminder.labels[0].text = "記得補滿展示櫃！";
+            var alertsReport = DayView();
+            var alertList = (JArray)alertsReport["night_report"]["alerts"];
+            Expect(alertList.Count == 4 &&
+                (string)alertList[0]["type"] == "garbage_warning" && (string)alertList[0]["detail"] == "Trash everywhere" &&
+                (string)alertList[1]["type"] == "insurance_lapsed" && (int)alertList[1]["days_unpaid"] == 3 &&
+                (string)alertList[2]["type"] == "insurance_paid" &&
+                (string)alertList[3]["type"] == "injury_healed", "expanded night report alert matching");
+            Expect((string)alertsReport["night_report"]["reminders"][0] == "記得補滿展示櫃！",
+                "NightReportView reads refreshed localized reminder text instead of stale English");
+            Expect((int)alertsReport["capacities"]["inventory"]["w"] == 24 &&
+                (int)alertsReport["capacities"]["inventory"]["h"] == 10 &&
+                (int)alertsReport["capacities"]["showcase"]["w"] == 7, "DayView exposes shop area capacities");
+            station.dayCounter--;
             // P0-2 injury in status_summary + P0-3 nuclear_waste counts
             Expect((string)DayView()["status_summary"]["injury"]["severity"] == "none", "healthy status summary injury");
             store.healthData.woundState = 2; store.healthData.isWoundedFresh = true; store.healthData.isWoundStable = false;

@@ -49,7 +49,16 @@ namespace WhiteDragon.Ledger
                 destination == "showcase" ? shop.showcaseWindow : shop.invWindow;
             if (window == null || !window.IsVisible() || window.isLocked || GeneralHelper.IsItemLocked(item) ||
                 GeneralHelper.IsDisplayOnly(item) || item.parentInventory.IsRemoveLocked() || target.IsInsertLocked() ||
-                !item.MayRemove() || !GraphUtils.CanAccept(target,item)) return Receipt(request,"transfer_blocked");
+                !item.MayRemove()) return Receipt(request,"transfer_blocked");
+            if (!GraphUtils.CanAccept(target, item))
+            {
+                if (!IsSpaceFailure(target, item)) return Receipt(request, "transfer_blocked");
+                var full = Receipt(request, destination == "showcase" ? "showcase_full" : "no_space");
+                full["reason"] = destination == "showcase" ? "showcase_full" : "inventory_full";
+                full["actual_area"] = source;
+                AttachSpaceFailure(item, target, full);
+                return full;
+            }
             var origin = item.parentInventory;
             var receipt = Receipt(request,"outcome_unknown");
             receipt["owned"] = owned;
@@ -57,9 +66,17 @@ namespace WhiteDragon.Ledger
             receipt["kind"] = item.identifier;
             string status = TransferAndMeasure(item,origin,target,receipt);
             if (destination == "back" && status == "moved") pendingPapers.Remove(item);
+            ScanKnownIdentities();
             FlushChanges();
             receipt["revision"] = sequence;
             receipt["status"] = status;
+            if (status == "not_moved" && IsSpaceFailure(target, item))
+            {
+                receipt["status"] = destination == "showcase" ? "showcase_full" : "no_space";
+                receipt["reason"] = destination == "showcase" ? "showcase_full" : "inventory_full";
+                AttachSpaceFailure(item, target, receipt);
+            }
+            AttachReceiptIdentityChanges(receipt);
             receipt["actual_area"] = item.parentInventory == target || status == "moved" ? destination :
                 item.parentInventory == origin ? source : null;
             receipt["quantity"] = receipt["requested_quantity"];

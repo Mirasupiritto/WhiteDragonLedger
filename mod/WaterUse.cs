@@ -45,8 +45,11 @@ namespace WhiteDragon.Ledger
             if (origin == null || operation == null || GeneralHelper.IsDisplayOnly(source) ||
                 GeneralHelper.IsItemLocked(source) || !source.MaySelectSlotItem() || !source.CanSelectSlotItem())
             {
+                bool tabletContainer = source.identifier == "water_tablet_container";
                 receipt["reason"] = source == shop.faucet ? "use_faucet_as_target" : origin == null ? "unknown_location" :
-                    operation == null ? "unsupported_source" : "selection_locked";
+                    tabletContainer ? "open_container_first" : operation == null ? "unsupported_source" : "selection_locked";
+                if (tabletContainer)
+                    receipt["hint"] = "Use inspect_item_window and transfer_slot_items to take a water_tablet out before calling water_use.";
                 return "source_unavailable";
             }
 
@@ -131,6 +134,7 @@ namespace WhiteDragon.Ledger
                 }
                 int remaining = DurabilityHelper.GetRealDurability(source);
                 receipt["charge_remaining"] = remaining;
+                receipt["liters_remaining"] = Math.Round(Math.Max(0, remaining) * 0.1, 1);
                 int used = charge - remaining;
                 receipt["charge_used"] = used;
                 return used > 0 ? "purifier_used" : "use_unconfirmed";
@@ -147,7 +151,14 @@ namespace WhiteDragon.Ledger
             int units = source.parentInventory == null ? 0 : source.unitCount;
             int spent = (int)plan["source_units"] - units;
             receipt["units_used"] = spent;
-            if (operation == "tablet") return spent == 1 ? "tablet_used" : "use_unconfirmed";
+            if (operation == "tablet")
+            {
+                if (spent != 1) return "use_unconfirmed";
+                receipt["effect_pending"] = true;
+                receipt["effect_pending_reason"] = "chlorine_dissolved_reacts_over_time_requires_retest";
+                receipt["effect_pending_detail"] = "Water purification tablet dissolved (+15 ml chlorine). Microbe/contaminant reduction runs over 1-second ticks and overnight simulation, and clears test-strip exposure; retest afterwards to confirm purity.";
+                return "tablet_used";
+            }
             return spent == 1 && (int)receipt["target_change_ul"] > 0 ? "ration_used" : "use_unconfirmed";
         }
     }

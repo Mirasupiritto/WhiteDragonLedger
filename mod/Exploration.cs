@@ -99,10 +99,20 @@ namespace WhiteDragon.Ledger
                         });
                 }
                 var slots = new JObject();
+                var capacities = new JObject();
                 foreach (var entry in Slots)
+                {
                     slots[entry.Key] = new JArray(entry.Value.childItems.Where(i => !GeneralHelper.IsDisplayOnly(i)).Select(i =>
-                        new JObject { ["id"]=i.GetUniqueID(), ["name"]=i.GetDisplayName(true), ["kind"]=i.identifier, ["quantity"]=i.unitCount }));
+                    {
+                        var itemRow = new JObject { ["id"] = i.GetUniqueID(), ["name"] = i.GetDisplayName(true),
+                            ["kind"] = i.identifier, ["quantity"] = i.unitCount };
+                        AddGeometryFields(i, itemRow);
+                        return itemRow;
+                    }));
+                    if (InventoryCapacity(entry.Value) is JObject cap) capacities[entry.Key] = cap;
+                }
                 View["slots"] = slots;
+                if (capacities.Count > 0) View["capacities"] = capacities;
             }
         }
 
@@ -190,12 +200,29 @@ namespace WhiteDragon.Ledger
                 return "slot_unavailable";
             var item = origin.childItems.FirstOrDefault(i => i.GetUniqueID() == id && !GeneralHelper.IsDisplayOnly(i));
             if (item == null || !GeneralHelper.IsItemOwned(item) || GeneralHelper.IsItemLocked(item) || !item.MayRemove() ||
-                origin.IsRemoveLocked() || target.IsInsertLocked() || (item == night.Bag && to.StartsWith("bag")) ||
-                !GraphUtils.CanAccept(target, item)) return "transfer_blocked";
+                origin.IsRemoveLocked() || target.IsInsertLocked() || (item == night.Bag && to.StartsWith("bag")))
+                return "transfer_blocked";
+            if (!GraphUtils.CanAccept(target, item))
+            {
+                if (!IsSpaceFailure(target, item)) return "transfer_blocked";
+                receipt["source"] = from;
+                receipt["target"] = to;
+                receipt["item_id"] = id;
+                receipt["reason"] = "no_space";
+                AttachSpaceFailure(item, target, receipt);
+                return "no_space";
+            }
             receipt["source"] = from;
             receipt["target"] = to;
             receipt["item_id"] = id;
-            return TransferAndMeasure(item, origin, target, receipt, false);
+            string moveStatus = TransferAndMeasure(item, origin, target, receipt, false);
+            if (moveStatus == "not_moved" && IsSpaceFailure(target, item))
+            {
+                receipt["reason"] = "no_space";
+                AttachSpaceFailure(item, target, receipt);
+                return "no_space";
+            }
+            return moveStatus;
         }
     }
 }

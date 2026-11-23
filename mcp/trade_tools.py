@@ -135,6 +135,7 @@ class Updates:
             else:
                 old = json.loads(row[0])
                 upsert, remove = book_history.delta(db, gen, base, rev)
+                id_changes = book_history.identity_changes(db, gen, base, rev)
                 changed = {k:v for k,v in fields.items() if old.get(k)!=v}
                 checkpoints = []
                 last = old["phase"]
@@ -145,12 +146,14 @@ class Updates:
                         last = step["phase"]
                 if last != fields["phase"]:
                     checkpoints.append(dict(rev=rev, day=fields["day"], phase=fields["phase"]))
-                if not upsert and not remove and not changed and not checkpoints:
+                if not upsert and not remove and not changed and not checkpoints and not id_changes:
                     result = dict(status="unchanged", revision=rev, cursor=token)
                 else:
                     result.update(mode="delta", upsert=upsert, remove=remove, fields=changed)
                     if checkpoints:
                         result["checkpoints"] = checkpoints
+                    if id_changes:
+                        result["identity_changed"] = id_changes
             db.execute("INSERT OR IGNORE INTO book_cursors VALUES(?,?)", (token,encoded))
         self.cursor = token
         return result

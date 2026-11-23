@@ -109,6 +109,7 @@ def machines(folder):
     return {**{k:view[k] for k in ("status","slot","day","phase","generation","revision","available_strips")},
             "strip_summary": f"全店可用試紙剩 {available_strips} 張",
             "machines":list(current.values()),
+            "portable_purifiers": view.get("portable_purifiers", []),
             "missing_since_last_night":[r for k,r in previous.items() if k not in current]}
 
 

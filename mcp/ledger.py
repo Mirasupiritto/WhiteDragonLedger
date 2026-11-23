@@ -6,7 +6,36 @@ import book_history
 from pathlib import Path
 
 from database import transaction
-from stock_query import select_stock
+from stock_query import STOCK_DETAIL_COLUMNS, row_to_item, select_stock
+
+
+_EXTRA_STOCK_COLUMNS = (
+    ("size_w", "INTEGER"), ("size_h", "INTEGER"), ("slot_x", "INTEGER"), ("slot_y", "INTEGER"),
+    ("rotatable", "INTEGER"), ("water_ml", "INTEGER"), ("capacity_ml", "INTEGER"),
+    ("empty", "INTEGER"), ("water_container", "INTEGER"), ("contains_water", "INTEGER"),
+    ("charge_remaining", "INTEGER"), ("charge_max", "INTEGER"), ("liters_remaining", "REAL"),
+    ("estimated_value", "INTEGER"),
+)
+
+
+def _db_stock_row(row):
+    size = row.get("size") or {}
+    slot = row.get("slot") or {}
+    return {
+        "save_id": None, "bottle_label": None, "contraband": None,
+        "trade_contraband": None, "machine_id": None, "can_take_now": None,
+        **row,
+        "categories": json.dumps(sorted(set(row["categories"]))) if "categories" in row else None,
+        "size_w": size.get("w"), "size_h": size.get("h"),
+        "slot_x": slot.get("x"), "slot_y": slot.get("y"),
+        "rotatable": None if "rotatable" not in row else int(bool(row["rotatable"])),
+        "water_ml": row.get("water_ml"), "capacity_ml": row.get("capacity_ml"),
+        "empty": None if "empty" not in row else int(bool(row["empty"])),
+        "water_container": None if "water_container" not in row else int(bool(row["water_container"])),
+        "contains_water": None if "contains_water" not in row else int(bool(row["contains_water"])),
+        "charge_remaining": row.get("charge_remaining"), "charge_max": row.get("charge_max"),
+        "liters_remaining": row.get("liters_remaining"), "estimated_value": row.get("estimated_value"),
+    }
 
 
 def same_observation(left, right):
@@ -39,6 +68,7 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
                 or type(revision) is not int or revision < 1):
             raise ValueError("Invalid game ledger head")
         db.execute("CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY, generation TEXT, revision INTEGER)")
+        db.execute("CREATE TABLE IF NOT EXISTS ledger_meta (key TEXT PRIMARY KEY, value TEXT)")
         db.execute("CREATE TABLE IF NOT EXISTS stock (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, area TEXT, owned INTEGER, quantity INTEGER)")
         columns = {row["name"] for row in db.execute("PRAGMA table_info(stock)")}
         if "bottle_label" not in columns:
@@ -55,6 +85,9 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
         for column in ("trade_contraband", "machine_id", "can_take_now"):
             if column not in columns:
                 db.execute(f"ALTER TABLE stock ADD COLUMN {column} INTEGER")
+        for column, col_type in _EXTRA_STOCK_COLUMNS:
+            if column not in columns:
+                db.execute(f"ALTER TABLE stock ADD COLUMN {column} {col_type}")
         db.execute("CREATE INDEX IF NOT EXISTS stock_kind ON stock(kind)")
         previous = db.execute("SELECT generation, revision FROM checkpoint WHERE id=1").fetchone()
         cursor = previous["revision"] if previous and previous["generation"] == generation else 0
@@ -64,6 +97,10 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
         # Rebuild the local cache from published records; the game keeps its scan count.
         if cursor and head.get("stock_categories_protocol") and db.execute(
             "SELECT 1 FROM stock WHERE categories IS NULL LIMIT 1"
+        ).fetchone():
+            cursor = 0
+        if cursor and head.get("item_details_protocol") and db.execute(
+            "SELECT 1 FROM stock WHERE size_w IS NULL LIMIT 1"
         ).fetchone():
             cursor = 0
         if head.get("trade_panel_protocol"):
@@ -87,11 +124,19 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
             if "purifier_stock" in event:
                 db.execute("DELETE FROM stock WHERE area='purifier'")
                 rows = [*rows, *event["purifier_stock"]]
-            db.executemany("INSERT OR REPLACE INTO stock(id,name,kind,area,owned,quantity,save_id,bottle_label,categories,contraband,trade_contraband,machine_id,can_take_now) VALUES(:id,:name,:kind,:area,:owned,:quantity,:save_id,:bottle_label,:categories,:contraband,:trade_contraband,:machine_id,:can_take_now)",
-                           ({"save_id": None, "bottle_label": None, "contraband": None,
-                             "trade_contraband": None, "machine_id": None, "can_take_now": None, **row,
-                             "categories": json.dumps(sorted(set(row["categories"]))) if "categories" in row else None}
-                            for row in rows))
+            if "capacities" in event:
+                db.execute("INSERT OR REPLACE INTO ledger_meta VALUES(?,?)",
+                           (f"capacities:{generation}", json.dumps(event["capacities"], ensure_ascii=False)))
+            db.executemany(
+                "INSERT OR REPLACE INTO stock(id,name,kind,area,owned,quantity,save_id,bottle_label,categories,"
+                "contraband,trade_contraband,machine_id,can_take_now," + STOCK_DETAIL_COLUMNS + ") "
+                "VALUES(:id,:name,:kind,:area,:owned,:quantity,:save_id,:bottle_label,:categories,"
+                ":contraband,:trade_contraband,:machine_id,:can_take_now,"
+                ":size_w,:size_h,:slot_x,:slot_y,:rotatable,"
+                ":water_ml,:capacity_ml,:empty,:water_container,:contains_water,"
+                ":charge_remaining,:charge_max,:liters_remaining,:estimated_value)",
+                (_db_stock_row(row) for row in rows),
+            )
         if cursor != revision:
             db.execute("INSERT OR REPLACE INTO checkpoint VALUES(1,?,?)", (generation, revision))
             if head.get("trade_panel_protocol"):
@@ -114,11 +159,16 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
             filters.append("save_id IN (SELECT value FROM json_each(?))")
             values.append(json.dumps(sorted(save_ids)))
         condition = " WHERE " + " AND ".join(filters) if filters else ""
-        items = [dict(row) for row in db.execute("SELECT id,name,kind,area,owned,quantity,bottle_label,save_id FROM stock" + condition + " ORDER BY id", values)]
-        for item in items:
-            item["owned"] = bool(item["owned"])
-            if item["bottle_label"] is None:
-                del item["bottle_label"]
-            if not item["save_id"]:
-                del item["save_id"]
-        return {**head, "applied_records": revision - cursor, "items": items}
+        items = [row_to_item(row) for row in db.execute(
+            "SELECT id,name,kind,area,owned,quantity,bottle_label,save_id," + STOCK_DETAIL_COLUMNS + " FROM stock" + condition + " ORDER BY id",
+            values,
+        )]
+        extra = {}
+        meta_row = db.execute("SELECT value FROM ledger_meta WHERE key=?", (f"capacities:{generation}",)).fetchone()
+        if meta_row:
+            caps = json.loads(meta_row[0])
+            if area in caps:
+                extra["capacity"] = caps[area]
+            elif area is None and caps:
+                extra["capacities"] = caps
+        return {**head, "applied_records": revision - cursor, "items": items, **extra}

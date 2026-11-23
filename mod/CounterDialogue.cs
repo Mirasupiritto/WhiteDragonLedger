@@ -28,8 +28,16 @@ namespace WhiteDragon.Ledger
         private JArray ResponseChoices(GameInventory inventory)
         {
             if (inventory == null) return new JArray();
-            return new JArray(inventory.childItems.Select(item => new JObject { ["id"]=LocalId(item),
-                ["text"]=item.GetDisplayName(true), ["enabled"]=item.MayActivateSlotItem() && item.CanActivateSlotItem() }));
+            var rows = new JArray();
+            int index = 0;
+            foreach (var item in inventory.childItems)
+            {
+                var row = new JObject { ["id"]=LocalId(item),
+                    ["text"]=item.GetDisplayName(true), ["enabled"]=item.MayActivateSlotItem() && item.CanActivateSlotItem() };
+                AttachBagChoiceCapacity(inventory, item, index++, row);
+                rows.Add(row);
+            }
+            return rows;
         }
 
         private void ObserveDecision(string stage, JObject view)

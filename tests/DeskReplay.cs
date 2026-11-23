@@ -1,6 +1,7 @@
 // Compile with mod/ShopDesk.cs and mod/SaleOrder.cs for a deterministic game-callback replay.
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json.Linq;
 
 namespace UnityEngine {
@@ -48,12 +49,41 @@ namespace WhiteDragon.Ledger {
         public bool IsLineStillDisplaying(object d) => typing;
     }
     public partial class StoreStation { public static StoreStation Instance = new StoreStation(); public int dayCounter=10; }
+    public class GridShape {
+        public int minX { get; set; }
+        public int minY { get; set; }
+        public int width { get; set; }
+        public int height { get; set; }
+        public int globalWidth { get; set; }
+        public int globalHeight { get; set; }
+        public int maxX => minX + globalWidth - 1;
+        public int maxY => minY + globalHeight - 1;
+        public int orientation { get; set; }
+        public bool flipped { get; set; }
+        public byte defaultValue = 1;
+        public byte[,] cells;
+        public GridShape(int w = 1, int h = 1) { width = globalWidth = w; height = globalHeight = h; }
+        public byte Get(int x, int y) {
+            if (x < minX || x > maxX || y < minY || y > maxY) return 0;
+            return GetLocal(x - minX, y - minY);
+        }
+        public byte GetLocal(int x, int y) {
+            if (x < 0 || x >= width || y < 0 || y >= height) return 0;
+            return cells != null ? cells[x, y] : defaultValue;
+        }
+    }
     public partial class GameInventory : PixelElement {
         public List<GameItem> childItems = new List<GameItem>();
+        public Func<GameItem, GameInventory, bool> mayInventoryAddItemFunc;
         public bool IsInsertLocked() => false;
         public bool IsRemoveLocked() => false;
         public bool replayFull;
         public object TryFindOneValidInventorySlot(GameItem item) => replayFull ? null : new object();
+    }
+    public class GameGridInventory : GameInventory {
+        public GridShape inventoryShape;
+        public GameGridInventory() : this(1, 1) {}
+        public GameGridInventory(int w, int h) { inventoryShape = new GridShape(w, h) { defaultValue = 0 }; }
     }
     public partial class GameSlotInventory:GameInventory { public GameItem childItem; }
     public partial class EmporiumEntry {
@@ -65,9 +95,16 @@ namespace WhiteDragon.Ledger {
             result.AddRange(backInvinvElement.childItems.FindAll(i=>!i.owned));
             return result;
         }
-        public GameInventory frontInvinvElement=new GameInventory();
-        public GameInventory invElement=new GameInventory(), backInvinvElement=new GameInventory(), showcaseElement=new GameInventory(),
-            hiddenElement=new GameInventory();
+        public GameGridInventory frontInvinvElement=new GameGridInventory(18, 4);
+        public GameGridInventory invElement=new GameGridInventory(24, 10), backInvinvElement=new GameGridInventory(18, 4),
+            showcaseElement=new GameGridInventory(7, 5), hiddenElement=new GameGridInventory(1, 1);
+        public List<GameItem> GetAllOwnedItemsByTag(string tag) {
+            var result = new List<GameItem>();
+            foreach (var inv in new GameInventory[] { invElement, showcaseElement, frontInvinvElement, backInvinvElement })
+                foreach (var item in inv.childItems)
+                    if (item != null && item.owned && item.IsTag(tag)) result.Add(item);
+            return result;
+        }
         public GameItem trashcan;
     }
     public class ItemCondition { public string display; }
@@ -80,19 +117,23 @@ namespace WhiteDragon.Ledger {
     }
     public partial class GameItem {
         public PixelWindow contentWindow;
+        public GridShape shape = new GridShape(1, 1), modifiedShape = new GridShape(1, 1);
+        public Func<GameItem, GameInventory, bool> mayInventoryAddItemFunc;
         public ItemFeature waterLabel;
         public ItemFeature FindItemFeatureByCategory(string category) => waterLabel;
-        public string identifier;
+        public string identifier, name;
         public int uniqueId, price, unitCount=1;
         public bool owned=true;
         public GameInventory parentInventory;
         public int GetUniqueID() => uniqueId;
         public bool MayActivateSlotItem() => true;
         public bool CanActivateSlotItem() => true;
-        public string GetDisplayName(bool custom) => identifier;
+        public string GetDisplayName(bool custom) => string.IsNullOrEmpty(name) ? identifier : name;
         public bool mayRemove = true;
         public bool MayRemove() => mayRemove;
         public long GetNegociatedValue() => price;
+        public long GetCurrentValue(bool useRetailMarkup = false, bool withChild = true, bool includeEvents = true, bool forceMarkup = false, long extraMarketMod = 0L) => price;
+        public long GetBaseValue() => price;
         public bool IsTag(string key) => (key=="LIQUID_CONTAINER_TAG" && identifier=="bottle") || waterTags.Contains(key);
         public GameItem GetTagReadonly(string key) => scratchTagReader == null ? this : scratchTagReader(key);
         public int GetInt() => associatedId;
@@ -833,7 +874,77 @@ namespace WhiteDragon.Ledger {
                 "nuclear_waste on back reports nuclear_waste_on_counter when closing shop");
             barrel.To(shop.invElement);
             barrel.To(null);
+            ReplayItemDetailsAndIdentityChanges(shop);
             Console.WriteLine("P0 replay passed: clutter cleanup, post-wholesale sale, forced waste choice and nuclear_waste blockers.");
+        }
+
+        private void ReplayItemDetailsAndIdentityChanges(EmporiumEntry shop)
+        {
+            var tall = Item(92001, "water_jug", 45);
+            tall.shape = new GridShape(1, 2);
+            tall.modifiedShape = new GridShape(1, 2) { minX = 3, minY = 4 };
+            var tallRow = new JObject { ["id"] = LocalId(tall), ["name"] = tall.GetDisplayName(true), ["kind"] = tall.identifier };
+            EnrichStockRow(tall, tallRow);
+            Expect((int)tallRow["size"]["w"] == 1 && (int)tallRow["size"]["h"] == 2 &&
+                (int)tallRow["slot"]["x"] == 3 && (int)tallRow["slot"]["y"] == 4 &&
+                (bool)tallRow["rotatable"] && (long)tallRow["estimated_value"] == 45,
+                "item row exposes compact size, slot, rotatable and estimated_value");
+
+            var small = Item(92002, "coin", 10);
+            var smallRow = new JObject { ["id"] = LocalId(small), ["name"] = small.GetDisplayName(true), ["kind"] = small.identifier };
+            EnrichStockRow(small, smallRow);
+            Expect(!(bool)smallRow["rotatable"], "1x1 item marks rotatable false");
+
+            var boxGrid = new GameGridInventory(5, 4);
+            var placed = new GameItem { uniqueId = 92003, identifier = "crate",
+                shape = new GridShape(2, 3), modifiedShape = new GridShape(2, 3) { minX = 0, minY = 0 } };
+            placed.To(boxGrid);
+            var boxCap = InventoryCapacity(boxGrid);
+            Expect((int)boxCap["w"] == 5 && (int)boxCap["h"] == 4 && (int)boxCap["free_cells"] == 14 &&
+                (int)boxCap["largest_free"]["w"] == 3 && (int)boxCap["largest_free"]["h"] == 4,
+                "InventoryCapacity computes exact free_cells and largest_free rectangle");
+
+            var portable = Item(92004, "portable_water_purifier", 120);
+            portable.charge = 25; portable.maxCharge = 300;
+            var purRow = new JObject { ["id"] = LocalId(portable), ["name"] = portable.GetDisplayName(true), ["kind"] = portable.identifier };
+            EnrichStockRow(portable, purRow);
+            var purSummary = PortablePurifierRows();
+            var purEntry = purSummary.OfType<JObject>().FirstOrDefault(p => (int)p["id"] == LocalId(portable));
+            Expect((int)purRow["charge_remaining"] == 25 && (int)purRow["charge_max"] == 300 &&
+                Math.Abs((double)purRow["liters_remaining"] - 2.5) < 0.01 &&
+                purEntry != null && (int)purEntry["charge_remaining"] == 25 &&
+                Math.Abs((double)purEntry["liters_remaining"] - 2.5) < 0.01,
+                "portable_water_purifier exposes charge and liters_remaining");
+
+            var ditchBottle = Item(92005, "bottle", 10);
+            ditchBottle.name = "溝渠水瓶";
+            ditchBottle.volume = 0;
+            var emptyRow = new JObject { ["id"] = LocalId(ditchBottle), ["name"] = ditchBottle.GetDisplayName(true), ["kind"] = ditchBottle.identifier };
+            EnrichStockRow(ditchBottle, emptyRow);
+            Expect((bool)emptyRow["water_container"] && (int)emptyRow["water_ml"] == 0 &&
+                (bool)emptyRow["empty"] && !(bool)emptyRow["contains_water"],
+                "empty liquid bottle reports water_ml 0 and empty true");
+            ditchBottle.volume = 250000;
+            var filledRow = new JObject { ["id"] = LocalId(ditchBottle), ["name"] = ditchBottle.GetDisplayName(true), ["kind"] = ditchBottle.identifier };
+            EnrichStockRow(ditchBottle, filledRow);
+            Expect((int)filledRow["water_ml"] == 250 && !(bool)filledRow["empty"] && (bool)filledRow["contains_water"],
+                "filled liquid bottle reports water_ml and contains_water");
+
+            var cig = Item(92006, "red_cigarette", 100);
+            cig.name = "紅牌香菸";
+            var cigRow = new JObject { ["id"] = LocalId(cig), ["name"] = cig.GetDisplayName(true), ["kind"] = cig.identifier };
+            EnrichStockRow(cig, cigRow);
+            cig.name = "紅牌香菸（贗品）";
+            ScanKnownIdentities();
+            var idReceipt = new JObject();
+            AttachReceiptIdentityChanges(idReceipt);
+            Expect((int)idReceipt["identity_changed"][0]["id"] == LocalId(cig) &&
+                (string)idReceipt["identity_changed"][0]["from"] == "紅牌香菸" &&
+                (string)idReceipt["identity_changed"][0]["to"] == "紅牌香菸（贗品）" &&
+                journalIdentityChanges.Count == 1,
+                "ScanKnownIdentities emits identity_changed for both receipts and journal delta");
+            foreach (var tmp in new[] { tall, small, portable, ditchBottle, cig }) tmp.To(null);
+            ResetItemDetails();
         }
         public static int Main()
         {

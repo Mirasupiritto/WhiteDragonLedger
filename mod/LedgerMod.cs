@@ -33,6 +33,7 @@ namespace WhiteDragon.Ledger
 
         private readonly HashSet<GameItem> bottles = new HashSet<GameItem>();
         private JArray purifierStock;
+        private JObject lastPublishedCapacities;
         private string generation;
         private int sequence, fullScans, loadScans, nextId, slot;
         private bool pending;
@@ -89,7 +90,9 @@ namespace WhiteDragon.Ledger
             received.Clear();
             payments.Clear();
             purifierStock = null;
+            lastPublishedCapacities = null;
             purifiers.Clear();
+            ResetItemDetails();
             stripSupplies.Clear();
             phoneCards.Clear();
             previousPhone = null;
@@ -147,6 +150,7 @@ namespace WhiteDragon.Ledger
         {
             if (CardNumber(item.identifier) != 0) phoneCards.Add(item);
             if (item.identifier == "water_purifier") purifiers.Add(item);
+            if (item.identifier == "portable_water_purifier") portablePurifiers.Add(item);
             if (item.identifier == "water_test_strip" || item.identifier == "water_test_container") stripSupplies.Add(item);
             var row = StockRow(item, area);
             if (row["bottle_label"] != null) bottles.Add(item);
@@ -162,6 +166,7 @@ namespace WhiteDragon.Ledger
                 ["trade_contraband"] = ContrabandHelper.IsContraband(item) };
             if (BottleLabel(item) is string label)
                 row["bottle_label"] = label;
+            EnrichStockRow(item, row);
             return row;
         }
 
@@ -192,7 +197,7 @@ namespace WhiteDragon.Ledger
             record["phase"] = phase;
             record["day"] = StoreStation.Instance.dayCounter;
             Write(generation + "-" + revision + ".json", record);
-            Write("head.json", new JObject { ["status"] = "observed", ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["move_location_protocol"] = 1, ["counter_move_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
+            Write("head.json", new JObject { ["status"] = "observed", ["item_details_protocol"] = 1, ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["move_location_protocol"] = 1, ["counter_move_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
                 ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
                 ["full_scans"] = fullScans, ["load_scans"] = loadScans });
             sequence = revision;
@@ -228,7 +233,8 @@ namespace WhiteDragon.Ledger
             if (phase == "OPEN" || (PlayerStore.Instance.currentClientInstance == null && order == null)) QueueCounterPapers();
             LoadDesk();
             purifierStock = ReadPurifierStock();
-            Publish(new JObject { ["op"] = "baseline", ["items"] = rows, ["purifier_stock"] = purifierStock });
+            lastPublishedCapacities = ShopCapacities();
+            Publish(new JObject { ["op"] = "baseline", ["items"] = rows, ["purifier_stock"] = purifierStock, ["capacities"] = lastPublishedCapacities.DeepClone() });
             RefreshDesk();
         }
 
@@ -271,6 +277,7 @@ namespace WhiteDragon.Ledger
         {
             var currentPhase = PlayerStore.Instance.storeState.ToString();
             if (changed.Count == 0 && phase == currentPhase && Time.realtimeSinceStartup < nextView) return;
+            ScanKnownIdentities();
             var upserts = new JArray();
             var removed = new JArray();
             foreach (var item in changed)
@@ -288,6 +295,8 @@ namespace WhiteDragon.Ledger
                 {
                     bottles.Remove(item);
                     purifiers.Remove(item);
+                    portablePurifiers.Remove(item);
+                    observedIdentities.Remove(id);
                     stripSupplies.Remove(item);
                     phoneCards.Remove(item);
                     removed.Add(id);
@@ -296,13 +305,26 @@ namespace WhiteDragon.Ledger
             changed.Clear();
             var slots = ReadPurifierStock();
             bool slotsChanged = !JToken.DeepEquals(slots, purifierStock);
-            if (upserts.Count == 0 && removed.Count == 0 && phase == currentPhase && !slotsChanged) return;
+            var caps = ShopCapacities();
+            bool capsChanged = !JToken.DeepEquals(caps, lastPublishedCapacities);
+            bool idChanged = journalIdentityChanges.Count > 0;
+            if (upserts.Count == 0 && removed.Count == 0 && phase == currentPhase && !slotsChanged && !capsChanged && !idChanged) return;
             phase = currentPhase;
             var record = new JObject { ["op"] = "delta", ["upsert"] = upserts, ["remove"] = removed };
             if (slotsChanged)
             {
                 purifierStock = slots;
                 record["purifier_stock"] = slots;
+            }
+            if (capsChanged)
+            {
+                lastPublishedCapacities = caps;
+                record["capacities"] = caps.DeepClone();
+            }
+            if (idChanged)
+            {
+                record["identity_changed"] = CloneChanges(journalIdentityChanges);
+                journalIdentityChanges.Clear();
             }
             Publish(record);
         }

@@ -85,19 +85,25 @@ def register_day_tools(server, folder, database):
         result = counter.command(folder, "sleep", generation, revision, **args)
         if result["status"] != "sleep_submitted":
             return result
-        deadline=time.monotonic()+8
-        while True:
-            view=shop_status(folder)
+        deadline = time.monotonic() + 15
+        for _ in range(200):
+            view = shop_status(folder)
             report = view.get("night_report", {})
             if (view.get("slot") == result["slot"] and view.get("generation") == generation
                     and view.get("day") == day + 1 and view.get("phase") == "MORNING"
                     and report.get("day") == day + 1 and report.get("status") == "ready"):
-                slept = {**result,"status":"slept","day_after":view["day"],"calendar":view["calendar"],
-                         "trash":trash_contents(folder,database,view)}
+                slept = {**result, "status": "slept", "day_after": view["day"], "calendar": view["calendar"],
+                         "trash": trash_contents(folder, database, view)}
                 for key in ("night_report", "appeal", "status_summary"):
                     if key in view:
                         slept[key] = view[key]
                 return slept
-            if time.monotonic()>=deadline or (view.get("generation") and view["generation"]!=generation):
+            if view.get("generation") and view["generation"] != generation:
                 return result
+            if time.monotonic() >= deadline:
+                break
             time.sleep(.15)
+        if (view.get("slot") == result["slot"] and view.get("generation") == generation
+                and view.get("day") == day + 1 and report.get("status") == "awaiting_report"):
+            return {**result, "status": "awaiting_report", "day_after": view["day"], "night_report": report}
+        return result

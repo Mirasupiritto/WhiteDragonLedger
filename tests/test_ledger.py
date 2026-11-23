@@ -180,6 +180,45 @@ class LedgerReplay(unittest.TestCase):
         self.head(1)
         self.assertEqual(self.read()["items"], [])
 
+    def test_item_details_water_containers_purifiers_and_capacities(self):
+        self.put(self.generation + "-stock-categories.json", {"WATER": "水", "HOUSEHOLD_GOOD": "日用品"})
+        empty_bottle = dict(
+            id=31, name="沟渠水", kind="bottle", area="inventory", owned=True, quantity=1,
+            categories=["HOUSEHOLD_GOOD"], size={"w": 1, "h": 2}, slot={"x": 0, "y": 1}, rotatable=True,
+            water_container=True, water_ml=0, capacity_ml=500, empty=True, contains_water=False, estimated_value=12,
+        )
+        soap = dict(
+            id=32, name="香皂", kind="soap", area="inventory", owned=True, quantity=1,
+            categories=["HOUSEHOLD_GOOD"], size={"w": 1, "h": 1}, slot={"x": 1, "y": 1}, rotatable=False,
+            estimated_value=15,
+        )
+        purifier = dict(
+            id=33, name="微型淨水器", kind="portable_water_purifier", area="inventory", owned=True, quantity=1,
+            categories=["HOUSEHOLD_GOOD"], size={"w": 2, "h": 1}, slot={"x": 2, "y": 0}, rotatable=True,
+            charge_remaining=25, charge_max=300, liters_remaining=2.5, estimated_value=120,
+        )
+        caps = {"inventory": {"w": 24, "h": 10, "free_cells": 235, "largest_free": {"w": 20, "h": 10}},
+                "showcase": {"w": 7, "h": 5, "free_cells": 35, "largest_free": {"w": 7, "h": 5}}}
+        self.event(1, op="baseline", items=[empty_bottle, soap, purifier], capacities=caps)
+        self.put("head.json", dict(
+            status="observed", slot=3, phase="CLOSED", generation=self.generation, revision=1,
+            full_scans=1, load_scans=1, item_details_protocol=1, stock_categories_protocol=1, trade_panel_protocol=1,
+        ))
+        inv = self.read(area="inventory")
+        self.assertEqual(inv["capacity"], caps["inventory"])
+        self.assertEqual(inv["items"][0]["size"], {"w": 1, "h": 2})
+        self.assertEqual(inv["items"][0]["slot"], {"x": 0, "y": 1})
+        self.assertTrue(inv["items"][0]["rotatable"])
+        self.assertTrue(inv["items"][0]["empty"])
+        self.assertEqual(inv["items"][0]["water_ml"], 0)
+        self.assertEqual(inv["items"][0]["estimated_value"], 12)
+        self.assertEqual(inv["items"][2]["liters_remaining"], 2.5)
+        water_matches = self.read(stock_query=dict(categories=["WATER"], owned=True))["items"]
+        self.assertEqual([i["id"] for i in water_matches], [31])
+        self.assertFalse(water_matches[0]["contains_water"])
+        by_id = self.read(stock_query=dict(item_ids=[33], generation=self.generation))["items"][0]
+        self.assertEqual((by_id["charge_remaining"], by_id["liters_remaining"]), (25, 2.5))
+
 
 if __name__ == "__main__":
     unittest.main()

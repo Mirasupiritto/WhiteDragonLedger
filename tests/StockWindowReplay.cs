@@ -142,8 +142,24 @@ namespace WhiteDragon.Ledger
             shelve["item_id"]=LocalId(card);
             shelve["revision"]=sequence;
             shop.showcaseElement.replayFull = true;
-            Expect((string)ExecuteMove(shelve)["status"]=="showcase_full" && card.parentInventory==shop.invElement,"showcase capacity refusal");
+            var showcaseFull = ExecuteMove(shelve);
+            Expect((string)showcaseFull["status"] == "showcase_full" && card.parentInventory == shop.invElement &&
+                (int)showcaseFull["item_size"]["w"] == 1 && (int)showcaseFull["target_capacity"]["w"] == 7,
+                "showcase capacity refusal includes item_size and target_capacity");
             shop.showcaseElement.replayFull = false;
+            card.To(shop.showcaseElement);
+            var returnToInv = (JObject)shelve.DeepClone();
+            returnToInv["source"] = "showcase"; returnToInv["destination"] = "inventory"; returnToInv["revision"] = sequence;
+            shop.invElement.replayFull = true;
+            var invNoSpace = ExecuteMove(returnToInv);
+            Expect((string)invNoSpace["status"] == "no_space" && (string)invNoSpace["reason"] == "inventory_full" &&
+                (int)invNoSpace["item_size"]["w"] == 1 &&
+                (int)invNoSpace["target_capacity"]["w"] == 24 &&
+                (int)invNoSpace["target_capacity"]["h"] == 10 &&
+                invNoSpace["target_capacity"]["largest_free"] != null,
+                "full inventory returns no_space with item_size and target_capacity");
+            shop.invElement.replayFull = false;
+            card.To(shop.invElement);
             shelve["revision"]=sequence-1;
             Expect((string)ExecuteMove(shelve)["status"]=="stale_observation" && card.parentInventory==shop.invElement,"stale shelf request cannot move");
             card.To(shop.showcaseElement);

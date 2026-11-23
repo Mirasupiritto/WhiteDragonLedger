@@ -29,11 +29,13 @@ namespace WhiteDragon.Ledger
             var rows = (JArray)order["lines"];
             while (results.Count < rows.Count)
                 results.Add(new JObject { ["item_id"] = (int)rows[results.Count]["item_id"], ["status"] = "not_attempted" });
+            ScanKnownIdentities();
             completedOrder = new JObject { ["command_id"] = (string)order["command_id"], ["generation"] = generation,
                 ["status"] = status, ["slot"] = slot, ["revision"] = sequence, ["visit"] = (string)order["visit"],
                 ["load_scans"] = loadScans, ["items"] = results,
                 ["remaining_budget"] = merchant != null && visitId == (string)order["visit"] && merchant.useClientBudget
                     ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
+            AttachReceiptIdentityChanges(completedOrder);
             if (orderClearedItems.Count > 0) completedOrder["cleared_items"] = orderClearedItems.DeepClone();
             if (status == "counter_unavailable")
                 DescribeBlockedTable(completedOrder, false, true, blockedSourceItem, blockedOrderReason);

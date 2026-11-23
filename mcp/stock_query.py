@@ -19,6 +19,41 @@ SELECT value FROM keys WHERE value IS NOT NULL
 """
 
 
+STOCK_DETAIL_COLUMNS = (
+    "size_w,size_h,slot_x,slot_y,rotatable,"
+    "water_ml,capacity_ml,empty,water_container,contains_water,"
+    "charge_remaining,charge_max,liters_remaining,estimated_value"
+)
+
+
+def row_to_item(row, *, include_categories=False):
+    raw = dict(row)
+    item = {}
+    for key in ("id", "name", "kind", "area", "owned", "quantity", "bottle_label", "machine_id", "can_take_now", "save_id"):
+        if raw.get(key) is not None:
+            item[key] = raw[key]
+    item["owned"] = bool(item["owned"])
+    if "can_take_now" in item:
+        item["can_take_now"] = bool(item["can_take_now"])
+    if "save_id" in item and not item["save_id"]:
+        del item["save_id"]
+    if include_categories and raw.get("categories") is not None:
+        item["categories"] = json.loads(raw["categories"])
+    if raw.get("size_w") is not None and raw.get("size_h") is not None:
+        item["size"] = {"w": raw["size_w"], "h": raw["size_h"]}
+    if raw.get("slot_x") is not None and raw.get("slot_y") is not None:
+        item["slot"] = {"x": raw["slot_x"], "y": raw["slot_y"]}
+    if raw.get("rotatable") is not None:
+        item["rotatable"] = bool(raw["rotatable"])
+    for flag in ("empty", "water_container", "contains_water"):
+        if raw.get(flag) is not None:
+            item[flag] = bool(raw[flag])
+    for metric in ("water_ml", "capacity_ml", "charge_remaining", "charge_max", "liters_remaining", "estimated_value"):
+        if raw.get(metric) is not None:
+            item[metric] = raw[metric]
+    return item
+
+
 @lru_cache(maxsize=1)
 def native_categories(folder, generation):
     path = folder / f"{generation}-stock-categories.json"
@@ -115,7 +150,10 @@ def select_stock(folder, db, head, query):
         if exclude:
             filters.append(within("categories", allowed))
         if include:
-            choices.append(within("categories", matching))
+            if "WATER" in include:
+                choices.append("(water_container = 1 OR " + within("categories", matching) + ")")
+            else:
+                choices.append(within("categories", matching))
     if kinds:
         choices.append(within("kind", kinds))
     if choices:
@@ -133,18 +171,10 @@ def select_stock(folder, db, head, query):
     if ids is not None:
         filters.append(within("id", ids))
     where = " WHERE " + " AND ".join(filters) if filters else ""
-    columns = "id,name,kind,area,owned,quantity,bottle_label,categories,machine_id,can_take_now"
+    columns = "id,name,kind,area,owned,quantity,bottle_label,categories,machine_id,can_take_now," + STOCK_DETAIL_COLUMNS
     if ids is not None:
         columns += ",save_id"
-    items = []
-    for row in db.execute("SELECT " + columns + " FROM stock" + where + " ORDER BY id", params):
-        item = {k: v for k, v in dict(row).items() if v is not None}
-        item["owned"] = bool(item["owned"])
-        if "can_take_now" in item:
-            item["can_take_now"] = bool(item["can_take_now"])
-        if "categories" in item:
-            item["categories"] = json.loads(item["categories"])
-        items.append(item)
+    items = [row_to_item(row, include_categories=True) for row in db.execute("SELECT " + columns + " FROM stock" + where + " ORDER BY id", params)]
     if ids is not None:
         by_id = {item["id"]: item for item in items}
         ordered = dict.fromkeys(ids)

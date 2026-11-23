@@ -124,7 +124,7 @@ def register(server, folder):
                       session: str = "", revision: int = 0, view_token: str = "", visit: str = "",
                       confirm_fire: bool = False) -> dict:
         """Inspect shop door, packing confirmation, report and current in-game encounter. Read before acting.
-        If door or confirm_packing immediately opens bag selection, page and response_choices are attached to the receipt;
+        If door or confirm_packing immediately opens bag selection, page and response_choices (including each backpack's capacity{w,h,free_cells,largest_free{w,h}}) are attached to the receipt;
         otherwise use get_trade_context. Fire requires the player's identification and current visit."""
         return command(folder, "shop_activity", mode, session, revision, view_token, visit=visit, confirm_fire=confirm_fire)
 
@@ -139,8 +139,8 @@ def register(server, folder):
     def explore(mode: Literal["read", "move", "open_bag", "close_bag", "scavenge", "return"] = "read",
                 session: str = "", revision: int = 0, view_token: str = "", item_id: int = 0,
                 source: str = "", target: str = "", abandon_ground: bool = False) -> dict:
-        """Read visible night inventory, pockets, bag slots, injury status and scavenging conditions (including scavenge_blocked_reason when blocked and any native notification).
-        Move one observed item by its scene-local game ID and slot keys. Use the returned view.slots and view_token for the next action.
+        """Read visible night inventory, pockets, bag slots (each item includes size/slot/rotatable; view.capacities covers left/right/bag/ground), injury status and scavenging conditions (including scavenge_blocked_reason and native notification).
+        Move one observed item by its scene-local game ID and slot keys (returns no_space with item_size and target_capacity when full). Use the returned view.slots and view_token for the next action.
         Collect the ground before returning, or pass abandon_ground=True with mode='return' to discard remaining ground items."""
         return command(folder, "explore", mode, session, revision, view_token, item_id=item_id, source=source,
                        target=target, abandon_ground=abandon_ground)

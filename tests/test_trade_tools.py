@@ -219,6 +219,17 @@ class TradeTools(unittest.TestCase):
                 await replay("prepare_sleep","prepare_sleep","bill_open",day=10,bill_token="before")
                 await replay("night_service","night_service","service_set",day=10,bill_token="opened",
                              service_id="clean",cost=7,selected=True)
+                cig_v1 = dict(id=77, name="紅牌香菸", kind="red_cigarette", area="front", owned=False, quantity=1,
+                              size={"w": 1, "h": 1}, slot={"x": 0, "y": 0}, rotatable=False, estimated_value=100)
+                cig_v2 = dict(cig_v1, name="紅牌香菸（贗品）", estimated_value=50)
+                self.publish(4, "OPEN", dict(op="delta", upsert=[cig_v1], remove=[]))
+                await call("get_shop_updates")
+                self.publish(5, "OPEN", dict(op="delta", upsert=[cig_v2], remove=[],
+                             identity_changed=[dict(id=77, **{"from": "紅牌香菸", "to": "紅牌香菸（贗品）"})]))
+                delta = await call("get_shop_updates")
+                self.assertEqual(delta["mode"], "delta")
+                self.assertEqual(delta["identity_changed"], [{"id": 77, "from": "紅牌香菸", "to": "紅牌香菸（贗品）"}])
+                self.assertEqual(delta["upsert"][0]["estimated_value"], 50)
         asyncio.run(run())
 
     def test_stdio_rejects_old_native_trade_and_attaches_delta(self):

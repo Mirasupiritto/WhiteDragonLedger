@@ -85,3 +85,26 @@ class TrashLedger(unittest.TestCase):
             self.assertEqual(status["status_summary"]["estimated_net_worth"], 320)
             self.assertEqual(status["status_summary"]["injury"]["severity"], "minor")
             self.assertEqual(status["nuclear_waste"], {"in_shop": 2, "on_counter": 1, "dumped": 3})
+
+    def test_sleep_timeout_returns_awaiting_report_instead_of_stale_report(self):
+        from mcp.server.fastmcp import FastMCP
+        from shop_day import register_day_tools
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            folder = Path(temp)
+            server = FastMCP("replay")
+            register_day_tools(server, folder, folder / "account.sqlite")
+            gen = "a" * 32
+            pending_view = dict(
+                slot=7, generation=gen, phase="MORNING", day=3, calendar={"day": 3},
+                trash={"status": "unavailable"},
+                night_report=dict(status="awaiting_report", day=3, lines=[]),
+            )
+            clock = iter([0.0, 20.0])
+            with (patch("counter.command", return_value={"slot": 7, "status": "sleep_submitted"}),
+                  patch("shop_day.shop_status", return_value=pending_view),
+                  patch("shop_day.time", monotonic=lambda: next(clock, 20.0), sleep=lambda _: None)):
+                result = asyncio.run(server.call_tool("sleep", dict(generation=gen, revision=12, day=2, service_cost=0)))
+            reply = json.loads(result[0].text)
+            self.assertEqual(reply["status"], "awaiting_report")
+            self.assertEqual(reply["day_after"], 3)
+            self.assertEqual(reply["night_report"]["status"], "awaiting_report")

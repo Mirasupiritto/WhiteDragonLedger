@@ -57,8 +57,8 @@ namespace WhiteDragon.Ledger {
             var owner=Item(821,"furnace",0);
             var material=Item(822,"ore",0);
             material.To(EmporiumEntry.Instance.showcaseElement);
-            var input=new GameInventory();
-            var output=new GameInventory();
+            var input=new GameGridInventory(4, 3);
+            var output=new GameGridInventory(2, 2);
             var button=new MachineryButton { text="Start" };
             var layout=new MachineryPanelRow();
             layout.Panels.Add(new MachineryPanel { role="input",content=input });
@@ -71,7 +71,21 @@ namespace WhiteDragon.Ledger {
             var reply=new JObject();
             Expect(WorkstationAction(request,reply)=="window_closed","query never opens implicitly");
             request["open_if_closed"]=true;
-            Expect(WorkstationAction(request,reply)=="observed" && reply["window"]["controls"].Count()==4,"native open and full controls");
+            Expect(WorkstationAction(request,reply)=="observed" && reply["window"]["controls"].Count()==4 &&
+                (int)reply["window"]["controls"][0]["capacity"]["w"]==4 &&
+                (int)reply["window"]["controls"][0]["capacity"]["free_cells"]==12,
+                "native open and full controls with slot capacity");
+            input.replayFull = true;
+            var blockedTransfer = new JObject();
+            Expect(WorkstationAction(new JObject { ["action"]="transfer_slot", ["owner_id"]=LocalId(owner),
+                ["item_id"]=LocalId(material), ["source"]="showcase", ["control"]="content/0/body",
+                ["window_token"]=reply["window_token"] }, blockedTransfer) == "no_space" &&
+                (int)blockedTransfer["item_size"]["w"]==1 &&
+                (int)blockedTransfer["target_capacity"]["free_cells"]==12,
+                "full workstation slot returns no_space");
+            input.replayFull = false;
+            reply = new JObject();
+            WorkstationAction(request, reply);
             request["since_token"]=reply["window_token"];
             reply=new JObject();
             Expect(WorkstationAction(request,reply)=="observed" && reply["window"]==null && reply["window_delta"]==null,"no unchanged data");

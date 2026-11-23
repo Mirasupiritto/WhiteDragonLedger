@@ -102,9 +102,12 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
                             previous_command=previous_command, visit=visit)
         row = {"item_id": item_id, "status": receipt["status"], "from": source,
                "actual_area": receipt.get("actual_area")}
-        for field in ("name", "kind", "quantity", "observed_quantity", "bottle_label", "revision"):
+        for field in ("name", "kind", "quantity", "observed_quantity", "bottle_label", "revision",
+                      "reason", "item_size", "target_capacity", "identity_changed"):
             if field in receipt:
                 row[field] = receipt[field]
+        if "identity_changed" in receipt:
+            result.setdefault("identity_changed", []).extend(receipt["identity_changed"])
         result["items"].append(row)
         if "load_scans" in receipt:
             for field in ("load_scans", "full_scans", "phase", "slot", "revision"):

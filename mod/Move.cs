@@ -121,11 +121,20 @@ namespace WhiteDragon.Ledger
             if (destination == "showcase" && !GraphUtils.CanAccept(target, item))
             {
                 var full = Receipt(request, "showcase_full");
+                full["reason"] = "showcase_full";
                 full["actual_area"] = source;
+                AttachSpaceFailure(item, target, full);
                 return full;
             }
-            if (source == "purifier" && shop.invElement.TryFindOneValidInventorySlot(item) == null)
-                return Receipt(request, "inventory_full");
+            if (!loading && destination == "inventory" && shop.invElement != null && !GraphUtils.CanAccept(shop.invElement, item))
+            {
+                if (!IsSpaceFailure(shop.invElement, item)) return Receipt(request, "transfer_blocked");
+                var full = Receipt(request, "no_space");
+                full["reason"] = "inventory_full";
+                full["actual_area"] = source;
+                AttachSpaceFailure(item, shop.invElement, full);
+                return full;
+            }
 
             // The native placement routine enforces available space and slot rules.
             int quantityBefore = item.unitCount;
@@ -137,6 +146,7 @@ namespace WhiteDragon.Ledger
             else if (destination == "showcase") ModHelper.MoveItemToDisplayCase(item);
             else ModHelper.MoveItemToInventory(item);
             changed.Add(item);
+            ScanKnownIdentities();
             FlushChanges();
             string observed = null;
             if (item.parentInventory != null) areas.TryGetValue(item.parentInventory, out observed);
@@ -144,7 +154,15 @@ namespace WhiteDragon.Ledger
             bool sourceCleared = container == null || (loading ? container.childItem == item : container.childItem == null);
             string status = sourceCleared && observed == destination && item.unitCount == quantityBefore ? "moved" :
                 observed == source && item.unitCount == quantityBefore ? "not_moved" : "outcome_unknown";
+            var spaceTarget = !loading && destination == "showcase" ? target : !loading && destination == "inventory" ? shop.invElement : null;
+            if (status == "not_moved" && spaceTarget != null && !GraphUtils.CanAccept(spaceTarget, item) && IsSpaceFailure(spaceTarget, item))
+                status = destination == "showcase" ? "showcase_full" : "no_space";
             var result = Receipt(request, status);
+            if (status == "showcase_full" || status == "no_space")
+            {
+                result["reason"] = destination == "showcase" ? "showcase_full" : "inventory_full";
+                AttachSpaceFailure(item, spaceTarget, result);
+            }
             if (container != null)
             {
                 result["machine_key"] = machine.uniqueId;
@@ -168,6 +186,7 @@ namespace WhiteDragon.Ledger
             if (BottleLabel(item) is string label) result["bottle_label"] = label;
             result["actual_area"] = observed;
             result["quantity"] = item.unitCount;
+            AttachReceiptIdentityChanges(result);
             return result;
         }
     }

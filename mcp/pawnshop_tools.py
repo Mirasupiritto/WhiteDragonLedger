@@ -55,8 +55,9 @@ def register_pawnshop_tools(server, folder, database):
                         area: Literal["inventory", "showcase", "front", "back"] | None = None,
                         owned: bool | None = None) -> dict:
         """Query the most recently published inventory by literal name substring, area or owner.
-        The game measures load_scans for the current load and full_scans for this observer instance.
-        A query reads local files and SQLite. IDs are scoped to generation."""
+        Items include size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate, before haggling/markup),
+        water_ml/empty/contains_water on water containers, and charge_remaining/liters_remaining on portable_water_purifier.
+        Includes area capacity{w,h,free_cells,largest_free{w,h}} for inventory/showcase. IDs are scoped to generation."""
         account = lookup(folder, database, name, area, owned)
         if account["status"] == "observed":
             status = shop_day.shop_status(folder)
@@ -80,7 +81,8 @@ def register_pawnshop_tools(server, folder, database):
                    area: Literal["inventory", "showcase", "front", "back", "purifier"] | None = None,
                    exclude_contraband: bool = False, kinds: list[str] | None = None, exclude_kinds: list[str] | None = None) -> dict:
         """Pick stock by exact visible label, area, ownership and native item categories.
-        Match any requested category or kind, then apply all exclusions. Use list_stock_tags to discover category names, codes and observed bottle labels.
+        Match any requested category or kind, then apply all exclusions. Searching category WATER also matches empty water containers categorized as HOUSEHOLD_GOOD (check water_ml/empty/contains_water).
+        Each item includes size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate), and purifier charge_remaining/liters_remaining when applicable.
         Visible variety restrictions group sellable matches by kind, one per kind for this visit.
         Includes purifier slots. Apply exclude_contraband when the visible tablet shows that restriction."""
         return shopdesk.allocation_stock(folder, database, dict(bottle_label=bottle_label, categories=categories,
@@ -88,7 +90,7 @@ def register_pawnshop_tools(server, folder, database):
 
     @server.tool()
     def get_stock_items(item_ids: list[int], generation: str) -> dict:
-        """Read this load's stock IDs in request order, with current locations, labels and missing IDs."""
+        """Read this load's stock IDs in request order, with current locations, size/slot/rotatable, labels, water/purifier details, estimated_value and missing IDs."""
         return lookup(folder, database, stock_query=dict(item_ids=item_ids, generation=generation))
 
     @server.tool()
@@ -107,9 +109,8 @@ def register_pawnshop_tools(server, folder, database):
                    destination: Literal["inventory", "showcase"], generation: str, revision: int, visit: str | None = None) -> dict:
         """Move owned stock between inventory and showcase with the shutter closed, or collect owned front/back items to inventory.
         Pass the current visit during any arrived customer visit without an active order (including ready, barter, seller-only or dialogue), or omit it at an empty counter. Pass the generation and
-        starting revision from query_inventory. Returns one receipt with each observed destination
-        and game scan counters. Stops at the first unconfirmed or rejected item. The original
-        arguments recover completed lines and can continue pending lines."""
+        starting revision from query_inventory. When space is insufficient, returns no_space or showcase_full with item_size and target_capacity instead of not_moved.
+        Stops at the first unconfirmed or rejected item. The original arguments recover completed lines and can continue pending lines."""
         return submit_batch(folder, item_ids, source, destination, generation, revision, visit=visit)
 
     @server.tool()
@@ -166,10 +167,11 @@ def register_pawnshop_tools(server, folder, database):
     @server.tool()
     def water_use(source_id: int, target_id: int | Literal["faucet", "drain"], generation: str, revision: int,
                   mode: Literal["preview", "apply"] = "preview", use_token: str | None = None) -> dict:
-        """Preview a water interaction without using supplies. Sources include bottles, rations, tablets, portable purifiers and fresh strips.
-        Use a bottle as source_id and target_id="faucet" to fill it from the tap, or "drain" to empty it.
-        To perform it once, submit the same two IDs with mode=apply and the preview token. Recover the receipt with identical arguments.
-        A seller's offered bottle permits testing only. Only the visible test panel supplies a water-quality result."""
+        """Preview or apply a water interaction without unexpected consumption. Sources include bottles, rations, tablets, portable purifiers and fresh strips.
+        To fill a container from the tap, pass the water container as source_id and target_id="faucet" (從水龍頭裝進容器); pass target_id="drain" to empty it.
+        Passing a water_tablet_container as source returns reason="open_container_first" (unpack a tablet first with inspect_item_window + transfer_slot_items).
+        purifier_used reports charge_remaining and liters_remaining; tablet_used explains effect_pending (chlorine reacts over time/overnight and resets strip exposure).
+        Submit the same two IDs with mode=apply and the preview token; only the test panel supplies a tested water-quality result."""
         if source_id < 1 or (isinstance(target_id, int) and (target_id < 1 or target_id == source_id)):
             raise ValueError("Choose a source and a distinct water target from the current observation")
         if mode == "preview":
@@ -194,7 +196,7 @@ def register_pawnshop_tools(server, folder, database):
 
     @server.tool()
     def inspect_purifiers() -> dict:
-        """Compare last night's and current bottle IDs and read battery, extraction readiness and the shared count of unused test strips."""
+        """Compare last night's and current bottle IDs, list portable_purifiers (with charge_remaining and liters_remaining), and read battery, extraction readiness and unused test strips."""
         return shopdesk.machines(folder)
 
     @server.tool()

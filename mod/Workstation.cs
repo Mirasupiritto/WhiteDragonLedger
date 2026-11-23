@@ -62,12 +62,14 @@ namespace WhiteDragon.Ledger
                 row["type"] = "slot";
                 row["insert_allowed"] = role != "output" && !storage.IsInsertLocked() && !read.Window.isLocked;
                 row["remove_allowed"] = !storage.IsRemoveLocked() && !read.Window.isLocked;
+                if (InventoryCapacity(storage) is JObject cap) row["capacity"] = cap;
                 var items = new JArray();
                 foreach (var child in storage.childItems)
                 {
                     if (GeneralHelper.IsDisplayOnly(child)) continue;
                     var entry = new JObject { ["id"]=LocalId(child), ["save_id"]=child.GetUniqueID(), ["name"]=child.GetDisplayName(true),
                         ["kind"]=child.identifier, ["quantity"]=child.unitCount };
+                    AddGeometryFields(child, entry);
                     if (BottleLabel(child) is string bottleLabel) entry["bottle_label"] = bottleLabel;
                     items.Add(entry);
                 }
@@ -326,9 +328,22 @@ namespace WhiteDragon.Ledger
             GameInventory target = retrieve ? (GameInventory)shop.invElement : storage;
             if (item.parentInventory != origin) return "source_changed";
             if (!retrieve && (bool)row["insert_allowed"] == false) return "insert_blocked";
-            if (origin.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove() || !GraphUtils.CanAccept(target, item))
+            if (origin.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove())
                 return "transfer_blocked";
+            if (!GraphUtils.CanAccept(target, item))
+            {
+                if (!IsSpaceFailure(target, item)) return "transfer_blocked";
+                receipt["reason"] = "no_space";
+                AttachSpaceFailure(item, target, receipt);
+                return "no_space";
+            }
             string status = TransferAndMeasure(item,origin,target,receipt);
+            if (status == "not_moved" && IsSpaceFailure(target, item))
+            {
+                receipt["reason"] = "no_space";
+                AttachSpaceFailure(item, target, receipt);
+                status = "no_space";
+            }
             receipt["item_id"] = id;
             receipt["source"] = source;
             receipt["destination"] = retrieve ? "inventory" : "slot";

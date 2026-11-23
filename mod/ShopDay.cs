@@ -77,35 +77,171 @@ namespace WhiteDragon.Ledger
         private JObject morningReport;
         private bool morningReportReady;
 
+        private static string SafeLocMechanic(string key, params object[] args)
+        {
+            try { return CleanReportText(LocHelper.GetLocalizedMechanic(key, args)); }
+            catch { return ""; }
+        }
+
+        private static bool MatchTemplateMechanic(string text, string key, out string captured)
+        {
+            captured = null;
+            const string marker = "__WDL_ARG__";
+            string template = SafeLocMechanic(key, marker);
+            int split = template.IndexOf(marker, StringComparison.Ordinal);
+            if (split < 0) return false;
+            string prefix = template.Substring(0, split);
+            string suffix = template.Substring(split + marker.Length);
+            if (text.Length < prefix.Length + suffix.Length ||
+                !text.StartsWith(prefix, StringComparison.Ordinal) ||
+                !text.EndsWith(suffix, StringComparison.Ordinal)) return false;
+            captured = text.Substring(split, text.Length - split - suffix.Length);
+            return true;
+        }
+
+        private static readonly (string Key, string AlertType)[] ExactNightAlertRules = new[] {
+            ("mech_nightlog_insurance_paid", "insurance_paid"),
+            ("mech_nightlog_garbage_some", "garbage_warning"),
+            ("mech_nightlog_garbage_lot", "garbage_warning"),
+            ("mech_nightlog_garbage_extreme", "garbage_warning"),
+            ("health_wound_healed", "injury_healed"),
+            ("health_wound_stabilized", "injury_stabilized"),
+            ("health_wound_mobility_regained", "injury_mobility_regained"),
+            ("health_wound_minor_healing", "injury_healing"),
+            ("health_wound_major_lost_mobility", "injury_worsened"),
+            ("health_wound_major_worsened", "injury_worsened"),
+            ("health_wound_minor_worsened", "injury_worsened"),
+            ("mech_nightlog_sting_warning", "sting_warning"),
+            ("mech_nightlog_inspection_2days", "inspection_warning"),
+            ("mech_nightlog_inspection_tomorrow", "inspection_warning"),
+            ("mech_nightlog_inspection_imminent", "inspection_warning"),
+            ("mech_nightlog_investigation_near", "investigation_near"),
+            ("mech_nightlog_power_off", "power_off"),
+            ("mech_nightlog_reactor_no_power", "reactor_no_power"),
+            ("mech_nightlog_reactor_critical", "reactor_critical"),
+            ("mech_nightlog_burglary_alarm_stopped", "burglary_alarm_stopped"),
+            ("mech_nightlog_aug_incoming", "aug_incoming"),
+            ("mech_nightlog_aug_left_alive", "aug_left_alive"),
+            ("mech_nightlog_store_vandalized", "vandalized"),
+            ("mech_nightlog_vandalized_lower", "vandalized"),
+            ("mech_nightlog_vandalized_security", "vandalized"),
+            ("mech_nightlog_vandalized_upper", "vandalized"),
+            ("mech_nightlog_vandalized_revolution", "vandalized"),
+            ("mech_nightlog_vandalized_cartel", "vandalized"),
+            ("mech_nightlog_vandalized_generic", "vandalized")
+        };
+
+        private static void CollectNightAlerts(string text, JArray alerts)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            if (MatchTemplateMechanic(text, "mech_nightlog_wanted_visited", out string wanted) && wanted.Length > 0)
+            {
+                alerts.Add(new JObject { ["type"] = "wanted_visited", ["name"] = wanted });
+                return;
+            }
+            if (MatchTemplateMechanic(text, "mech_nightlog_storefront_not_cleaned", out string garbageDetail))
+            {
+                var alert = new JObject { ["type"] = "garbage_warning" };
+                if (!string.IsNullOrWhiteSpace(garbageDetail)) alert["detail"] = garbageDetail.Trim();
+                alerts.Add(alert);
+                return;
+            }
+            if (MatchTemplateMechanic(text, "mech_nightlog_insurance_unpaid", out string daysRaw))
+            {
+                var alert = new JObject { ["type"] = "insurance_lapsed" };
+                if (int.TryParse(daysRaw.Trim(), out int days)) alert["days_unpaid"] = days;
+                else if (!string.IsNullOrWhiteSpace(daysRaw)) alert["detail"] = daysRaw.Trim();
+                alerts.Add(alert);
+                return;
+            }
+            foreach (var (key, alertType) in new[] {
+                ("mech_nightlog_burglary_insured", "burglary_insured"),
+                ("mech_nightlog_burglary_alarm_failed", "burglary_alarm_failed"),
+                ("mech_nightlog_burglary_no_alarm", "burglary_no_alarm") })
+            {
+                if (MatchTemplateMechanic(text, key, out string stolenItem) && stolenItem.Length > 0)
+                {
+                    alerts.Add(new JObject { ["type"] = alertType, ["item"] = stolenItem });
+                    return;
+                }
+            }
+            foreach (var (key, alertType) in ExactNightAlertRules)
+            {
+                string expected = SafeLocMechanic(key);
+                if (expected.Length > 0 && string.Equals(text, expected, StringComparison.Ordinal))
+                {
+                    alerts.Add(new JObject { ["type"] = alertType });
+                    return;
+                }
+            }
+        }
+
         // InitPanel prefixes each native line, then clears nightLogs. Capture before it runs.
         private void CaptureMorningReport()
         {
             var lines = new JArray();
             var alerts = new JArray();
-            const string marker = "__WDL_NAME__";
-            string template = CleanReportText(LocHelper.GetLocalizedMechanic("mech_nightlog_wanted_visited", marker));
-            int split = template.IndexOf(marker, StringComparison.Ordinal);
-            string prefix = split < 0 ? null : template.Substring(0, split);
-            string suffix = split < 0 ? null : template.Substring(split + marker.Length);
             foreach (string entry in PlayerStore.Instance.nightLogs)
             {
                 string line = CleanReportText("-" + entry);
                 lines.Add(line);
-                string text = line.Substring(1).Trim();
-                if (split < 0) continue;
-                if (text.Length > prefix.Length + suffix.Length && text.StartsWith(prefix, StringComparison.Ordinal) &&
-                    text.EndsWith(suffix, StringComparison.Ordinal))
-                    alerts.Add(new JObject { ["type"]="wanted_visited", ["name"]=text.Substring(split, text.Length - split - suffix.Length) });
+                CollectNightAlerts(line.Substring(1).Trim(), alerts);
             }
-            morningReport = new JObject { ["day"]=StoreStation.Instance.dayCounter, ["lines"]=lines, ["alerts"]=alerts };
+            morningReport = new JObject { ["day"] = StoreStation.Instance.dayCounter, ["lines"] = lines, ["alerts"] = alerts };
             morningReportReady = false;
         }
 
-        private void FinishMorningReport()
+        private static string ReadLocalizedLabel(TMPro.TextMeshProUGUI label)
         {
-            if (morningReport == null) return;
-            morningReportReady = true;
-            nextView = 0;
+            if (label == null) return "";
+            try
+            {
+                // TMPLocalizer triggers RefreshString() in Start(), one frame after OpenUI() runs.
+                // Read LocalizeStringEvent synchronously via reflection so reminders follow the active locale immediately.
+                var go = label.GetType().GetProperty("gameObject")?.GetValue(label, null);
+                if (go != null)
+                {
+                    var getComps = go.GetType().GetMethod("GetComponents", new[] { typeof(Type) });
+                    var compType = Type.GetType("UnityEngine.Component, UnityEngine.CoreModule");
+                    if (getComps != null && compType != null)
+                    {
+                        var comps = getComps.Invoke(go, new object[] { compType }) as Array;
+                        if (comps != null)
+                        {
+                            string postfix = "";
+                            string direct = null;
+                            foreach (var comp in comps)
+                            {
+                                if (comp == null) continue;
+                                var t = comp.GetType();
+                                if (t.Name == "TMPLocalizer")
+                                {
+                                    var pf = t.GetField("postfix")?.GetValue(comp) as string;
+                                    if (!string.IsNullOrEmpty(pf)) postfix = pf;
+                                }
+                                else if (t.Name == "LocalizeStringEvent")
+                                {
+                                    t.GetMethod("RefreshString", Type.EmptyTypes)?.Invoke(comp, null);
+                                    var strRef = t.GetProperty("StringReference")?.GetValue(comp, null);
+                                    var resolved = strRef?.GetType().GetMethod("GetLocalizedString", Type.EmptyTypes)?.Invoke(strRef, null) as string;
+                                    if (!string.IsNullOrEmpty(resolved)) direct = resolved;
+                                }
+                            }
+                            if (!string.IsNullOrEmpty(direct))
+                            {
+                                string cleaned = CleanReportText(direct + postfix);
+                                if (cleaned.Length > 0) return cleaned;
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+            return CleanReportText(label.text);
+        }
+
+        private static JArray ReadMorningReminders()
+        {
             var reminders = new JArray();
             var startOfDay = StartOfDayUIManager.Instance;
             if (startOfDay?.displayCaseReminder != null && startOfDay.displayCaseReminder.activeSelf)
@@ -113,7 +249,7 @@ namespace WhiteDragon.Ledger
                 string reminder = "";
                 foreach (var label in startOfDay.displayCaseReminder.GetComponentsInChildren<TextMeshProUGUI>(true))
                 {
-                    string text = CleanReportText(label?.text);
+                    string text = ReadLocalizedLabel(label);
                     if (text.Length > 0) reminder = reminder.Length == 0 ? text : reminder + " " + text;
                 }
                 reminders.Add(reminder.Length > 0 ? reminder : "display_case_reminder");
@@ -123,6 +259,15 @@ namespace WhiteDragon.Ledger
                 string text = CleanReportText(startOfDay.rentReminderTMP?.text);
                 if (text.Length > 0) reminders.Add(text);
             }
+            return reminders;
+        }
+
+        private void FinishMorningReport()
+        {
+            if (morningReport == null) return;
+            morningReportReady = true;
+            nextView = 0;
+            var reminders = ReadMorningReminders();
             if (reminders.Count > 0) morningReport["reminders"] = reminders;
         }
 
@@ -130,8 +275,10 @@ namespace WhiteDragon.Ledger
         {
             int day = StoreStation.Instance.dayCounter;
             if (!morningReportReady || (int?)morningReport?["day"] != day)
-                return new JObject { ["status"]="awaiting_report", ["day"]=day, ["lines"]=new JArray() };
+                return new JObject { ["status"] = "awaiting_report", ["day"] = day, ["lines"] = new JArray() };
             var report = (JObject)morningReport.DeepClone();
+            var liveReminders = ReadMorningReminders();
+            if (liveReminders.Count > 0) report["reminders"] = liveReminders;
             report["status"] = "ready";
             if (AdvCalendarUIManager.Instance?.UIPanel?.activeInHierarchy == true) report["panel_open"] = true;
             return report;
@@ -221,7 +368,7 @@ namespace WhiteDragon.Ledger
             return new JObject {
                 ["calendar"]=CalendarView(day), ["trash"]=TrashSummary(day), ["sleep"]=sleep,
                 ["night_report"]=NightReportView(), ["appeal"]=AppealView(), ["status_summary"]=StatusSummaryView(),
-                ["nuclear_waste"]=NuclearWasteSummary()
+                ["nuclear_waste"]=NuclearWasteSummary(), ["capacities"]=ShopCapacities()
             };
         }
 

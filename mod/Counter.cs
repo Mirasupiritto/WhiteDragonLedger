@@ -300,7 +300,9 @@ namespace WhiteDragon.Ledger
                 try { return ActAtCounter(request, receipt); }
                 finally
                 {
+                    ScanKnownIdentities();
                     FlushChanges();
+                    AttachReceiptIdentityChanges(receipt);
                     receipt["revision"] = sequence;
                     receipt["load_scans"] = loadScans;
                     nextView = 0;
