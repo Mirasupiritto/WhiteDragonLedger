@@ -42,6 +42,20 @@ class TradeTools(unittest.TestCase):
         self.write(f"desk-{self.generation}.json", self.view)
         self.write("scene.json",dict(status="ready",location="pawnshop",slot=4,session="test",revision=1))
 
+    def test_background_heat_returns_only_transitions_at_same_revision(self):
+        updates = trade_tools.Updates(self.folder, self.db)
+        updates.report()
+        self.counter["heat"] = dict(run_id="run", status="running", owner_id=4, vessel_id=9)
+        self.write(f"desk-{self.generation}.json", self.view)
+        self.assertEqual(updates.report()["fields"], {"heat": self.counter["heat"]})
+        self.assertEqual(updates.report()["status"], "unchanged")
+        self.counter["heat"].update(status="finished", current_c=49)
+        self.write(f"desk-{self.generation}.json", self.view)
+        result = updates.report()
+        self.assertEqual(result["fields"], {"heat": self.counter["heat"]})
+        self.assertEqual(result["revision"], 1)
+        self.assertEqual(updates.report()["status"], "unchanged")
+
     def test_two_variety_buyers_group_four_scraps_and_remember_sales(self):
         from shopdesk import allocation_stock
         scraps = [dict(id=i, name="“远古外星遗物”", kind="scrap_metal", area="showcase" if i==6 else "inventory",

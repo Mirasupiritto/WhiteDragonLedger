@@ -26,6 +26,7 @@ namespace WhiteDragon.Ledger
             if (ui == null || ui.panel == null || !ui.panel.activeInHierarchy)
             {
                 observedWaterPanel = null;
+                receipt["hint"]="To sample, use water_use with one unused strip as source_id and the bottle as target_id. For a boxed strip, inspect_item_window(owner_id=box id, open_if_closed=true). To view a spent strip, choose activate in item_menu.";
                 return "panel_closed";
             }
             var bottle = ui.currentWaterContainer;

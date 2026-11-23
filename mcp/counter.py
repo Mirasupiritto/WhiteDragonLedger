@@ -4,7 +4,8 @@ import re
 import time
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from command_transport import exchange, read_command_receipt
+from command_transport import exchange
+from receipt_store import replayed, read_command_receipt
 import trade_journal
 from shopdesk import published, strip_protocols
 
@@ -55,7 +56,7 @@ def command(folder, action, generation, revision, *, database=None, **args):
     plan = dict(action=action, generation=generation, revision=revision, **args)
     token = uuid5(NAMESPACE_URL, "white-dragon/counter/"+json.dumps(plan, sort_keys=True)).hex
     def receipt():
-        return read_command_receipt(folder, token, generation)
+        return read_command_receipt(folder, token, generation, "counter")
 
     result = receipt()
     # Only this refusal is proof that the native dismiss action never ran.
@@ -63,8 +64,27 @@ def command(folder, action, generation, revision, *, database=None, **args):
     while action == "dismiss" and result is not None and result["status"] == "dismiss_unavailable":
         token = uuid5(NAMESPACE_URL, "white-dragon/retry-dismiss/"+token).hex
         result = receipt()
+    # A settings change or unlocked inventory can permit sorting at the same revision.
+    while action == "sort_inventory" and result is not None and result["status"] in {
+        "inventory_sort_disabled", "external_sorter_active", "sort_unavailable",
+    }:
+        token = uuid5(NAMESPACE_URL, "white-dragon/retry-sort/"+token).hex
+        result = receipt()
+    # A rejected bell never admitted anyone. Retry at the same revision only once the published desk is ringable.
+    if action == "ring" and result is not None:
+        refused = {"customer_departing", "bell_unavailable", "occupied", "queue_changed"}
+        while result is not None and result["status"] in refused:
+            token = uuid5(NAMESPACE_URL, "white-dragon/retry-ring/"+token).hex
+            previous = result
+            result = receipt()
+            if result is None:
+                current = context(folder)
+                if not (current.get("generation") == generation and current.get("revision") == revision
+                        and current.get("stage") == "idle" and current.get("waiting") == args["waiting"]
+                        and current.get("reception", {}).get("can_ring")):
+                    return replayed(previous)
     if result is not None:
-        return result
+        return replayed(trade_journal.recover_recorded_receipt(database, result))
     phone_action = action in {"dial", "phone_choice", "phone_advance", "phone_keypad"}
     view = phone_context(folder) if phone_action else context(folder)
     if view["status"] != "observed":
@@ -78,7 +98,14 @@ def command(folder, action, generation, revision, *, database=None, **args):
         return {"status": "reload_updated_mod"}
     if phone_action and view["phone_token"] != args["phone_token"]:
         return {"status": "phone_changed"}
-    if action in {"choose_dialogue","response_choice","advance"}:
+    needs_chemist = ((action=="item_panel" and (args.get("panel") or args.get("mode") in {"focus","close"}))
+                     or args.get("explicit_reopen") or "quantity" in args or action=="request_quote")
+    if needs_chemist and view.get("chemist_protocol")!=1:
+        return {"status":"reload_updated_mod"}
+    if action == "heat_control":
+        if view.get("heat_control_protocol") != 1:
+            return {"status":"reload_updated_mod", "need":"mod", "required_protocol":"heat_control_protocol"}
+    elif action in {"choose_dialogue","response_choice","advance"}:
         if action != "advance" and view.get("dialogue_protocol") != 1:
             return {"status":"reload_updated_mod"}
         if view.get("visit") != args["visit"]:
@@ -96,6 +123,15 @@ def command(folder, action, generation, revision, *, database=None, **args):
     elif action == "visible_windows":
         if view.get("trade_tools_protocol") != 1:
             return {"status":"reload_updated_mod"}
+    elif action in {"item_panel","adjust_control"} or (action == "item_menu" and args.get("mode") == "targets") or (action == "press_control" and "tab_index" in args):
+        if view.get("item_panel_protocol") != 1:
+            return {"status": "reload_updated_mod"}
+    elif action == "item_menu":
+        if view.get("item_menu_protocol") != 1:
+            return {"status": "reload_updated_mod"}
+    elif action == "sort_inventory":
+        if view.get("inventory_sort_protocol") != 1:
+            return {"status": "reload_updated_mod"}
     elif action == "open_shop":
         if "can_open_shop" not in view:
             return {"status": "reload_updated_mod"}
@@ -119,7 +155,7 @@ def command(folder, action, generation, revision, *, database=None, **args):
             return {"status": "reload_updated_mod"}
         if view.get("workstation_protocol") != 1:
             return {"status": "reload_updated_mod"}
-        if action != "inspect_window" and view["phase"] == "OPEN":
+        if action != "inspect_window" and view["phase"] == "OPEN" and not view.get("item_menu_protocol"):
             return {"status": "shop_open"}
     elif action == "sleep":
         if "bill_token" in args and view.get("night_bill_protocol") != 1:

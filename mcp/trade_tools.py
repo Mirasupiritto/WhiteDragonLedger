@@ -38,6 +38,8 @@ def context(view):
                   demand=demand, remaining_budget=remaining, quote=desk.get("quote"),
                   customer_line=f"{desk.get('customer') or '空櫃檯'}｜{summary}｜剩餘 {remaining if remaining is not None else '未顯示'}",
                   next_action="可以報價" if desk.get("quote_ready", desk["stage"] == "ready") else desk["stage"])
+    if desk.get("next_action"):
+        result["next_action"] = desk["next_action"]
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
     for key in ("offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
@@ -72,12 +74,14 @@ def summarize_offer(payload, *, verbose=False):
         bucket = grouped.setdefault(cat, {"category": cat, "count": 0, "quantity": 0, "subtotal": 0})
         bucket["count"] += 1
         bucket["quantity"] += qty
-        bucket["subtotal"] += item.get("price", 0)
+        bucket["subtotal"] += item.get("reference_price", item.get("price", 0))
+        bucket["reference_subtotal"] = bucket["subtotal"]
     out = dict(payload)
     out["offer"] = {
         "visit": offer.get("visit"),
         "wholesale": offer.get("wholesale"),
         "total": offer.get("total"),
+        **{key: offer[key] for key in ("reference_total", "quoted_total", "price_note") if key in offer},
         "item_count": len(items),
         "total_quantity": total_qty,
         "categories": list(grouped.values()),
@@ -158,6 +162,8 @@ class Updates:
                       offer_total=(desk.get("offer") or {}).get("total"), demand=desk.get("demand"),
                       latest_line=(desk.get("lines") or [None])[-1], can_ring=desk["reception"].get("can_ring"),
                       can_dismiss=desk["reception"].get("can_dismiss"), can_open_shop=desk.get("can_open_shop"))
+        if "heat" in desk:
+            fields["heat"] = desk["heat"]
         fields["page"] = desk.get("page")
         encoded = json.dumps(fields, sort_keys=True, ensure_ascii=False)
         token = f"{gen}:{rev}:{hashlib.sha256(encoded.encode()).hexdigest()[:24]}"
@@ -252,7 +258,7 @@ def register(server, folder, database):
 
     @server.tool()
     def trade_batch(generation: str, revision: int, visit: str, orders: list[BatchLine]) -> dict:
-        """Trade the selected items in order for one visit. Price limit is a sell floor or buy ceiling.
+        """Pass orders=[{item_id, side, price_limit}, ...] for the same visit. price_limit is a sell floor or buy ceiling.
         Auto-returns non-order owned counter clutter (excluding nuclear_waste) to inventory as cleared_items before staging.
         counter_unavailable and stale_order always attach reason and blocking_items (plus guidance for nuclear_waste_on_counter).
         Returns each actual payment, placement and remaining budget. Whole-lot offers require buy_merchant_batch."""

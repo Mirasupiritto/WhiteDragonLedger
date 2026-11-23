@@ -21,8 +21,8 @@ SELECT value FROM keys WHERE value IS NOT NULL
 
 STOCK_DETAIL_COLUMNS = (
     "size_w,size_h,slot_x,slot_y,rotatable,"
-    "water_ml,capacity_ml,empty,water_container,contains_water,"
-    "charge_remaining,charge_max,liters_remaining,estimated_value"
+    "water_ml,liquid_ml,capacity_ml,empty,water_container,contains_water,"
+    "charge_remaining,charge_max,liters_remaining,estimated_value,parent_id,container_path,access"
 )
 
 
@@ -32,6 +32,8 @@ def row_to_item(row, *, include_categories=False):
     for key in ("id", "name", "kind", "area", "owned", "quantity", "bottle_label", "machine_id", "can_take_now", "save_id"):
         if raw.get(key) is not None:
             item[key] = raw[key]
+    if raw.get("parent_id") is not None:
+        item.update(parent_id=raw["parent_id"], container_path=json.loads(raw["container_path"]), access=raw["access"])
     item["owned"] = bool(item["owned"])
     if "can_take_now" in item:
         item["can_take_now"] = bool(item["can_take_now"])
@@ -48,7 +50,7 @@ def row_to_item(row, *, include_categories=False):
     for flag in ("empty", "water_container", "contains_water"):
         if raw.get(flag) is not None:
             item[flag] = bool(raw[flag])
-    for metric in ("water_ml", "capacity_ml", "charge_remaining", "charge_max", "liters_remaining", "estimated_value"):
+    for metric in ("water_ml", "liquid_ml", "capacity_ml", "charge_remaining", "charge_max", "liters_remaining", "estimated_value"):
         if raw.get(metric) is not None:
             item[metric] = raw[metric]
     return item

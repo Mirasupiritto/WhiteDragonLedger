@@ -1,6 +1,8 @@
 """Read the game-owned location receipt, without accessing any shop data."""
 import asyncio
 import json
+import re
+from functools import lru_cache
 from pathlib import Path
 from contextvars import ContextVar
 from typing import Annotated
@@ -20,16 +22,45 @@ def interrupted_shop_call(folder):
     return None
 
 
+@lru_cache(maxsize=4)
+def _last_loader_audit(path, modified, size):
+    # Player.log is recreated on startup. Only consult its audit while a scene receipt is missing or waiting.
+    audit = None
+    with path.open(encoding="utf-8", errors="replace") as log:
+        for line in log:
+            if "[ModLoader] audit: white_dragon_ledger " in line:
+                audit = line.strip()
+    if not audit or "running=False" not in audit:
+        return None
+    detail = re.search(r' note="(.*?)"', audit)
+    trust = re.search(r' trust=(\S+)', audit)
+    return {"status": "mod_not_loaded", "tool_region": "offline",
+            "trust": trust.group(1) if trust else None,
+            "message": "遊戲載入器記錄白龍店帳未啟動。請在遊戲模組選單確認啟用與授權，再重新啟動。",
+            "reason": detail.group(1) if detail else "running=False"}
+
+
 def read_scene(folder: Path, *, include_options=False):
     try:
         scene = json.loads((folder / "scene.json").read_text(encoding="utf-8-sig"))
         if not include_options:
             scene.pop("travel_options", None)
-        return scene
     except FileNotFoundError:
-        return {"status": "waiting_for_scene_observer", "message": "請載入已啟用場景觀察的模組"}
+        scene = {"status": "waiting_for_scene_observer", "message": "等待白龍店帳回報場景"}
     except (PermissionError, json.JSONDecodeError):
         return {"status": "reading_scene"}
+
+    if (scene.get("status") in {"waiting_for_load", "waiting_for_scene_observer"}
+            and folder.name == "white_dragon_ledger" and folder.parent.name == "ModData"):
+        log = folder.parent.parent / "Player.log"
+        try:
+            stat = log.stat()
+            blocked = _last_loader_audit(log, stat.st_mtime_ns, stat.st_size)
+            if blocked:
+                return dict(blocked)
+        except (FileNotFoundError, PermissionError):
+            pass
+    return scene
 
 
 def at_shop(scene):
@@ -47,7 +78,7 @@ def tool_region(scene):
         return "new_game"
     if scene.get("status") == "selecting_destination":
         return "destination_selection"
-    if scene.get("status") in {"waiting_for_load", "waiting_for_scene_observer"}:
+    if scene.get("status") in {"waiting_for_load", "waiting_for_scene_observer", "mod_not_loaded"}:
         return "offline"
     if scene.get("status") == "ready" and scene.get("location"):
         return "afterhours"
@@ -75,7 +106,7 @@ def register_scene_tools(server, folder):
         after_revision: int,
         timeout: Annotated[float, Field(default=20, ge=0, le=60, description="Maximum seconds to wait (0-60).")] = 20,
     ) -> dict:
-        """Wait (up to 60s) for the next ready location after a receipt, or report a new load or timeout."""
+        """Use session and after_revision from the last scene receipt. Wait (up to 60s) for the next ready location or interactive selection screen, or report a new load or timeout."""
         if not 0 <= timeout <= 60:
             raise ValueError("timeout must be between 0 and 60 seconds")
         loop = asyncio.get_running_loop()
@@ -83,10 +114,12 @@ def register_scene_tools(server, folder):
         while True:
             scene = read_scene(folder)
             status = scene.get("status")
+            if status == "mod_not_loaded":
+                return {**scene, "wait_result": "mod_not_loaded"}
             if status not in {"waiting_for_load", "transitioning", "reading_scene", "waiting_for_scene_observer"}:
                 if scene.get("session") and scene["session"] != session:
                     return {**scene, "wait_result": "new_session"}
-                if status == "ready" and scene["revision"] > after_revision:
+                if status in {"ready", "selecting_specialization", "selecting_perks", "selecting_difficulty"} and scene["revision"] > after_revision:
                     return {**scene, "wait_result": "arrived"}
             remaining = deadline - loop.time()
             if remaining <= 0:

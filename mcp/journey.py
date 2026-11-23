@@ -4,7 +4,8 @@ import re
 from typing import Literal
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from command_transport import exchange, read_command_receipt
+from command_transport import exchange
+from receipt_store import replayed, read_command_receipt
 from scene import read_scene, tool_region
 
 ACTION_REGIONS = {"scratch_card": "pawnshop", "shop_activity": "pawnshop", "travel_menu": "destination_selection", "explore": "afterhours"}
@@ -27,12 +28,12 @@ def command(folder, tool, mode, session, revision, view_token, **args):
     command_id = (uuid4() if reading else uuid5(NAMESPACE_URL, "ledger/journey/" + json.dumps(plan, sort_keys=True))).hex
 
     def receipt():
-        return read_command_receipt(folder, command_id, session)
+        return read_command_receipt(folder, command_id, session, "journey")
 
     if re.fullmatch("[0-9a-f]{32}", session) and revision >= 1 and (reading or view_token):
         previous = receipt()
         if previous is not None:
-            return previous
+            return replayed(previous)
     if tool_region(scene) != REGIONS[tool]:
         if (not reading and re.fullmatch("[0-9a-f]{32}", session)
                 and scene.get("session") == session and scene.get("revision") != revision):

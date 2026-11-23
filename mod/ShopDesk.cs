@@ -155,11 +155,14 @@ namespace WhiteDragon.Ledger
             return id;
         }
 
+        private static bool HasWater(GameItem item) => item.IsTag("LIQUID_CONTAINER_TAG") &&
+            !WaterHelper.IsEmpty(item) && item.GetTagReadonly(Liquid.GetCurrentPartFromId("water")).GetInt()>0;
+
         private static string BottleLabel(GameItem item)
         {
-            if (!item.IsTag("LIQUID_CONTAINER_TAG")) return null;
+            if (!HasWater(item) || item.IsTag("WINE_CONTAINER_TAG")) return null;
             // Match the label shown by the scanner, without creating a feature on the item.
-            var feature = item.IsTag("WINE_CONTAINER_TAG") ? null : item.FindItemFeatureByCategory("CATEGORY_WATER_PURITY");
+            var feature = item.FindItemFeatureByCategory("CATEGORY_WATER_PURITY");
             return (feature == null ? ItemConditionList.CreateBaseWater() : feature.GetCurrentItemCondition()).display;
         }
 
@@ -191,6 +194,7 @@ namespace WhiteDragon.Ledger
         private void BeforeSleep()
         {
             if (generation == null || !CanObserveStore()) return;
+            EndHeat("sleep");
             night = MachineRows();
             ModHelper.SetModData(ModId, "last_night", night.ToString(Formatting.None));
             nextView = 0;

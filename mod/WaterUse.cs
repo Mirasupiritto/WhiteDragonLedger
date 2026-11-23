@@ -17,6 +17,20 @@ namespace WhiteDragon.Ledger
             return parents.Count == 0 ? (string)location["area"] : "container/" + (int)parents.Last["owner_id"];
         }
 
+        private static bool CanUseOnItem(GameItem source, GameItem target)
+        {
+            var native = ItemBehaviourManager.current;
+            return native != null && ((source.MayTarget(target) && source.CanTarget(target)) ||
+                (native.MayTarget(source,target) && native.CanTarget(source,target)));
+        }
+
+        private static void UseOnItem(GameItem source, GameItem target)
+        {
+            // Same ordering as the native select handler. Registered behaviours can change eligibility.
+            ItemBehaviourManager.current.Target(source,target);
+            if (source.MayTarget(target) && source.CanTarget(target)) source.Target(target);
+        }
+
         private static string WaterOperation(GameItem source)
         {
             if (source.identifier == "water_test_strip" && source.IsTag("WATER_TESTING_STRIP_TAG") &&
@@ -47,11 +61,16 @@ namespace WhiteDragon.Ledger
             if (origin == null || operation == null || GeneralHelper.IsDisplayOnly(source) ||
                 GeneralHelper.IsItemLocked(source) || !source.MaySelectSlotItem() || !source.CanSelectSlotItem())
             {
-                bool tabletContainer = source.identifier == "water_tablet_container";
+                bool tabletContainer = source.identifier == "water_tablet_container" || source.identifier == "water_test_container";
                 receipt["reason"] = source == shop.faucet ? "use_faucet_as_target" : origin == null ? "unknown_location" :
                     tabletContainer ? "open_container_first" : operation == null ? "unsupported_source" : "selection_locked";
                 if (tabletContainer)
-                    receipt["hint"] = "Use inspect_item_window and transfer_slot_items to take a water_tablet out before calling water_use.";
+                {
+                    receipt["next_tool"]="inspect_item_window";
+                    receipt["arguments"]=new JObject { ["owner_id"]=LocalId(source), ["open_if_closed"]=true };
+                    receipt["required_kind"]=source.identifier == "water_test_container" ? "water_test_strip" : "water_tablet";
+                    receipt["hint"]="Take one matching item from its slot using transfer_slot_item, then water_use(source_id=item_id, target_id=bottle_id, mode=preview).";
+                }
                 return "source_unavailable";
             }
 
@@ -70,7 +89,16 @@ namespace WhiteDragon.Ledger
             else
             {
                 if (!itemsById.TryGetValue((int)destination, out target) || target == null ||
-                    !target.IsTag("LIQUID_CONTAINER_TAG")) return "target_unavailable";
+                    !target.IsTag("LIQUID_CONTAINER_TAG"))
+                {
+                    if (target?.identifier == "water_test_container" || target?.identifier == "water_tablet_container")
+                    {
+                        receipt["reason"]="supply_box_is_not_water";
+                        receipt["next_tool"]="inspect_item_window";
+                        receipt["arguments"]=new JObject { ["owner_id"]=LocalId(target), ["open_if_closed"]=true };
+                    }
+                    return "target_unavailable";
+                }
                 area = WaterArea(target);
             }
             if (area == null || target == null || source == target || GeneralHelper.IsDisplayOnly(target) ||
@@ -80,11 +108,8 @@ namespace WhiteDragon.Ledger
             if (offered && (operation != "test" || !source.IsTag("CAN_USE_ON_NON_OWNED_TAG") ||
                 CounterStage() != "ready" || !((area == "front" && shop.frontInvWindow.IsVisible()) ||
                     (area == "back" && shop.backInvWindow.IsVisible())))) return "offered_water_unavailable";
-            var native = ItemBehaviourManager.current;
             var notice = GenericConfirmationUIManager.Instance;
-            if (Interactable.isPaused || (notice?.panel != null && notice.panel.activeInHierarchy) || native == null ||
-                !((source.MayTarget(target) && source.CanTarget(target)) ||
-                  (native.MayTarget(source, target) && native.CanTarget(source, target))))
+            if (Interactable.isPaused || (notice?.panel != null && notice.panel.activeInHierarchy) || !CanUseOnItem(source,target))
             {
                 receipt["reason"] = Interactable.isPaused ? "paused" : notice?.panel?.activeInHierarchy == true ? "confirmation_open" :
                     !fixture && WaterHelper.GetCurrentCapacityUL(target) == 0 && (operation == "purify" || operation == "test" || operation == "tablet")
@@ -119,9 +144,7 @@ namespace WhiteDragon.Ledger
             receipt["operation"] = operation;
             receipt["source_id"] = plan["source_id"];
             receipt["target_id"] = destination;
-            // Native select/drag entry point runs registered behaviours first, then rechecks item callbacks.
-            native.Target(source, target);
-            if (source.MayTarget(target) && source.CanTarget(target)) source.Target(target);
+            UseOnItem(source,target);
             changed.Add(source);
             if (!fixture) changed.Add(target);
             if (operation == "test")

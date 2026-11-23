@@ -12,6 +12,27 @@ from mcp.client.stdio import stdio_client
 
 
 class SceneRouting(unittest.IsolatedAsyncioTestCase):
+    async def test_loader_refusal_explains_stale_waiting_receipt(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            root = Path(temp)
+            folder = root / "ModData" / "white_dragon_ledger"
+            folder.mkdir(parents=True)
+            (folder / "scene.json").write_text(json.dumps({"status": "waiting_for_load"}))
+            log = root / "Player.log"
+            rejected = '[ModLoader] audit: white_dragon_ledger running=False trust=Changed note="missing capability"'
+            log.write_text(rejected)
+            server = StdioServerParameters(command=sys.executable, args=["-B",
+                str(Path(__file__).resolve().parents[1] / "mcp" / "ledger_mcp.py"),
+                "--journal", str(folder), "--database", str(root / "ledger.sqlite")])
+            async with stdio_client(server) as streams, ClientSession(*streams) as client:
+                await client.initialize()
+                args = dict(session="old", after_revision=1, timeout=0)
+                refused = json.loads((await client.call_tool("wait_for_scene", args)).content[0].text)
+                self.assertEqual((refused["wait_result"], refused["reason"]), ("mod_not_loaded", "missing capability"))
+                log.write_text(rejected + "\n[ModLoader] audit: white_dragon_ledger running=True trust=Trusted")
+                scene = json.loads((await client.call_tool("get_scene", {})).content[0].text)
+                self.assertEqual(scene["status"], "waiting_for_load")
+
     async def test_retry_departure_after_arrival_recovers_original_receipt(self):
         with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
             folder = Path(temp)
@@ -39,7 +60,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 inbox.unlink()
                 self.assertEqual(json.loads((await submitted).content[0].text), receipt)
                 retried = await client.call_tool("travel_menu", args)
-                self.assertEqual(json.loads(retried.content[0].text), receipt)
+                self.assertEqual(json.loads(retried.content[0].text), dict(receipt, replayed=True))
                 changed = await client.call_tool("travel_menu", dict(args, location_id="ruins"))
                 self.assertEqual(json.loads(changed.content[0].text)["status"], "scene_changed")
                 self.assertFalse(inbox.exists())
@@ -77,7 +98,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                     "water_use", "fill_and_purify_bottles", "dismiss_customer", "next_customer",
                     "finish_customer", "water_panel", "pay_info_receipt", "barter_offer",
                     "get_phone_contacts", "query_inventory", "find_stock", "list_stock_tags",
-                    "get_stock_items", "get_travel_options", "travel_menu", "explore",
+                    "get_stock_items", "get_travel_options", "travel_menu", "explore", "item_panel", "adjust_machine_control",
                     "get_specializations", "choose_specialization", "starting_perks", "starting_difficulty",
                 ):
                     self.assertIn(expected, tools)
@@ -112,7 +133,10 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(json.loads(reply.content[0].text)["tool_status"], "unavailable_in_scene")
                 self.assertFalse(database.exists())
                 publish(5, "ready", "pawnshop")
+                setup_waiter = asyncio.create_task(client.call_tool("wait_for_scene", {"session":"test", "after_revision":5, "timeout":3}))
                 publish(6, "selecting_specialization", None)
+                setup = json.loads((await setup_waiter).content[0].text)
+                self.assertEqual((setup["status"], setup["wait_result"]), ("selecting_specialization", "arrived"))
                 self.assertEqual((await read("query_inventory"))["tool_status"], "unavailable_in_scene")
                 publish(7, "selecting_perks", None)
                 self.assertEqual((await read("get_specializations"))["tool_status"], "unavailable_in_scene")

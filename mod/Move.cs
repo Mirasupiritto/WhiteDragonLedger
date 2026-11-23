@@ -17,15 +17,10 @@ namespace WhiteDragon.Ledger
             nextCheck = Time.realtimeSinceStartup + 0.15f;
             var inbox = "move-" + generation + ".json";
             if (!ModHelper.ModDataFileExists(ModId, inbox)) return;
-            var request = JObject.Parse(ModHelper.ReadModDataFileText(ModId, inbox));
+            var request = ReadInbox(inbox);
+            if (request == null) return;
             string command = (string)request["command_id"];
-            if (!Guid.TryParseExact(command, "N", out var parsed) || parsed.ToString("N") != command)
-            {
-                ModHelper.DeleteModDataFile(ModId, inbox);
-                return;
-            }
-            var reply = "receipt-" + command + ".json";
-            if (!ModHelper.ModDataFileExists(ModId, reply))
+            if (!AlreadyHandled("move", command, generation))
             {
                 if (processedCommand != command)
                 {
@@ -35,7 +30,7 @@ namespace WhiteDragon.Ledger
                     try { processedReceipt = ExecuteMove(request); }
                     catch (Exception error) { Debug.LogException(error); }
                 }
-                Write(reply, processedReceipt);
+                StoreCommandReceipt("move", processedReceipt);
             }
             ModHelper.DeleteModDataFile(ModId, inbox);
         }
@@ -83,6 +78,15 @@ namespace WhiteDragon.Ledger
                 return Receipt(request, "source_changed");
             if (source == "front" || source == "back" || destination == "front" || destination == "back")
                 return MoveCounterStock(request,item,source,destination);
+            if (destination == "purifier" && request["machine_id"] != null &&
+                itemsById.TryGetValue((int)request["machine_id"], out var portable) && portable?.identifier == "portable_water_purifier" &&
+                GeneralHelper.IsItemEffectivelyOwned(portable) && StockLocation(portable) != null)
+            {
+                var redirect = Receipt(request, "wrong_operation");
+                redirect["next_tool"] = "water_use";
+                redirect["arguments"] = new JObject { ["source_id"]=LocalId(portable), ["target_id"]=id, ["mode"]="preview" };
+                return redirect;
+            }
             if (phase != "CLOSED" && phase != "MORNING") return Receipt(request,"shop_open");
             GameSlotInventory container = null;
             GameItem machine = null;

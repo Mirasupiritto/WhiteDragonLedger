@@ -21,6 +21,77 @@ class CounterFlow(unittest.TestCase):
         self.assertEqual(command.call_count, 1)
         self.assertEqual(command.call_args.kwargs["mode"], "read")
 
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_ring_refusal_can_recover_at_same_revision_without_double_call(self, context, exchange):
+        saved = {}
+        def reply(folder, inbox, request, receipt):
+            status = "customer_departing" if not saved else "called"
+            saved[request["command_id"]] = {"status": status}
+            return saved[request["command_id"]]
+        exchange.side_effect = reply
+        context.return_value = dict(self.view, visit=None, stage="idle", waiting=2, reception={"can_ring": True})
+        with patch("counter.read_command_receipt", side_effect=lambda folder, token, gen, channel: saved.get(token)):
+            def ring():
+                return counter.command(self.folder, "ring", self.generation, 2, waiting=2)["status"]
+            self.assertEqual(ring(), "customer_departing")
+            self.assertEqual(ring(), "called")
+            context.return_value = dict(self.view, stage="arriving")
+            self.assertEqual(ring(), "called")
+        self.assertEqual(exchange.call_count, 2)
+
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_sort_inventory_at_closed_shop(self, context, exchange):
+        context.return_value = dict(self.view, phase="CLOSED", visit=None)
+        self.assertEqual(counter.command(self.folder, "sort_inventory", self.generation, 2)["status"], "reload_updated_mod")
+        exchange.assert_not_called()
+        context.return_value["inventory_sort_protocol"] = 1
+        exchange.return_value = {"status": "sorted", "after": {"largest_free": {"w": 4, "h": 1}}}
+        self.assertEqual(counter.command(self.folder, "sort_inventory", self.generation, 2), exchange.return_value)
+        exchange.assert_called_once()
+
+    @patch("counter.read_command_receipt")
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_sort_after_player_changes_setting_at_same_revision(self, context, exchange, read):
+        saved = {}
+        statuses = iter(("external_sorter_active", "sorted"))
+        def reply(folder, inbox, request, receipt):
+            saved[request["command_id"]] = {"status": next(statuses)}
+            return saved[request["command_id"]]
+        read.side_effect = lambda folder, token, generation, channel: saved.get(token)
+        exchange.side_effect = reply
+        context.return_value = dict(self.view, inventory_sort_protocol=1)
+        def sort():
+            return counter.command(self.folder, "sort_inventory", self.generation, 2)["status"]
+        self.assertEqual([sort(), sort(), sort()], ["external_sorter_active", "sorted", "sorted"])
+        self.assertEqual(exchange.call_count, 2)
+
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_item_menu_before_opening_and_protocol_gate(self, context, exchange):
+        context.return_value = dict(self.view, phase="MORNING")
+        args = dict(item_id=5, mode="read")
+        self.assertEqual(counter.command(self.folder, "item_menu", self.generation, 2, **args)["status"], "reload_updated_mod")
+        exchange.assert_not_called()
+        context.return_value["item_menu_protocol"] = 1
+        exchange.return_value = {"status": "observed", "enabled": ["activate"]}
+        self.assertEqual(counter.command(self.folder, "item_menu", self.generation, 2, **args), exchange.return_value)
+
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_new_item_tools_require_new_game_protocol(self, context, exchange):
+        context.return_value = dict(self.view, phase="MORNING", item_menu_protocol=1)
+        for action, args in [("item_menu", {"mode": "targets"}), ("item_panel", {"mode": "read"}),
+                             ("adjust_control", {"values": [1]}), ("press_control", {"tab_index": 1})]:
+            with self.subTest(action=action):
+                self.assertEqual(counter.command(self.folder, action, self.generation, 2, **args)["status"], "reload_updated_mod")
+        exchange.assert_not_called()
+        context.return_value["item_panel_protocol"] = 1
+        exchange.return_value = {"status": "unchanged"}
+        self.assertEqual(counter.command(self.folder, "item_panel", self.generation, 2, mode="read"), exchange.return_value)
+
     def setUp(self):
         self.generation = "b" * 32
         self.visit = "a" * 32
@@ -73,7 +144,7 @@ class CounterFlow(unittest.TestCase):
             result=dismiss()
             self.assertEqual(result["waiting"],6)
             view["visit"]="c"*32
-            self.assertEqual(dismiss(),result)
+            self.assertEqual(dismiss(), dict(result, replayed=True))
             exchange.assert_called_once()
 
     @patch("counter.exchange")
@@ -110,7 +181,7 @@ class CounterFlow(unittest.TestCase):
                 receipt = dismiss()
                 self.assertEqual(receipt["status"],terminal)
                 view["visit"] = "d"*32
-                self.assertEqual(dismiss(),receipt)
+                self.assertEqual(dismiss(), dict(receipt, replayed=True))
                 self.assertEqual(len(set(attempts)),3)
                 self.assertEqual(len(attempts),3)
 
@@ -142,7 +213,7 @@ class CounterFlow(unittest.TestCase):
             exchange.side_effect = dispatch
             first = apply()
             self.assertEqual(first["available_strips"], 5)
-            self.assertEqual(apply(), first)
+            self.assertEqual(apply(), dict(first, replayed=True))
             exchange.assert_called_once()
 
     @patch("counter.exchange")
@@ -283,7 +354,7 @@ class CounterFlow(unittest.TestCase):
             exchange.side_effect = submit
             first = pay()
             self.assertEqual(first["cash_after"], 88)
-            self.assertEqual(pay(), first)
+            self.assertEqual(pay(), dict(first, replayed=True))
             exchange.assert_called_once()
 
     @patch("counter.command")
@@ -374,6 +445,31 @@ class CounterFlow(unittest.TestCase):
             with patch("counter.command", return_value={"status": "dismissed", "waiting": 1, "reception_token": "rt3"}):
                 fin = call("finish_customer", generation=self.generation, revision=6, visit=self.visit)
             self.assertEqual((fin["status"], fin["reception_token"]), ("dismissed", "rt3"))
+
+            transient = {"status": "dismiss_unavailable", "reason": "client_not_dismissable"}
+            ready = dict(self.view, status="observed", generation=self.generation, visit=self.visit, reception={"can_dismiss": True})
+            with (patch("counter.command", side_effect=[transient, {"status": "dismissed"}]) as dismiss,
+                  patch("counter.context", return_value=ready)):
+                self.assertEqual(call("finish_customer", generation=self.generation, revision=6, visit=self.visit)["status"], "dismissed")
+                self.assertEqual(dismiss.call_args_list[0], dismiss.call_args_list[1])
+            with (patch("counter.command", return_value=transient) as dismiss,
+                  patch("counter.context", return_value=dict(ready, visit="someone_else"))):
+                self.assertEqual(call("finish_customer", generation=self.generation, revision=6, visit=self.visit)["status"], "customer_replaced")
+                dismiss.assert_called_once()
+
+            leaving = dict(self.view, stage="customer_departing", visit=None, next_action="上一位客人正在離場，等候即可。")
+            with patch("counter.context", return_value=leaving), patch("counter.ring") as ring:
+                self.assertEqual(call("next_customer")["status"], "customer_departing")
+                ring.assert_not_called()
+            incoming = dict(self.view, visit="new", customer="新客", stage="arriving")
+            with patch("counter.context", return_value=incoming), patch("counter.command", return_value={"status": "dismissed", "visit": self.visit}):
+                handoff = call("finish_customer", generation=self.generation, revision=6, visit=self.visit)
+                self.assertEqual((handoff["visit"], handoff["next_customer"]["visit"], handoff["next_stage"]), (self.visit, "new", "arriving"))
+            with (patch("counter.context", side_effect=[dict(self.view, stage="idle", visit=None, waiting=1), incoming]),
+                  patch("counter.ring", return_value={"status": "occupied"}) as ring,
+                  patch("counter.wait_opening", return_value=dict(incoming, stage="ready"))):
+                self.assertEqual(call("next_customer")["visit"], "new")
+                ring.assert_called_once()
 
             services = [{"id": f"svc_{i}", "title": f"Svc {i}", "tab": "water" if i < 5 else "security",
                          "cost": 10, "unlocked": False, "ready": i % 2 == 0} for i in range(10)]

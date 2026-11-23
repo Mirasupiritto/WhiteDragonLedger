@@ -7,7 +7,8 @@ from uuid import NAMESPACE_URL, uuid5
 from search_text import search_text
 from scene import interrupted_shop_call
 from ledger import lookup, same_observation, read_head
-from command_transport import exchange, read_command_receipt, read_optional_json
+from command_transport import exchange
+from receipt_store import replayed, read_command_receipt, read_optional_json
 import trade_journal
 
 
@@ -132,7 +133,7 @@ def allocation_stock(folder, database, query):
     sold = set(demand["sold_kinds"])
     groups = {}
     for item in result["items"]:
-        if item["owned"] and item["area"] in {"inventory","showcase"}:
+        if item["owned"] and item["area"] in {"inventory","showcase"} and "parent_id" not in item:
             groups.setdefault(item["kind"], []).append(item["id"])
     result.update(visit=counter["visit"], allocation_status=demand["status"], sold_kinds=demand["sold_kinds"],
                   allocation_hint=demand["allocation_hint"],
@@ -168,11 +169,11 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
         plan.update(tool=tool, on_table=on_table)
     command = uuid5(NAMESPACE_URL, "white-dragon/sell-order/"+json.dumps(plan,sort_keys=True)).hex
     def receipt():
-        return read_command_receipt(folder, command, generation)
+        return read_command_receipt(folder, command, generation, "sale")
 
     previous = receipt()
     if previous is not None:
-        return previous
+        return replayed(trade_journal.recover_recorded_receipt(database, previous))
 
     def progress():
         data = read_optional_json(folder/f"sale-progress-{generation}.json")
@@ -190,7 +191,8 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
     if (context["generation"], (context["customer"] or {}).get("visit")) == (generation, visit):
         pending = progress()
         if pending:
-            return receipt() or pending
+            settled = receipt()
+            return replayed(settled) if settled else pending
     if (context["generation"],context["revision"],(context["customer"] or {}).get("visit")) != (generation,revision,visit):
         table_items = context.get("table_items")
         if table_items is None:

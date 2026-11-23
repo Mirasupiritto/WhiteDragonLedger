@@ -13,7 +13,7 @@ namespace WhiteDragon.Ledger {
         public PixelWindow docInvWindow = new PixelWindow();
         public GameSlotInventory docInvElement = new GameSlotInventory();
     }
-    public class MachineryLabel { public string GetText() => "label"; }
+    public class MachineryLabel : PixelElement { public string GetText() => "label"; }
     public class PixelWindow {
         public PixelElement childElement;
         public string titleString="Fixture";
@@ -33,6 +33,8 @@ namespace WhiteDragon.Ledger {
     public class MachineryTabs : PixelElement {
         public int selected;
         public List<PixelElement> pages=new List<PixelElement>();
+        public int count => pages.Count;
+        public void Select(int index,bool notify=false) { selected=index; }
         public PixelElement GetPage(int index) => pages[index];
         public string GetCaption(int index) => index.ToString();
     }
@@ -45,7 +47,8 @@ namespace WhiteDragon.Ledger {
         public string text,description;
         public bool isDisabled;
         public int presses;
-        public bool Select() { presses++; return true; }
+        public System.Action onPress;
+        public bool Select() { presses++; onPress?.Invoke(); return true; }
     }
     public static class MachineryContainerUtils {
         public static bool IsHidden(PixelElement element) => false;
@@ -144,6 +147,9 @@ namespace WhiteDragon.Ledger {
             button.isDisabled=true;
             Expect(WorkstationAction(request,new JObject())=="window_changed" && button.presses==0,"no stale activation");
             button.isDisabled=false;
+            var refreshed=new JObject();
+            WorkstationAction(new JObject { ["action"]="inspect_window",["owner_id"]=LocalId(owner) },refreshed);
+            request["window_token"]=refreshed["window_token"];
             meter.value=0.5f;
             reply=new JObject();
             Expect(WorkstationAction(request,reply)=="pressed" && button.presses==1 && (float)reply["window_delta"]["controls_updated"][0]["value"]==0.5f,"one native press despite meter tick");
@@ -170,6 +176,9 @@ namespace WhiteDragon.Ledger {
             receipt=new JObject();
             Expect(WorkstationAction(request,receipt)=="moved" && (string)receipt["actual_area"]=="archive" &&
                 (int)receipt["window_delta"]["controls_updated"][0]["items_updated"][0]["id"]==LocalId(paper),"filed document delta");
+            var archived = new JObject();
+            Expect(WorkstationAction(new JObject { ["action"]="inspect_window", ["owner_id"]=LocalId(paper) }, archived)=="observed" &&
+                (string)archived["window"]["location"]["area"]=="archive" && archived["window"]["document"]!=null, "read filed paper without moving it");
             request["source"]="slot";
             request["window_token"]=receipt["window_token"];
             receipt=new JObject();

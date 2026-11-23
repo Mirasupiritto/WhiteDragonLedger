@@ -13,7 +13,7 @@ namespace WhiteDragon.Ledger
             if (store.GetCurrentlyNegociatedItem() != item) return null;
             bool owned = GeneralHelper.IsItemOwned(item);
             return new JObject { ["item_id"]=LocalId(item), ["side"]=owned ? "sell" : "buy",
-                ["price"]=item.GetNegociatedValue(), ["allowed"]=owned ? store.CanSellItemFromTable(false) :
+                ["price"]=item.GetNegociatedValue(), ["price_source"]="table_quote", ["allowed"]=owned ? store.CanSellItemFromTable(false) :
                     !merchant.isOfferWholesale && !merchant.isRegularSellDisable && store.CanBuyItemFromTable() };
         }
 

@@ -79,8 +79,10 @@ namespace WhiteDragon.Ledger
         private string SubmitDecision(JObject request, JObject receipt)
         {
             ObserveVisit();
-            if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);
             bool response = (string)request["action"] == "response_choice";
+            bool customerlessResponse = response && PlayerStore.Instance.currentClientInstance == null;
+            if ((string)request["visit"] != visitId || (visitId == null && !customerlessResponse))
+                return VisitMismatchStatus(receipt);
             string stage = CounterStage();
             if (stage != (response ? "response_required" : "choice_required")) return "page_changed";
             var view = new JObject();

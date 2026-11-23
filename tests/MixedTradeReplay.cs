@@ -21,6 +21,7 @@ namespace WhiteDragon.Ledger
             offer.To(shop.frontInvinvElement);
             var own = Item(901,"paper",3);
             var water = Item(902,"bottle",4);
+            water.volume=250000;
             water.owned=false;
             water.To(shop.frontInvinvElement);
             var strip = WaterStripUIManager.Instance;
@@ -35,6 +36,18 @@ namespace WhiteDragon.Ledger
             row = System.Linq.Enumerable.Single((JArray)CounterView()["offer"]["items"], r => (int)r["id"]==LocalId(water));
             Expect((string)row["last_strip"]["tested"]=="Visible sample","last observed sample remains associated with bottle");
             water.To(null);
+            var ask=new JObject { ["action"]="request_quote", ["visit"]=visitId, ["generation"]=generation, ["revision"]=sequence,
+                ["item_id"]=LocalId(offer), ["expires_ms"]=long.MaxValue };
+            var quote=new JObject();
+            Expect(ActAtCounter(ask,quote)=="quoted" && (int)quote["quote"]["price"]==8 && (bool)quote["returned_to_front"] &&
+                offer.parentInventory==shop.frontInvinvElement && !offer.owned && store.playerCash==100,"quote without purchase");
+            ask["action"]="tablet"; ask["revision"]=sequence;
+            NegociationUIManager.Instance.IsOpen=false;
+            NativeItemPanels.panel=new ItemPanelView {Key="chemical_scanner",Identity="scan"};
+            Expect(ActAtCounter(ask,new JObject())=="item_panel_open" && !NegociationUIManager.Instance.IsOpen,"scanner blocks tablet");
+            NativeItemPanels.panel=null;
+            var reopened=new JObject();
+            Expect(ActAtCounter(ask,reopened)=="tablet_requested" && (bool)reopened["tablet_open"] && (string)reopened["visit"]==visitId,"same visit reopens tablet");
             var options = new JObject();
             var dialog = DialogUIManager.Instance;
             dialog.choice=true;
@@ -56,9 +69,11 @@ namespace WhiteDragon.Ledger
                 for (int n=0; n<12; n++) { UnityEngine.Time.realtimeSinceStartup++; CheckOrder(); }
                 string receipt = ModHelper.ReadModDataFileText(ModId,"receipt-"+id+".json");
                 int after = store.playerCash;
+                ModHelper.WriteModDataFileText(ModId,"receipt-"+id+".json","{");
                 Write(inbox, request);
                 UnityEngine.Time.realtimeSinceStartup++; CheckOrder();
                 Expect(store.playerCash==after,"replay never charges twice");
+                Expect(ModHelper.ReadModDataFileText(ModId,"receipt-"+id+".json")==receipt,"restore exact result after truncated receipt");
                 return JObject.Parse(receipt);
             }
             JObject Buy(int max) => new JObject { ["item_id"]=LocalId(offer), ["side"]="buy", ["max_price"]=max };

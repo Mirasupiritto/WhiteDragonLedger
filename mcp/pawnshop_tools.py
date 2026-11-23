@@ -9,6 +9,8 @@ import trade_tools
 import shopdesk
 import counter
 import shop_day
+import machine_wait
+import heat_control
 from ledger import lookup, same_observation
 from moves import move_item as submit_move, move_items as submit_batch
 
@@ -79,6 +81,8 @@ def _summarize_wild_network(result, *, verbose=False):
 def register_pawnshop_tools(server, folder, database):
     section_cache = getattr(server, "section_cache", None) or shop_day.SectionCache()
     server.section_cache = section_cache
+    heat_control.register(server, folder)
+    machine_wait.register(server, folder)
     trade_tools.register(server, folder, database)
     shop_day.register_day_tools(server, folder, database, section_cache=section_cache)
 
@@ -94,7 +98,7 @@ def register_pawnshop_tools(server, folder, database):
 
     @server.tool()
     def response_choice(generation: str, revision: int, page: str, choice_id: int, visit: str | None = None) -> dict:
-        """Activate one visible response_choices item ID from get_trade_context. Pass its visit, including null."""
+        """Activate one visible response item. For nighttime bag selection use shop_generation, shop_revision, page, the choice id and visit=null from the door or packing receipt."""
         return counter.command(folder, "response_choice", generation, revision, visit=visit, page=page, choice_id=choice_id)
 
     @server.tool()
@@ -148,6 +152,7 @@ def register_pawnshop_tools(server, folder, database):
         Match any requested category or kind, then apply all exclusions. Searching category WATER also matches empty water containers categorized as HOUSEHOLD_GOOD (check water_ml/empty/contains_water).
         Each item includes size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate), and purifier charge_remaining/liters_remaining when applicable.
         Visible variety restrictions group sellable matches by kind, one per kind for this visit.
+        Bag contents include parent_id, outer-to-inner container_path and access (unpack_first/container_locked). Unpack before sale.
         Includes purifier slots. Apply exclude_contraband when the visible tablet shows that restriction."""
         return shopdesk.allocation_stock(folder, database, dict(bottle_label=bottle_label, categories=categories,
             exclude_categories=exclude_categories, owned=owned, area=area, exclude_contraband=exclude_contraband, kinds=kinds, exclude_kinds=exclude_kinds))
@@ -161,7 +166,7 @@ def register_pawnshop_tools(server, folder, database):
     def move_item(item_id: int, source: Literal["inventory", "showcase", "front", "back"],
                   destination: Literal["inventory", "showcase", "front", "back"], generation: str,
                   revision: int, command_id: str | None = None, visit: str | None = None) -> dict:
-        """While closed, move owned stock between inventory and showcase. During trade pass the observed visit
+        """Pass item_id, source, destination, generation and revision. While closed, move owned stock between inventory and showcase. During trade pass the observed visit
         to stage items on the trade table (back), or return them (multiple owned items may be staged together
         during regular selling; guest goods require an empty table). Guest goods return to front and
         owned goods to inventory/showcase. Owned goods left on back when no customer is present can also be
@@ -178,17 +183,59 @@ def register_pawnshop_tools(server, folder, database):
         return submit_batch(folder, item_ids, source, destination, generation, revision, visit=visit)
 
     @server.tool()
+    def sort_inventory(generation: str, revision: int) -> dict:
+        """Compact the main inventory once using native big-first sorting. Compare before/after free_cells and largest_free.
+        Returns external_sorter_active when the player uses a recognized Workshop sorter in auto mode."""
+        return counter.command(folder, "sort_inventory", generation, revision)
+
+    @server.tool()
     def query_purchase_lots(supplier: str | None = None, product: str | None = None, lot_id: str | None = None) -> dict:
         """Look up wholesale lots by seller, product or exact lot ID. Report paid, recovered and stock.
         Gross profit is shown only for fully sold lots with a confirmed payment."""
         return shopdesk.purchase_lots(folder, database, supplier, product, lot_id)
 
     @server.tool()
+    def item_menu(item_id: int, generation: str, revision: int, mode: Literal["read", "choose", "targets"] = "read",
+                  menu_token: str | None = None, verb: str | None = None, target_id: int | None = None,
+                  target_ids: list[int] | None = None) -> dict:
+        """Inspect or choose an owned item's native right-click actions. First read returns the shared verb legend and enabled verbs.
+        On subsequent reads pass the last menu_token, even across items, for added/removed verbs and changed labels (null resets to base).
+        Choose a displayed enabled verb with its matching item and token. activate is also read/consume depending on the native label.
+        For use, mode=targets checks up to 64 candidate target_ids via native predicates without using the item. Choose with the matching target_id. Water operations return the water_use route. invoked confirms the native action, not an overnight effect."""
+        args = dict(item_id=item_id, mode=mode, menu_token=menu_token)
+        if mode == "targets":
+            if not menu_token or not target_ids or len(target_ids)>64 or any(i<=0 for i in target_ids):
+                raise ValueError("Use the source menu_token and 1 to 64 positive candidate target_ids")
+            args.update(target_ids=target_ids, read_id=uuid4().hex)
+        elif mode == "read":
+            args["read_id"] = uuid4().hex
+        else:
+            if not verb or not menu_token:
+                raise ValueError("Choose an enabled verb with the token from item_menu")
+            args.update(verb=verb, target_id=target_id)
+        return counter.command(folder, "item_menu", generation, revision, **args)
+
+    @server.tool()
+    def item_panel(generation: str, revision: int, mode: Literal["read","choose","focus","close"]="read",
+                   panel_token: str | None=None, control: str | None=None,
+                   value: str | bool | int | float | None=None, panel: str | None=None) -> dict:
+        """Read the current item's native panel. Reuse panel_token for changes. Choose a visible enabled control by ID
+        using the last token. For select_panel read the desired panel by name, then focus or close with its token. Buttons take no value, choices take a zero-based index, scroll takes 0..1, rename takes text.
+        Applied actions return the updated panel under after. Dedicated panels specify the next tool or player action."""
+        if mode=="read":
+            return counter.command(folder, "item_panel", generation, revision, mode=mode,
+                                   panel_token=panel_token, read_id=uuid4().hex, **({"panel":panel} if panel else {}))
+        if not panel_token or (mode=="choose" and not control):
+            raise ValueError("Use the current panel_token and an enabled control ID")
+        return counter.command(folder, "item_panel", generation, revision, mode=mode,
+                               panel_token=panel_token, control=control, value=value, **({"panel":panel} if panel else {}))
+
+    @server.tool()
     def inspect_item_window(owner_id: int, generation: str, revision: int, open_if_closed: bool = False,
                             since_token: str | None = None) -> dict:
         """Inspect an owned inventory/showcase item, or a directly held owned back-counter item after closing.
-        Slot items include save_id for matching night loot. Optionally open a closed window.
-        Newspapers, exchange lists, slips, handnotes, and readable guides/books return window.document (pure-image guides report readable=false, reason=image_only_guide). Other windows return visible slots, text and controls. Pass the last token as since_token for changes only."""
+        Pass the local ID of the item itself as owner_id (never 0, the area or save_id). Pass open_if_closed=True to open and read in one call. Slot items include save_id for matching night loot.
+        Read a document by its own ID, including inside an open archive. window.document contains original pages, text, structured terms, or a reason (image_only_guide for image pages). Other windows return visible slots, text and controls. Pass the last token as since_token for changes only."""
         return counter.command(folder, "inspect_window", generation, revision, owner_id=owner_id,
                                open_if_closed=open_if_closed, since_token=since_token, read_id=uuid4().hex)
 
@@ -221,12 +268,23 @@ def register_pawnshop_tools(server, folder, database):
                                window_token=window_token, item_ids=item_ids, source=source)
 
     @server.tool()
+    def adjust_machine_control(owner_id: int, control: str, values: list[float], window_token: str,
+                               generation: str, revision: int) -> dict:
+        """Set a visible native machinery slider with [value] or range with [low, high]. Use observed limits.
+        Returns the native snapped values and changed window controls. Radio buttons and tabs use press_machine_button."""
+        if len(values) not in (1,2):
+            raise ValueError("Provide one slider value or two range endpoints")
+        return counter.command(folder, "adjust_control", generation, revision, owner_id=owner_id, control=control,
+                               values=values, window_token=window_token)
+
+    @server.tool()
     def press_machine_button(owner_id: int, control: str, label: str, window_token: str,
-                             generation: str, revision: int) -> dict:
-        """Press one visible enabled machinery button by observed label and token. May consume supplies or start production.
-        Returns the native press result and changed controls if the window stays visible."""
+                             generation: str, revision: int, tab_index: int | None=None, quantity: int | None=None) -> dict:
+        """For a tabs control pass its zero-based tab_index and exact page caption as label. Press one visible enabled machinery button by observed label and token. May consume supplies or start production.
+        For the chemical finisher output only, quantity (1..64) reports produced and a stop reason. Returns changed controls."""
         return counter.command(folder, "press_control", generation, revision, owner_id=owner_id, control=control,
-                               window_token=window_token, label=label)
+                               window_token=window_token, label=label, **({"tab_index":tab_index} if tab_index is not None else {}),
+                               **({"quantity":quantity} if quantity is not None else {}))
 
     @server.tool()
     def water_use(source_id: int, target_id: int | Literal["faucet", "drain"], generation: str, revision: int,
@@ -234,7 +292,7 @@ def register_pawnshop_tools(server, folder, database):
         """Preview or apply a water interaction. Sources include bottles, rations, tablets, portable purifiers and fresh strips.
         Low-risk operations (filling from target_id="faucet", purifying with portable_water_purifier, or testing with water_test_strip) support mode="apply_now" in a single call without preview. High-risk operations (drain, bottle-to-bottle pour, tablet, ration) reject apply_now with preview_required and must use preview + apply.
         To fill a container from the tap, pass the water container as source_id and target_id="faucet"; pass target_id="drain" to empty it.
-        Passing a water_tablet_container as source returns reason="open_container_first" (unpack a tablet first with inspect_item_window + transfer_slot_items).
+        Use a single water_test_strip or water_tablet as source_id and the bottle as target_id. For boxed supplies, inspect_item_window(owner_id=box id, open_if_closed=True) then transfer_slot_item(source="slot").
         purifier_used reports charge_remaining and liters_remaining; tablet_used explains effect_pending (chlorine reacts over time/overnight and resets strip exposure).
         For mode="apply", submit the same two IDs with the preview use_token."""
         if source_id < 1 or (isinstance(target_id, int) and (target_id < 1 or target_id == source_id)):
@@ -362,7 +420,7 @@ def register_pawnshop_tools(server, folder, database):
     @server.tool()
     def put_purifier_bottle(machine_id: int, bottle_id: int, source: Literal["inventory", "showcase"],
                             generation: str, revision: int, command_id: str | None = None) -> dict:
-        """Put one owned water bottle directly in an empty purifier. Confirm actual machine and slot bottle IDs."""
+        """Put a bottle in the stationary purifier slot. For the portable purifier use water_use(source_id=purifier, target_id=bottle)."""
         return submit_move(folder, bottle_id, source, "purifier", generation, revision,
                            command_id, machine_id=machine_id)
 
@@ -432,10 +490,17 @@ def register_pawnshop_tools(server, folder, database):
                     "can_open_shop": view.get("can_open_shop")}
         if view.get("stage") == "idle" and not view.get("visit"):
             ring_wait = view.get("waiting", 0) if waiting is None else waiting
-            return trade_tools.summarize_offer(
-                counter.ring(folder, view["generation"], view["revision"], ring_wait),
-                verbose=verbose,
-            )
+            result = counter.ring(folder, view["generation"], view["revision"], ring_wait)
+            if result.get("status") not in {"occupied", "bell_unavailable", "customer_replaced", "customer_left", "queue_changed", "customer_departing"}:
+                return trade_tools.summarize_offer(result, verbose=verbose)
+            current = counter.context(folder)
+            if current.get("generation") != view["generation"] or current.get("phase") != "OPEN":
+                return result
+            if not current.get("visit") and current.get("stage") != "customer_departing":
+                return result
+            view = current
+        if view.get("stage") == "customer_departing":
+            return {**shopdesk.strip_protocols(view), "status": "customer_departing"}
         if not view.get("visit") and view.get("stage") == "arriving":
             deadline = time.monotonic() + 5.0
             while time.monotonic() < deadline:
@@ -459,9 +524,42 @@ def register_pawnshop_tools(server, folder, database):
 
     @server.tool()
     def finish_customer(generation: str, revision: int, visit: str) -> dict:
-        """Dismiss the completed customer visit in one step (auto-clearing non-order owned clutter).
+        """Pass generation, revision and visit from the counter receipt. Dismiss this visitor. A brief native lock is retried once if the same visitor becomes dismissible.
         If blocked, returns status="dismiss_unavailable" with reason, blocking_items, reception_token and latest_revision; if visitor left or changed, returns customer_left or customer_replaced."""
-        return counter.command(folder, "dismiss", generation, revision, visit=visit)
+        result = counter.command(folder, "dismiss", generation, revision, visit=visit)
+        if result.get("status")=="dismiss_unavailable" and result.get("reason") in {"client_not_dismissable","bell_locked","dialogue_in_progress"}:
+            deadline=time.monotonic()+1.5
+            while time.monotonic()<deadline:
+                current=counter.context(folder)
+                if current.get("generation")!=generation or current.get("status")!="observed":
+                    break
+                if current.get("visit")!=visit:
+                    return counter.visit_mismatch_status(current.get("visit"),current.get("customer"))
+                if current.get("reception",{}).get("can_dismiss"):
+                    result=counter.command(folder,"dismiss",generation,revision,visit=visit)
+                    break
+                time.sleep(0.1)
+        if result.get("status") in {"dismissed", "customer_left", "customer_replaced"}:
+            current = counter.context(folder)
+            if current.get("generation") == generation and current.get("phase") == "OPEN":
+                if current.get("visit") and current["visit"] != visit:
+                    result = {**result, "next_customer": trade_tools.summarize_offer(shopdesk.strip_protocols(current)),
+                              "next_stage": current["stage"], "next_action": "接續新客人的當前狀態。"}
+                elif current.get("stage") == "customer_departing":
+                    result = {**result, "next_stage": current["stage"], "next_action": current["next_action"]}
+        return result
+
+    @server.tool()
+    def request_supplier_quote(generation: str, revision: int, visit: str, item_id: int) -> dict:
+        """Ask for a single retail supplier item price without paying. Briefly stage it on an empty counter, then return it to front.
+        Check quote.price and returned_to_front before deciding on a purchase."""
+        return counter.command(folder,"request_quote",generation,revision,visit=visit,item_id=item_id)
+
+    @server.tool()
+    def reopen_trade_tablet(generation: str, revision: int, visit: str) -> dict:
+        """Reopen the native negotiation tablet for the same waiting buyer or supplier after closing an item panel.
+        Requires the original visit. Leaves dialogue, pending confirmation and completed business alone."""
+        return counter.command(folder,"tablet",generation,revision,visit=visit,explicit_reopen=True,read_id=uuid4().hex)
 
     @server.tool()
     def wait_for_opening(generation: str, visit: str) -> dict:

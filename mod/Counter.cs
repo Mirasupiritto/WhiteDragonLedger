@@ -44,6 +44,7 @@ namespace WhiteDragon.Ledger
             if (ResponseInventory() != null) return "response_required";
             if (phase != "OPEN") return "shop_closed";
             var store = PlayerStore.Instance;
+            if (CustomerDeparting(store)) return "customer_departing";
             if (merchant == null) return store.currentClientInstance == null ? "idle" : "arriving";
             if (!store.isClientArrived) return "arriving";
             var dialog = DialogUIManager.Instance;
@@ -85,8 +86,10 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["heat_control_protocol"]=1, ["machine_wait_protocol"]=1, ["chemist_protocol"]=1, ["item_panel_protocol"]=1, ["item_menu_protocol"]=1, ["inventory_sort_protocol"]=1, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
+            if (heatRun != null || lastHeat != null) view["heat"] = (heatRun?.Summary ?? lastHeat).DeepClone();
+            if (stage == "customer_departing") view["next_action"] = "上一位客人正在離場，等候即可。";
             if (paperCleanup != null && paperCleanup.Any(row => (string)row["status"] != "moved"))
                 view["document_cleanup"] = new JArray(paperCleanup.Where(row => (string)row["status"] != "moved"));
             if (stage == "ready" || stage == "not_selling" || stage == "tablet_closed" || stage == "confirmation_required")
@@ -126,10 +129,10 @@ namespace WhiteDragon.Ledger
                 var row = new JObject { ["id"] = LocalId(item), ["name"] = item.GetDisplayName(true),
                     ["kind"] = item.identifier, ["quantity"] = item.unitCount,
                     ["categories"] = new JArray(item.GetGameItemType()), ["price"] = item.GetNegociatedValue() };
-                if (BottleLabel(item) is string label)
+                if (IsWaterContainerItem(item))
                 {
-                    row["bottle_label"] = label;
-                    row["capacity_ml"] = WaterHelper.GetTotalCapacityML(item);
+                    AddWaterContainerFields(item,row);
+                    if (BottleLabel(item) is string label) row["bottle_label"] = label;
                     var strip = WaterStripUIManager.Instance;
                     if (strip != null && strip.panel != null && strip.panel.activeInHierarchy && strip.currentWaterContainer == item)
                     {
@@ -139,12 +142,30 @@ namespace WhiteDragon.Ledger
                     }
                     if (stripReadings.TryGetValue(item, out var reading)) row["last_strip"] = reading.DeepClone();
                 }
+                row["reference_price"] = row["price"];
                 rows.Add(row);
-                sum += item.GetNegociatedValue();
+                sum += (long)row["price"];
             }
             bool wholesale = merchant.isOfferWholesale;
+            long total = wholesale ? store.GetWholesalePrice() : sum;
             var offer = new JObject { ["visit"] = visitId, ["items"] = rows, ["wholesale"] = wholesale,
-                ["total"] = wholesale ? store.GetWholesalePrice() : sum };
+                ["total"] = total,
+                ["reference_total"] = sum, ["quoted_total"] = wholesale ? (JToken)total : JValue.CreateNull(),
+                ["price_note"] = wholesale ? "整批開價已確認，逐件金額是參考價。" : "貨單金額是參考價，請以上櫃後的報價決定是否成交。" };
+            var tableQuote = view["quote"] as JObject;
+            if (!wholesale && tableQuote != null && (string)tableQuote["side"] == "buy")
+            {
+                var stagedRow = rows.FirstOrDefault(row => (int)row["id"] == (int)tableQuote["item_id"]);
+                if (stagedRow != null)
+                {
+                    stagedRow["quoted_price"] = tableQuote["price"];
+                    if (rows.Count == 1)
+                    {
+                        offer["quoted_total"] = tableQuote["price"];
+                        offer["price_note"] = "已上櫃，報價來自當前交易平板。";
+                    }
+                }
+            }
             if (!JToken.DeepEquals(offerSnapshot, offer))
             {
                 offerToken = Guid.NewGuid().ToString("N");
@@ -165,9 +186,13 @@ namespace WhiteDragon.Ledger
             bool recheckDismiss = action == "dismiss" && requestedRevision > 0 && requestedRevision < sequence;
             if ((string)request["generation"] != generation || (requestedRevision != sequence && !recheckDismiss))
                 return "stale_observation";
+            if (action == "heat_control") return HeatAction(request,receipt);
             if (action == "wild_network") return NetworkAction(request, receipt);
             if (WildNetworkUI.IsOpen && action != "visible_windows") return "wild_network_open";
-            if (action == "inspect_window" || action == "transfer_slot" || action == "transfer_slots" || action == "press_control" ||
+            if (action == "item_panel") return ItemPanelAction(request,receipt);
+            if (action == "item_menu") return ItemMenuAction(request, receipt);
+            if (action == "sort_inventory") return SortInventory(receipt);
+            if (action == "inspect_window" || action == "transfer_slot" || action == "transfer_slots" || action == "adjust_control" || action == "press_control" ||
                 action == "inspect_archive" || action == "close_archive")
                 return WorkstationAction(request, receipt);
             if (action == "visible_windows") return ObserveTradeWindows(receipt);
@@ -209,6 +234,11 @@ namespace WhiteDragon.Ledger
                     receipt["waiting"] = blockedRec["waiting"];
                     if (visitId != null) receipt["visit"] = visitId;
                     if (merchant != null) receipt["customer"] = merchant.displayName;
+                    if (blocked == "occupied" || blocked == "customer_departing")
+                    {
+                        ObserveVisit();
+                        DescribeHandoff(receipt);
+                    }
                     return blocked;
                 }
                 var bell = UnityEngine.Object.FindObjectOfType<StoreBell>();
@@ -230,6 +260,7 @@ namespace WhiteDragon.Ledger
             if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);
             if (action == "pay_info") return PayInformationReceipt(request, receipt);
             if (action == "dismiss") return DismissCustomer(receipt);
+            if (action=="request_quote") return RequestSupplierQuote(request,receipt);
             string stage = CounterStage();
             if (action == "advance")
             {
@@ -242,16 +273,28 @@ namespace WhiteDragon.Ledger
             }
             if (action == "tablet")
             {
+                stage=CounterStage(true);
                 if (stage != "tablet_closed" || NegociationUIManager.Instance == null) return stage;
+                if (NativeItemPanels.ActiveKey() is string panel)
+                {
+                    receipt["panel"]=panel;
+                    receipt["next_tool"]="item_panel";
+                    return "item_panel_open";
+                }
                 NegociationUIManager.Instance.OpenUI();
-                return "tablet_requested";
+                receipt["visit"]=visitId;
+                receipt["tablet_open"]=NegociationUIManager.Instance.IsOpen;
+                return (bool)receipt["tablet_open"] ? "tablet_requested" : "tablet_unavailable";
             }
             if (action != "buy") return "invalid_action";
             var view = CounterView();
             if ((string)view["stage"] != "ready") return (string)view["stage"];
             if (view["offer_token"] == null || (string)request["offer_token"] != offerToken) return "offer_changed";
             long total = (long)view["offer"]["total"];
+            receipt["reference_total"] = view["offer"]["reference_total"];
+            receipt["quoted_total"] = view["offer"]["quoted_total"];
             receipt["quote"] = total;
+            receipt["price_source"] = merchant.isOfferWholesale ? "wholesale_quote" : "reference_price";
             receipt["max_total"] = (long)request["max_total"];
             if (total < 0 || total > (long)request["max_total"]) return "over_limit";
             int before = store.playerCash;
@@ -285,6 +328,9 @@ namespace WhiteDragon.Ledger
                 long stagedTotal = 0;
                 foreach (var item in items) stagedTotal += item.GetNegociatedValue();
                 var stagedItems = shop.GetAllNonOwnedItem();
+                receipt["quote"] = stagedTotal;
+                receipt["quoted_total"] = stagedTotal;
+                receipt["price_source"] = "table_quote";
                 if (stagedTotal != total || stagedItems.Count != items.Count || !items.TrueForAll(stagedItems.Contains) ||
                     !items.TrueForAll(item => item.parentInventory == shop.backInvinvElement) || CounterStage() != "ready")
                     return "offer_changed";

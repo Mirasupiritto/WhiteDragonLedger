@@ -3,9 +3,32 @@ using System.Linq;
 using Newtonsoft.Json.Linq;
 using TMPro;
 
+public class TMPLocalizer
+{
+    public bool ChangeFontOnly, IsTooltipContainer;
+    public string postfix;
+}
+namespace UnityEngine.Localization.Components
+{
+    public class LocalizeStringEvent { public ReplayString StringReference; }
+    public class ReplayString
+    {
+        public string text;
+        public bool IsEmpty => string.IsNullOrEmpty(text);
+        public string GetLocalizedString() => text;
+    }
+}
 namespace TMPro
 {
-    public class TextMeshProUGUI { public string text; public bool isActiveAndEnabled = true; }
+    public class TextMeshProUGUI
+    {
+        public string text;
+        public bool isActiveAndEnabled = true;
+        public bool enabled = true;
+        public TMPLocalizer localizer;
+        public UnityEngine.Localization.Components.LocalizeStringEvent localized;
+        public T GetComponent<T>() where T : class => localizer as T ?? localized as T;
+    }
 }
 
 namespace WhiteDragon.Ledger

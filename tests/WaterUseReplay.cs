@@ -33,6 +33,7 @@ namespace WhiteDragon.Ledger
         public static int GetMaxDurability(GameItem item) => item.maxCharge;
     }
     public static class WaterHelper {
+        public static GameItem GetFilterItem(GameItem item)=>null;
         public static int GetTotalCapacityML(GameItem item) => 500;
         public static int GetCurrentCapacityUL(GameItem item) => item.volume;
         public static bool IsEmpty(GameItem item) => item == null || !item.IsTag("LIQUID_CONTAINER_TAG") || item.volume <= 0;
@@ -140,6 +141,9 @@ namespace WhiteDragon.Ledger
             var tabletBox = Item(977, "water_tablet_container", 1);
             Expect(Preview(tabletBox, LocalId(dest)) == "source_unavailable" &&
                 (string)receipt["reason"] == "open_container_first", "tablet container prompts open_container_first");
+            var kit = Item(9802,"water_test_container",1);
+            Expect(Preview(kit,LocalId(dest))=="source_unavailable" && (string)receipt["required_kind"]=="water_test_strip" &&
+                (int)receipt["arguments"]["owner_id"]==LocalId(kit) && (bool)receipt["arguments"]["open_if_closed"],"kit exposes path to individual strip");
             var tablet = Item(975,"water_tablet",1);
             tablet.waterTags.Add("WATER_PURIFICATION_TABLET");
             Preview(tablet,LocalId(dest));

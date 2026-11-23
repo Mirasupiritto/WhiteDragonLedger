@@ -9,15 +9,18 @@ namespace WhiteDragon.Ledger
     public sealed class LedgerMod : IMod
     {
         private GameObject observer;
-        public void Init(ModManifest manifest) { }
+        public void Init(ModManifest manifest) { InventorySorting.Configure(manifest.ID); }
         public void OnEnable()
         {
+            ModHook.OnModAssetsLoaded += InventorySorting.Observe;
             observer = new GameObject("White Dragon Ledger Observer");
             UnityEngine.Object.DontDestroyOnLoad(observer);
             observer.AddComponent<InventoryObserver>();
         }
         public void OnDisable()
         {
+            ModHook.OnModAssetsLoaded -= InventorySorting.Observe;
+            InventorySorting.Reset();
             if (observer != null) UnityEngine.Object.Destroy(observer);
         }
     }
@@ -67,6 +70,9 @@ namespace WhiteDragon.Ledger
 
         private void ResetLoad()
         {
+            EndHeat("scene_changed");
+            lastHeat = null;
+            FinishMachineWait("scene_changed");
             ResetScene();
             ResetCalendar();
             morningReport = null;
@@ -81,6 +87,11 @@ namespace WhiteDragon.Ledger
             noticeToken = null;
             stripReadings.Clear();
             waterPlan = null;
+            NativeItemPanels.Reset();
+            lastItemPanel = null;
+            itemPanelToken = null;
+            previousItemMenu = null;
+            itemMenuToken = null;
             autoReceiveDay = 0;
             receptionToken = null;
             DetachTrash();
@@ -121,6 +132,7 @@ namespace WhiteDragon.Ledger
 
         private void DetachAreas()
         {
+            DetachBagGrids();
             foreach (var area in areas.Keys)
             {
                 area.onSlotAddItemLateFunc -= QueueFrontPaper;
@@ -144,30 +156,6 @@ namespace WhiteDragon.Ledger
             area.onSlotAddItemLateFunc += Changed;
             area.onSlotRemoveItemLateFunc += Changed;
             area.onSlotChangeAmountItemFunc += Changed;
-        }
-
-        private JObject Row(GameItem item, string area)
-        {
-            if (CardNumber(item.identifier) != 0) phoneCards.Add(item);
-            if (item.identifier == "water_purifier") purifiers.Add(item);
-            if (item.identifier == "portable_water_purifier") portablePurifiers.Add(item);
-            if (item.identifier == "water_test_strip" || item.identifier == "water_test_container") stripSupplies.Add(item);
-            var row = StockRow(item, area);
-            if (row["bottle_label"] != null) bottles.Add(item);
-            return row;
-        }
-
-        private JObject StockRow(GameItem item, string area)
-        {
-            var row = new JObject { ["id"] = LocalId(item), ["save_id"] = item.uniqueId, ["name"] = item.GetDisplayName(true),
-                ["kind"] = item.identifier, ["area"] = area, ["owned"] = GeneralHelper.IsItemOwned(item),
-                ["quantity"] = item.unitCount, ["categories"] = new JArray(item.GetGameItemType()),
-                ["contraband"] = item.IsTag(TypeHelper.CONTRABAND),
-                ["trade_contraband"] = ContrabandHelper.IsContraband(item) };
-            if (BottleLabel(item) is string label)
-                row["bottle_label"] = label;
-            EnrichStockRow(item, row);
-            return row;
         }
 
         private JArray ReadPurifierStock()
@@ -197,7 +185,7 @@ namespace WhiteDragon.Ledger
             record["phase"] = phase;
             record["day"] = StoreStation.Instance.dayCounter;
             Write(generation + "-" + revision + ".json", record);
-            Write("head.json", new JObject { ["status"] = "observed", ["item_details_protocol"] = 1, ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["move_location_protocol"] = 1, ["counter_move_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
+            Write("head.json", new JObject { ["status"] = "observed", ["bag_stock_protocol"] = 1, ["item_details_protocol"] = 1, ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["move_location_protocol"] = 1, ["counter_move_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
                 ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
                 ["full_scans"] = fullScans, ["load_scans"] = loadScans });
             sequence = revision;
@@ -220,15 +208,7 @@ namespace WhiteDragon.Ledger
             foreach (string code in TypeHelper.MAJOR_TYPES_LIST)
                 categoryNames[code] = TypeHelper.GetTypeDisplayName(code);
             Write(generation + "-stock-categories.json", categoryNames);
-            ++fullScans;
-            ++loadScans;
-            foreach (var area in areas)
-                foreach (var item in area.Key.childItems)
-                {
-                    var row = Row(item, area.Value);
-                    known.Add(ids[item], row);
-                    rows.Add(row);
-                }
+            PopulateStockBaseline(rows);
             if (morningReport != null && !morningReportReady) FinishMorningReport();
             if (phase == "OPEN" || (PlayerStore.Instance.currentClientInstance == null && order == null)) QueueCounterPapers();
             LoadDesk();
@@ -241,7 +221,7 @@ namespace WhiteDragon.Ledger
         private void LateUpdate()
         {
 
-            if (!CanObserveStore()) { CheckJourney(); return; }
+            if (!CanObserveStore()) { EndHeat("scene_changed"); FinishMachineWait("scene_changed"); CheckJourney(); return; }
             if (pending)
             {
                 var shop = EmporiumEntry.Instance;
@@ -255,6 +235,7 @@ namespace WhiteDragon.Ledger
                 return;
             }
             if (generation == null || !PlayerStore.HasInstance) return;
+            TickHeat();
             CloseTransactions();
             FileCounterPapers();
             if (Time.realtimeSinceStartup >= nextView)
@@ -267,6 +248,7 @@ namespace WhiteDragon.Ledger
             RefreshDesk();
             MarkSceneReady(ShopScene, "當鋪");
             if (CheckJourney()) return;
+            CheckMachineWait();
             CheckMove();
             CheckOrder();
             CheckCounter();
@@ -277,32 +259,11 @@ namespace WhiteDragon.Ledger
         {
             var currentPhase = PlayerStore.Instance.storeState.ToString();
             if (changed.Count == 0 && phase == currentPhase && Time.realtimeSinceStartup < nextView) return;
+            PollBagAccess();
             ScanKnownIdentities();
             var upserts = new JArray();
             var removed = new JArray();
-            foreach (var item in changed)
-            {
-                var parent = item.parentInventory;
-                if (parent != null && areas.TryGetValue(parent, out var area))
-                {
-                    var row = Row(item, area);
-                    int id = ids[item];
-                    if (known.TryGetValue(id, out var old) && JToken.DeepEquals(old, row)) continue;
-                    known[id] = row;
-                    upserts.Add(row);
-                }
-                else if (ids.TryGetValue(item, out var id) && known.Remove(id))
-                {
-                    bottles.Remove(item);
-                    purifiers.Remove(item);
-                    portablePurifiers.Remove(item);
-                    observedIdentities.Remove(id);
-                    stripSupplies.Remove(item);
-                    phoneCards.Remove(item);
-                    removed.Add(id);
-                }
-            }
-            changed.Clear();
+            ApplyStockChanges(upserts, removed);
             var slots = ReadPurifierStock();
             bool slotsChanged = !JToken.DeepEquals(slots, purifierStock);
             var caps = ShopCapacities();
@@ -331,6 +292,7 @@ namespace WhiteDragon.Ledger
 
         private void OnDestroy()
         {
+            EndHeat("stopped");
             DetachTrash();
             DetachAreas();
 

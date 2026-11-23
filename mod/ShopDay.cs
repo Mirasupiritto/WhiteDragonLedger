@@ -191,52 +191,19 @@ namespace WhiteDragon.Ledger
             morningReportReady = false;
         }
 
-        private static string ReadLocalizedLabel(TMPro.TextMeshProUGUI label)
+        private static string ReadLocalizedLabel(TextMeshProUGUI label)
         {
             if (label == null) return "";
-            try
+            var localizer = label.GetComponent<TMPLocalizer>();
+            if (localizer != null && !localizer.ChangeFontOnly && !localizer.IsTooltipContainer)
             {
-                // TMPLocalizer triggers RefreshString() in Start(), one frame after OpenUI() runs.
-                // Read LocalizeStringEvent synchronously via reflection so reminders follow the active locale immediately.
-                var go = label.GetType().GetProperty("gameObject")?.GetValue(label, null);
-                if (go != null)
+                var reference = label.GetComponent<UnityEngine.Localization.Components.LocalizeStringEvent>()?.StringReference;
+                if (reference != null && !reference.IsEmpty)
                 {
-                    var getComps = go.GetType().GetMethod("GetComponents", new[] { typeof(Type) });
-                    var compType = Type.GetType("UnityEngine.Component, UnityEngine.CoreModule");
-                    if (getComps != null && compType != null)
-                    {
-                        var comps = getComps.Invoke(go, new object[] { compType }) as Array;
-                        if (comps != null)
-                        {
-                            string postfix = "";
-                            string direct = null;
-                            foreach (var comp in comps)
-                            {
-                                if (comp == null) continue;
-                                var t = comp.GetType();
-                                if (t.Name == "TMPLocalizer")
-                                {
-                                    var pf = t.GetField("postfix")?.GetValue(comp) as string;
-                                    if (!string.IsNullOrEmpty(pf)) postfix = pf;
-                                }
-                                else if (t.Name == "LocalizeStringEvent")
-                                {
-                                    t.GetMethod("RefreshString", Type.EmptyTypes)?.Invoke(comp, null);
-                                    var strRef = t.GetProperty("StringReference")?.GetValue(comp, null);
-                                    var resolved = strRef?.GetType().GetMethod("GetLocalizedString", Type.EmptyTypes)?.Invoke(strRef, null) as string;
-                                    if (!string.IsNullOrEmpty(resolved)) direct = resolved;
-                                }
-                            }
-                            if (!string.IsNullOrEmpty(direct))
-                            {
-                                string cleaned = CleanReportText(direct + postfix);
-                                if (cleaned.Length > 0) return cleaned;
-                            }
-                        }
-                    }
+                    string localized = reference.GetLocalizedString();
+                    if (!string.IsNullOrEmpty(localized)) return CleanReportText(localized + localizer.postfix);
                 }
             }
-            catch { }
             return CleanReportText(label.text);
         }
 

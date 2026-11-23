@@ -13,12 +13,37 @@ namespace WhiteDragon.Ledger
 
         private bool ClosePrompt => StoreUIManager.Instance.closeShutterConfirmationPanel.activeInHierarchy;
 
+        private static bool CustomerDeparting(PlayerStore store) =>
+            store.currentClientInstance == null && StoreUIManager.Instance.clientGameObject?.gameObject.activeInHierarchy == true;
+
+        private void DescribeHandoff(JObject receipt)
+        {
+            var store = PlayerStore.Instance;
+            if (store.currentClientInstance != null)
+            {
+                var next = new JObject { ["stage"] = CounterStage(), ["visit"] = visitId, ["customer"] = merchant?.displayName,
+                    ["lines"] = openingLines.DeepClone() };
+                receipt["next_customer"] = next;
+                receipt["next_action"] = next["stage"].ToString() == "arriving" ? "新客正在進場，等候開場。" : "接續這位客人的當前狀態。";
+            }
+            else if (CustomerDeparting(store))
+            {
+                receipt["next_stage"] = "customer_departing";
+                receipt["next_action"] = "上一位客人正在離場，等候即可。";
+            }
+            else if (store.GetClientInQueueCount() == 0)
+                receipt["next_action"] = "已無客人排隊。";
+            else if (RingBlocker(store) == null)
+                receipt["next_action"] = "可以接下一位客人。";
+        }
+
         private string RingBlocker(PlayerStore store, int? expectedWaiting = null)
         {
             if (store.storeState != PlayerStore.StoreState.OPEN) return "shop_closed";
             if (WildNetworkUI.IsOpen) return "wild_network_open";
             if (ResponseInventory() != null) return "response_required";
             if (store.currentClientInstance != null) return "occupied";
+            if (CustomerDeparting(store)) return "customer_departing";
             if (expectedWaiting.HasValue && store.GetClientInQueueCount() != expectedWaiting.Value) return "queue_changed";
             if (store.lockNextBellFlag > 0 || !store.CanNextClient()) return "bell_unavailable";
             return null;
@@ -130,7 +155,9 @@ namespace WhiteDragon.Ledger
             receipt["waiting"] = after["waiting"];
             receipt["can_ring"] = after["can_ring"];
             receipt["can_close_shop"] = after["can_close_shop"];
-            return store.currentClientInstance != departing ? "dismissed" : "dismiss_intercepted";
+            if (store.currentClientInstance == departing) return "dismiss_intercepted";
+            DescribeHandoff(receipt);
+            return "dismissed";
         }
 
         private JObject ReceptionView()

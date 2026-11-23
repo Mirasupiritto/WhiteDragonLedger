@@ -32,6 +32,7 @@ namespace WhiteDragon.Ledger
         {
             if (ResponseInventory() == null) return;
             ObserveDecision("response_required", receipt);
+            receipt["visit"] = visitId;
             if (generation != null && deskFile != null)
             {
                 receipt["shop_generation"] = generation;

@@ -6,7 +6,7 @@ using Newtonsoft.Json.Linq;
 
 namespace UnityEngine {
     public static class Time { public static float realtimeSinceStartup = 1, timeScale = 1; }
-    public static class Debug { public static void LogException(Exception e) { throw e; } }
+    public static class Debug { public static void LogWarning(string message) { Console.WriteLine(message); } public static void LogException(Exception e) { throw e; } }
     public class Object { public static T FindObjectOfType<T>() where T:class { if (typeof(T)==typeof(WhiteDragon.Ledger.StoreDoor)) return new WhiteDragon.Ledger.StoreDoor() as T; if (typeof(T)==typeof(WhiteDragon.Ledger.StoreBedroll)) return new WhiteDragon.Ledger.StoreBedroll() as T; return typeof(T)==typeof(WhiteDragon.Ledger.StoreBell)?new WhiteDragon.Ledger.StoreBell() as T:null; } }
 }
 namespace WhiteDragon.Ledger {
@@ -20,13 +20,11 @@ namespace WhiteDragon.Ledger {
         public static bool CanAccept(GameSlotInventory slot, GameItem item) => slot.childItem == null && item.identifier == "bottle";
         public static int TryAcceptOnce(GameSlotInventory slot, GameItem item) { item.To(slot); return 1; }
     }
-    public class Window {
-        public bool activeInHierarchy, activeSelf;
-        public TMPro.TextMeshProUGUI[] labels = new TMPro.TextMeshProUGUI[0];
-        public T[] GetComponentsInChildren<T>(bool includeInactive = false) => labels as T[] ?? new T[0];
-    }
+    public class Window : UnityEngine.GameObject { }
     public class NegotiationTabletFrame { public PanelNode infoHost; public Window confirmRoot; }
+    public class ReplayClientAvatar { public Window gameObject = new Window(); }
     public partial class StoreUIManager {
+        public ReplayClientAvatar clientGameObject = new ReplayClientAvatar();
         public static StoreUIManager Instance = new StoreUIManager();
         public SceneFade blackscreen;
         public Window closeShutterConfirmationPanel = new Window();
@@ -136,7 +134,7 @@ namespace WhiteDragon.Ledger {
         public long GetBaseValue() => price;
         public List<string> GetGameItemType() => new List<string> { identifier ?? "misc" };
         public bool IsTag(string key) => (key=="LIQUID_CONTAINER_TAG" && identifier=="bottle") || waterTags.Contains(key);
-        public GameItem GetTagReadonly(string key) => scratchTagReader == null ? this : scratchTagReader(key);
+        public GameItem GetTagReadonly(string key) => key=="water_part" ? new GameItem {associatedId=waterTags.Contains("replay_solvent") ? 0 : volume} : scratchTagReader == null ? this : scratchTagReader(key);
         public int GetInt() => associatedId;
         public List<GameItem> FindAllChildItems()
         {
@@ -299,15 +297,15 @@ namespace WhiteDragon.Ledger {
     public static class MachineHelper {
         public const string STANDARD_MACHINE_TAG="standard_machine";
         public static GameSlotInventory container=new GameSlotInventory(), battery=new GameSlotInventory();
-        public static object[] furnaceSlots;
+        public static object[] furnaceSlots, chemistrySlots;
         public static object GetBodyStorage(GameItem item,int index) =>
-            item.identifier=="furnace" && furnaceSlots!=null ? furnaceSlots[index] : index==2 ? container : null;
+            (item.identifier=="chem_finisher" || item.identifier=="heating_plate") && chemistrySlots!=null ? chemistrySlots[index] : item.identifier=="furnace" && furnaceSlots!=null ? furnaceSlots[index] : index==2 ? container : null;
         public static GameSlotInventory GetBatterySlot(GameItem item) => battery;
         public static bool CanPower(GameItem item,GameSlotInventory power) => power.childItem!=null;
     }
     public static class PowerHelper { public const string POWER_SOURCE_ITEM_ENERGY="power", POWER_SOURCE_ITEM_MAX_ENERGY="max"; }
     public static class WaterTestHelper { public const string IS_SPENT="used", ASSOCIATED_ITEM_ID="associated"; }
-    public static class ModHelper {
+    public static partial class ModHelper {
         static Dictionary<string,string> data=new Dictionary<string,string>();
         public static List<int> placed=new List<int>();
         public static string GetModData(string m,string k,string d) => data.ContainsKey(k)?data[k]:d;
@@ -407,6 +405,7 @@ namespace WhiteDragon.Ledger {
             var purifier=Item(300,"water_purifier",0);
             purifiers.Add(purifier);
             var bottle=Item(301,"bottle",0);
+            bottle.volume=200000;
             bottle.waterLabel=new ItemFeature { label=new ItemCondition { display="label before" } };
             bottle.To(MachineHelper.container);
             BeforeSleep();
@@ -497,9 +496,13 @@ namespace WhiteDragon.Ledger {
             buy["offer_token"]=CounterView()["offer_token"];
             Expect(ActAtCounter(buy,outcome)=="purchased" && product.owned && (int)outcome["paid"]==9,"confirmed wholesale");
             Expect((string)CounterView()["stage"]=="no_goods" && CounterView()["offer"]==null,"no zero-price empty offer");
+            Expect((long)outcome["quoted_total"]==9 && (string)outcome["price_source"]=="wholesale_quote","whole lot has confirmed asking price");
             var regular=Item(902,"soap",3); regular.owned=false; regular.To(EmporiumEntry.Instance.frontInvinvElement);
             buy["revision"]=sequence;
-            buy["offer_token"]=CounterView()["offer_token"];
+            var regularOffer = CounterView();
+            Expect((long)regularOffer["offer"]["items"][0]["reference_price"]==3 && regularOffer["offer"]["quoted_total"].Type==JTokenType.Null,
+                "unstaged regular stock has a reference price only");
+            buy["offer_token"]=regularOffer["offer_token"];
             Expect(ActAtCounter(buy,outcome)=="purchased" && regular.owned && (int)outcome["paid"]==3,"normal batch");
             buy["action"]="ring"; buy["revision"]=sequence; buy["waiting"]=1;
             Expect(ActAtCounter(buy,outcome)=="occupied","bell never dismisses current visit");
@@ -507,6 +510,13 @@ namespace WhiteDragon.Ledger {
             Expect(ActAtCounter(buy,outcome)=="shop_closed","bell never opens the shop");
             phase="OPEN"; PlayerStore.Instance.currentClientInstance=null; ObserveVisit();
             Expect(ActAtCounter(buy,outcome)=="called" && outcome["visit"]!=null,"one new visit");
+            ReplayInventorySorting();
+            ReplayItemMenu();
+            ReplayItemPanel();
+            ReplayChemist();
+            ReplayMachineWaitAndInbox();
+            ReplayHeatControl();
+            new InventoryObserver().ReplayBagStock();
             ReplayInformation();
             ReplayBarter();
             ReplayPhone();
@@ -714,6 +724,10 @@ namespace WhiteDragon.Ledger {
             Expect(store.waiting==3 && store.currentClientInstance==null,"auto receive waits for response");
             shop.responseWindow.visible=false;
             UnityEngine.Time.realtimeSinceStartup++;
+            StoreUIManager.Instance.clientGameObject.gameObject.activeInHierarchy = true;
+            Expect(CounterStage()=="customer_departing" && ActAtCounter(ring,receipt)=="customer_departing" &&
+                (string)receipt["next_stage"]=="customer_departing","departing animation is not a new bell call");
+            StoreUIManager.Instance.clientGameObject.gameObject.activeInHierarchy = false;
             store.lockNextBellFlag=1;
             Expect(!(bool)ReceptionView()["can_ring"] && ActAtCounter(ring,receipt)=="bell_unavailable","bell locked");
             TickReception();
@@ -886,6 +900,7 @@ namespace WhiteDragon.Ledger {
 
         private void ReplayItemDetailsAndIdentityChanges(EmporiumEntry shop)
         {
+            ResetItemDetails();
             var tall = Item(92001, "water_jug", 45);
             tall.shape = new GridShape(1, 2);
             tall.modifiedShape = new GridShape(1, 2) { minX = 3, minY = 4 };
@@ -955,7 +970,7 @@ namespace WhiteDragon.Ledger {
         public static int Main()
         {
             try { new InventoryObserver().Run(); return 0; }
-            catch (Exception error) { Console.Error.WriteLine(error.GetType().Name + ": " + error.Message); return 1; }
+            catch (Exception error) { Console.Error.WriteLine(error); return 1; }
         }
     }
 }

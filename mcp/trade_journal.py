@@ -4,7 +4,7 @@ import book_history
 import re
 from contextlib import contextmanager
 
-from command_transport import read_optional_json
+from receipt_store import read_optional_json, read_command_receipt, replayed
 from database import transaction
 
 
@@ -39,7 +39,13 @@ def refresh(db, folder, row, fallback=None):
         return row
     args = json.loads(row["args"])
     evidence = 3
-    result = read_optional_json(folder / f"receipt-{row['id']}.json")
+    channel = "counter" if row["tool"] in TOOLS.values() else "sale"
+    result = read_command_receipt(folder, row["id"], args["generation"], channel, legacy_ticket=True)
+    if result and result.get("reason") == "receipt_corrupt":
+        # Preserve previously verified ticket evidence.
+        if row["evidence"] == 3:
+            return row
+        evidence = 1
     if not result and row["tool"] in {"sell_order", "trade_batch", "confirm_trade"}:
         evidence = 2
         result = read_optional_json(folder / f"sale-progress-{args['generation']}.json")
@@ -65,6 +71,17 @@ def refresh(db, folder, row, fallback=None):
                    (state, payload, evidence, row["id"]))
         row = db.execute("SELECT * FROM trade_tickets WHERE id=?", (row["id"],)).fetchone()
     return row
+
+
+def recover_recorded_receipt(database, result):
+    if database is None or result.get("reason") != "receipt_corrupt":
+        return result
+    with ticket_transaction(database) as db:
+        row = db.execute("SELECT args, receipt FROM trade_tickets WHERE id=? AND evidence=3", (result["command_id"],)).fetchone()
+        if row and json.loads(row["args"])["generation"] == result["generation"]:
+            known = json.loads(row["receipt"])
+            return {**known, "recovered_from": "trade_ticket"}
+    return result
 
 
 def describe(row, detail=False):
@@ -96,7 +113,7 @@ def dispatch(database, folder, tool, request, slot, customer, send, *, observati
         row = insert(db, tool, request, slot, customer, observation)
         row = refresh(db, folder, row)
         if row["state"] == "complete" or (row["state"] == "open" and row["evidence"] == 3):
-            return json.loads(row["receipt"])
+            return replayed(json.loads(row["receipt"]))
         if row["state"] == "dismissed":
             return {"status":"ticket_dismissed", "ticket_id":row["id"], "version":row["version"]}
     # Commit the original plan before dispatch. No database lock while waiting on Unity.

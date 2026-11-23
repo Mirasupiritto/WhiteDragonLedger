@@ -11,10 +11,10 @@ from stock_query import STOCK_DETAIL_COLUMNS, row_to_item, select_stock
 
 _EXTRA_STOCK_COLUMNS = (
     ("size_w", "INTEGER"), ("size_h", "INTEGER"), ("slot_x", "INTEGER"), ("slot_y", "INTEGER"),
-    ("rotatable", "INTEGER"), ("water_ml", "INTEGER"), ("capacity_ml", "INTEGER"),
+    ("rotatable", "INTEGER"), ("water_ml", "INTEGER"), ("liquid_ml", "INTEGER"), ("capacity_ml", "INTEGER"),
     ("empty", "INTEGER"), ("water_container", "INTEGER"), ("contains_water", "INTEGER"),
     ("charge_remaining", "INTEGER"), ("charge_max", "INTEGER"), ("liters_remaining", "REAL"),
-    ("estimated_value", "INTEGER"),
+    ("estimated_value", "INTEGER"), ("parent_id", "INTEGER"), ("container_path", "TEXT"), ("access", "TEXT"),
 )
 
 
@@ -25,11 +25,13 @@ def _db_stock_row(row):
         "save_id": None, "bottle_label": None, "contraband": None,
         "trade_contraband": None, "machine_id": None, "can_take_now": None,
         **row,
+        "parent_id": row.get("parent_id"), "access": row.get("access"),
+        "container_path": json.dumps(row["container_path"], ensure_ascii=False) if row.get("container_path") else None,
         "categories": json.dumps(sorted(set(row["categories"]))) if "categories" in row else None,
         "size_w": size.get("w"), "size_h": size.get("h"),
         "slot_x": slot.get("x"), "slot_y": slot.get("y"),
         "rotatable": None if "rotatable" not in row else int(bool(row["rotatable"])),
-        "water_ml": row.get("water_ml"), "capacity_ml": row.get("capacity_ml"),
+        "water_ml": row.get("water_ml"), "liquid_ml": row.get("liquid_ml"), "capacity_ml": row.get("capacity_ml"),
         "empty": None if "empty" not in row else int(bool(row["empty"])),
         "water_container": None if "water_container" not in row else int(bool(row["water_container"])),
         "contains_water": None if "contains_water" not in row else int(bool(row["contains_water"])),
@@ -107,6 +109,9 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
             # Older readers advance checkpoint 1 without importing purifier snapshots.
             extended = db.execute("SELECT revision FROM checkpoint WHERE id=2 AND generation=?", (generation,)).fetchone()
             cursor = min(cursor, extended["revision"]) if extended else 0
+        if head.get("bag_stock_protocol"):
+            bag_cursor = db.execute("SELECT revision FROM checkpoint WHERE id=3 AND generation=?", (generation,)).fetchone()
+            cursor = min(cursor, bag_cursor["revision"]) if bag_cursor else 0
         book_history.schema(db)
         recorded = db.execute("SELECT MAX(rev) FROM book_events WHERE gen=?", (generation,)).fetchone()[0]
         cursor = min(cursor, recorded or 0)
@@ -133,14 +138,16 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
                 "VALUES(:id,:name,:kind,:area,:owned,:quantity,:save_id,:bottle_label,:categories,"
                 ":contraband,:trade_contraband,:machine_id,:can_take_now,"
                 ":size_w,:size_h,:slot_x,:slot_y,:rotatable,"
-                ":water_ml,:capacity_ml,:empty,:water_container,:contains_water,"
-                ":charge_remaining,:charge_max,:liters_remaining,:estimated_value)",
+                ":water_ml,:liquid_ml,:capacity_ml,:empty,:water_container,:contains_water,"
+                ":charge_remaining,:charge_max,:liters_remaining,:estimated_value,:parent_id,:container_path,:access)",
                 (_db_stock_row(row) for row in rows),
             )
         if cursor != revision:
             db.execute("INSERT OR REPLACE INTO checkpoint VALUES(1,?,?)", (generation, revision))
             if head.get("trade_panel_protocol"):
                 db.execute("INSERT OR REPLACE INTO checkpoint VALUES(2,?,?)", (generation, revision))
+            if head.get("bag_stock_protocol"):
+                db.execute("INSERT OR REPLACE INTO checkpoint VALUES(3,?,?)", (generation, revision))
         if sync_only:
             return head
         if stock_query is not None:

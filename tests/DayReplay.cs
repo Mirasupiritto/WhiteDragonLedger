@@ -186,7 +186,11 @@ namespace WhiteDragon.Ledger
             CaptureMorningReport();
             store.nightLogs.Clear();
             FinishMorningReport();
-            startUi.displayCaseReminder.labels[0].text = "記得補滿展示櫃！";
+            var reminderLabel = startUi.displayCaseReminder.labels[0];
+            reminderLabel.localizer = new TMPLocalizer { postfix = "！" };
+            reminderLabel.localized = new UnityEngine.Localization.Components.LocalizeStringEvent {
+                StringReference = new UnityEngine.Localization.Components.ReplayString { text = "記得補滿展示櫃" }
+            };
             var alertsReport = DayView();
             var alertList = (JArray)alertsReport["night_report"]["alerts"];
             Expect(alertList.Count == 4 &&

@@ -109,12 +109,12 @@ namespace WhiteDragon.Ledger
             Expect(ActOnJourney(r,receipt)=="door_requested" && map.packing && receipt["response_choices"]==null,"closed store opens native confirmation");
             r=JourneyRequest("shop_activity");ActOnJourney(r,receipt);
             r["view_token"]=receipt["view_token"];r["action"]="confirm_packing";
-            var realBag = new GameItem { uniqueId = 9798, identifier = "small_backpack", name = "Small Backpack",
-                contentWindow = new PixelWindow { childElement = new GameGridInventory(6, 6) } };
+            var realBag = new GameItem { uniqueId = 9798, identifier = "waist_bag", name = "腰包",
+                contentWindow = new PixelWindow { childElement = new GameGridInventory(3, 3) } };
             realBag.waterTags.Add("BACKPACK_TAG");
             realBag.To(shop.invElement);
             var noBagChoice = new GameItem { uniqueId = 9799, identifier = "plastic_bag", name = "No backpack" };
-            var bagChoice = new GameItem { uniqueId = 9800, identifier = "", name = "Bring Small Backpack" };
+            var bagChoice = new GameItem { uniqueId = 9800, identifier = "", name = "已选背包：腰包" };
             shop.responseWindow = new PixelWindow { visible=true };
             shop.responseInventory = new GameInventory();
             noBagChoice.To(shop.responseInventory);
@@ -124,13 +124,32 @@ namespace WhiteDragon.Ledger
                 (string)packReceipt["page"]!=null && ((JArray)packReceipt["response_choices"]).Count==2 &&
                 !(bool)packReceipt["response_choices"][0]["has_backpack"] &&
                 (bool)packReceipt["response_choices"][1]["has_backpack"] &&
-                (int)packReceipt["response_choices"][1]["capacity"]["w"]==6 &&
-                (int)packReceipt["response_choices"][1]["capacity"]["free_cells"]==36,
+                (int)packReceipt["response_choices"][1]["capacity"]["w"]==3 &&
+                (int)packReceipt["response_choices"][1]["capacity"]["h"]==3 &&
+                (int)packReceipt["response_choices"][1]["capacity"]["free_cells"]==9,
                 "confirm packing attaches immediate bag choices with backpack capacities");
+            var forest=new TransitCardView {location=AfterhourLocation.Get("forest"),available=true};
+            bagChoice.onTestActivate = () => {
+                shop.responseWindow.visible = false;
+                TransitUI.Show(0, false, forest);
+            };
+            var chooseBag = new JObject {
+                ["generation"]=generation, ["revision"]=sequence, ["expires_ms"]=r["expires_ms"],
+                ["visit"]="departed-visitor", ["action"]="response_choice",
+                ["page"]=packReceipt["page"], ["choice_id"]=packReceipt["response_choices"][1]["id"]
+            };
+            var chosen = new JObject();
+            Expect(ActAtCounter(chooseBag,chosen)=="customer_left" && bagChoice.responseClicks==0, "reject a departed visitor's page");
+            chooseBag["visit"] = JValue.CreateNull();
+            chooseBag["page"] = "old-page";
+            Expect(ActAtCounter(chooseBag,chosen)=="page_changed" && bagChoice.responseClicks==0, "reject stale bag page");
+            chooseBag["page"] = packReceipt["page"];
+            Expect(ActAtCounter(chooseBag,chosen)=="choice_submitted" && bagChoice.responseClicks==1 &&
+                noBagChoice.responseClicks==0 && (int)chosen["selected"]["backpack_id"]==LocalId(realBag) && TransitUI.IsOpen,
+                "select waist bag with null visit and open destination selection");
+            Expect(ActAtCounter(chooseBag,chosen)=="page_changed" && bagChoice.responseClicks==1, "closed bag page cannot activate twice");
             shop.responseWindow = null; shop.responseInventory = null;
             realBag.To(null);
-            var forest=new TransitCardView {location=AfterhourLocation.Get("forest"),available=true};
-            TransitUI.Show(0,false,forest);
             CanObserveStore();r=JourneyRequest("travel_menu");ActOnJourney(r,receipt);
             r["view_token"]=receipt["view_token"];r["action"]="select";r["location_id"]="forest";
             forest.available=false;

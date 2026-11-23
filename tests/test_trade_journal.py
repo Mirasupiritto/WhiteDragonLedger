@@ -119,5 +119,9 @@ class TradeJournal(unittest.TestCase):
                 self.assertEqual(self.tickets(), [])
                 self.assertEqual(detail["state"], "complete")
                 self.assertEqual(counter.command(self.folder, action, self.generation, 7, visit=self.visit,
-                                                database=self.database, **args), result)
+                                                database=self.database, **args), dict(result, replayed=True))
+                (self.folder / f"receipt-{result['command_id']}.json").write_text("{")
+                restored = counter.command(self.folder, action, self.generation, 7, visit=self.visit,
+                                           database=self.database, **args)
+                self.assertEqual(restored, dict(result, recovered_from="trade_ticket", replayed=True))
             self.assertEqual(exchange.call_count, 2)

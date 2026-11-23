@@ -413,6 +413,7 @@ namespace WhiteDragon.Ledger
             var store = PlayerStore.Instance;
             long quote = staged.GetNegociatedValue();
             line["quote"] = quote;
+            line["price_source"] = "table_quote";
             line["budget_before"] = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull();
             if (buying)
             {
@@ -466,7 +467,7 @@ namespace WhiteDragon.Ledger
             string inbox = "sale-" + generation + ".json";
             if (completedOrder != null)
             {
-                Write("receipt-" + (string)completedOrder["command_id"] + ".json", completedOrder);
+                StoreCommandReceipt("sale", completedOrder);
                 ModHelper.DeleteModDataFile(ModId, inbox);
                 if (ModHelper.ModDataFileExists(ModId, "sale-progress-" + generation + ".json"))
                     ModHelper.DeleteModDataFile(ModId, "sale-progress-" + generation + ".json");
@@ -478,10 +479,10 @@ namespace WhiteDragon.Ledger
                 if (Time.realtimeSinceStartup < nextOrderPoll) return;
                 nextOrderPoll = Time.realtimeSinceStartup + 0.2f;
                 if (!ModHelper.ModDataFileExists(ModId, inbox)) return;
-                var request = JObject.Parse(ModHelper.ReadModDataFileText(ModId, inbox));
+                var request = ReadInbox(inbox);
+                if (request == null) return;
                 string command = (string)request["command_id"];
-                if (!Guid.TryParseExact(command,"N",out var valid) || command != valid.ToString("N") ||
-                    ModHelper.ModDataFileExists(ModId, "receipt-" + command + ".json"))
+                if (AlreadyHandled("sale", command, generation))
                 { ModHelper.DeleteModDataFile(ModId, inbox); return; }
                 order = request;
                 results = new JArray();

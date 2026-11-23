@@ -4,7 +4,8 @@ import re
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from command_transport import exchange, read_command_receipt
+from command_transport import exchange
+from receipt_store import replayed, read_command_receipt
 from scene import interrupted_shop_call
 from ledger import read_head
 
@@ -46,9 +47,9 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         request["machine_id"] = machine_id
 
     def read_receipt():
-        result = read_command_receipt(folder, command, generation)
-        if result is None:
-            return None
+        result = read_command_receipt(folder, command, generation, "move")
+        if result is None or result.get("reason") == "receipt_corrupt":
+            return result
         if (result["expected_revision"], result["item_id"], result["from"],
             result["requested_area"], result.get("machine_id"), result.get("visit")) != (
                 revision, item_id, source, destination, machine_id, visit):
@@ -57,7 +58,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
 
     previous = read_receipt()
     if previous is not None:
-        return previous
+        return replayed(previous)
     head = read_head(folder)
     verify_location = (
         head.get("move_location_protocol") == 1
@@ -78,7 +79,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         return {"status": "reload_updated_mod", "command_id": command}
     if counter_move and not idle_clear and not (verify_location and destination in {"inventory", "showcase"}) and head["phase"] != "OPEN":
         return {"status":"shop_closed", "command_id":command}
-    if not counter_move and not verify_location and head["phase"] not in ("CLOSED", "MORNING"):
+    if not counter_move and not verify_location and destination != "purifier" and head["phase"] not in ("CLOSED", "MORNING"):
         return {"status": "shop_open", "command_id": command}
     inbox = folder / f"move-{generation}.json"
     return exchange(folder, inbox, request, read_receipt, previous_command)

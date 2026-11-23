@@ -215,6 +215,9 @@ namespace WhiteDragon.Ledger
             int charge = Math.Max(0, DurabilityHelper.GetRealDurability(item));
             int maxCharge = Math.Max(0, DurabilityHelper.GetMaxDurability(item));
             row["charge_remaining"] = charge;
+            row["charge_source"] = "durability";
+            row["ul_per_charge"] = 100000;
+            row["charge_hint"] = "Portable purifier uses durability, rounded up per bottle. No battery slot.";
             if (maxCharge > 0) row["charge_max"] = maxCharge;
             row["liters_remaining"] = Math.Round(charge * 0.1, 1);
         }
@@ -227,10 +230,12 @@ namespace WhiteDragon.Ledger
             int volumeMl = empty ? 0 : ul / 1000;
             int capMl = Math.Max(0, WaterHelper.GetTotalCapacityML(item));
             row["water_container"] = true;
-            row["water_ml"] = volumeMl;
+            row["liquid_ml"] = volumeMl;
+            bool containsWater=HasWater(item);
+            row["water_ml"] = containsWater ? volumeMl : 0;
             if (capMl > 0) row["capacity_ml"] = capMl;
             row["empty"] = empty;
-            row["contains_water"] = !empty;
+            row["contains_water"] = containsWater;
         }
 
         private JArray PortablePurifierRows()

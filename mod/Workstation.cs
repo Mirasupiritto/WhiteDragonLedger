@@ -34,6 +34,7 @@ namespace WhiteDragon.Ledger
             }
             if (element is MachineryTabs tabs)
             {
+                leaf(tabs, path, role, label);
                 if (tabs.selected >= 0)
                     WalkVisible(tabs.GetPage(tabs.selected), path + "/tab" + tabs.selected, role, tabs.GetCaption(tabs.selected), leaf);
                 return;
@@ -75,6 +76,32 @@ namespace WhiteDragon.Ledger
                 }
                 row["items"] = items;
             }
+            else if (element is MachineryLabel heading)
+            {
+                row["type"]="text"; row["text"]=heading.GetText();
+            }
+            else if (element is MachineryRadioButton radio)
+            {
+                row["type"]="radio"; row["label"]=radio.text; row["selected"]=radio.isOn;
+                row["enabled"]=!radio.isDisabled && !read.Window.isLocked;
+            }
+            else if (element is MachinerySlider slider)
+            {
+                row["type"]="slider"; row["value"]=slider.value; row["min"]=slider.min; row["max"]=slider.max;
+                row["step"]=slider.step; row["enabled"]=!slider.isDisabled && !read.Window.isLocked;
+            }
+            else if (element is MachineryRangeSlider range)
+            {
+                row["type"]="range"; row["low"]=range.low; row["high"]=range.high; row["min"]=range.min; row["max"]=range.max;
+                row["step"]=range.step; row["enabled"]=!range.isDisabled && !read.Window.isLocked;
+            }
+            else if (element is MachineryTabs tabs)
+            {
+                row["type"]="tabs";
+                row["selected"]=tabs.selected;
+                row["pages"]=new JArray(Enumerable.Range(0,tabs.count).Select(i=>tabs.GetCaption(i)));
+                row["enabled"]=!read.Window.isLocked;
+            }
             else if (element is MachineryButton button)
             {
                 row["type"] = "button";
@@ -106,6 +133,10 @@ namespace WhiteDragon.Ledger
             DescribeMachine(owner,read,rows);
             read.View = new JObject { ["owner_id"]=LocalId(owner), ["save_id"]=owner.GetUniqueID(), ["name"]=owner.GetDisplayName(true),
                 ["title"]=read.Window.titleString, ["locked"]=read.Window.isLocked, ["controls"]=rows };
+            if (owner.identifier=="chem_finisher" && owner.IsTag("SELECTED_CHEM_ID_TAG"))
+                read.View["recipe_id"]=owner.GetTagReadonly("SELECTED_CHEM_ID_TAG").GetString();
+            if (owner.identifier=="heating_plate") read.View["heating"]=HeatingView(owner);
+            if (owner.IsTag("FILTER_CONTAINER_TAG")) read.View["pour_filter"]=FilterView(owner);
             return read;
         }
 
@@ -159,12 +190,16 @@ namespace WhiteDragon.Ledger
         private static IEnumerable<JToken> DecisionControls(WindowRead read)
         {
             // Progress can tick between observation and input. Slot contents, labels and availability matter to the action.
-            return ((JArray)read.View["controls"]).Where(row => (string)row["type"] != "progress");
+            return ((JArray)read.View["controls"]).Where(row => (string)row["type"] != "progress" && (string)row["type"] != "text");
         }
 
         private void PublishWindow(int id, WindowRead read, JObject receipt, WindowRead previous = null)
         {
-            read.Token = Guid.NewGuid().ToString("N");
+            workstations.TryGetValue(id,out var cached);
+            bool reusable=cached!=null && cached.Window==read.Window && JToken.DeepEquals(cached.View["location"],read.View["location"]) &&
+                JToken.DeepEquals(cached.View,read.View) &&
+                read.Controls.All(c=>cached.Controls.TryGetValue(c.Key,out var prev) && ReferenceEquals(prev,c.Value));
+            read.Token = reusable ? cached.Token : Guid.NewGuid().ToString("N");
             workstations[id] = read;
             receipt["window_token"] = read.Token;
             if (previous == null) receipt["window"] = read.View;
@@ -175,6 +210,13 @@ namespace WhiteDragon.Ledger
             }
         }
 
+        private bool CanInteractWithStock(GameItem owner) =>
+            phase == "OPEN" && GeneralHelper.IsItemEffectivelyOwned(owner) &&
+            (owner.parentInventory == EmporiumEntry.Instance.invElement || owner.parentInventory == EmporiumEntry.Instance.showcaseElement) &&
+            order == null && staged == null && stagedBundle.Count == 0 &&
+            PlayerStore.Instance.lockAllFlag == 0 && PlayerStore.Instance.lockAllInventoryFlag == 0 &&
+            !Interactable.isPaused && GenericConfirmationUIManager.Instance?.panel?.activeInHierarchy != true;
+
         private string WorkstationAction(JObject request, JObject receipt)
         {
             string action = (string)request["action"];
@@ -182,7 +224,12 @@ namespace WhiteDragon.Ledger
             bool archiveRequest = action == "inspect_archive" || action == "close_archive";
             GameItem owner;
             if (archiveRequest) owner = shop.dossier;
-            else if (!itemsById.TryGetValue((int)request["owner_id"], out owner)) return "owner_unavailable";
+            else if (!itemsById.TryGetValue((int)request["owner_id"], out owner))
+            {
+                receipt["reason"]="use_items_own_local_id";
+                receipt["hint"]="Use the item's id from query_inventory, including for an item in the main inventory.";
+                return "owner_unavailable";
+            }
             if (owner == null) return "owner_unavailable";
             bool inspecting = action == "inspect_window" || action == "inspect_archive";
             bool archive = owner == shop.dossier;
@@ -192,6 +239,14 @@ namespace WhiteDragon.Ledger
                 if (shop.docInvWindow == null || !shop.docInvWindow.IsVisible() || shop.docInvElement?.childItem != owner)
                     return "archive_unavailable";
                 receipt["fixture"] = "archive";
+            }
+            else if (inspecting && owner.contentWindow == null && shop.dossier?.contentWindow != null &&
+                shop.docInvElement?.childItem == shop.dossier && shop.docInvWindow.IsVisible() &&
+                shop.dossier.contentWindow.IsVisible() && !shop.dossier.contentWindow.isLocked &&
+                ReferenceEquals(owner.parentInventory, shop.dossier.contentWindow.childElement) && GeneralHelper.IsItemOwned(owner))
+            {
+                location = new JObject { ["area"]="archive", ["containers"]=new JArray(new JObject {
+                    ["owner_id"]=LocalId(shop.dossier), ["control"]="content" }) };
             }
             else
             {
@@ -209,11 +264,21 @@ namespace WhiteDragon.Ledger
             if (!window.IsVisible())
             {
                 workstations.Remove(id);
-                if (!inspecting || (bool?)request["open_if_closed"] != true) return "window_closed";
-                if (phase == "OPEN" || window.isLocked || (!archive && GeneralHelper.IsItemLocked(owner)) || Interactable.isPaused ||
+                if (!inspecting || (bool?)request["open_if_closed"] != true)
+                {
+                    receipt["next_tool"] = archive ? "inspect_archive" : "inspect_item_window";
+                    receipt["arguments"] = archive ? new JObject { ["mode"]="open" } :
+                        new JObject { ["owner_id"]=id, ["open_if_closed"]=true };
+                    return "window_closed";
+                }
+                if ((phase == "OPEN" && (archive || !CanInteractWithStock(owner))) || window.isLocked || (!archive && GeneralHelper.IsItemLocked(owner)) || Interactable.isPaused ||
                     ItemMouseDoubleClickHandler.current == null) return "opening_unavailable";
                 ItemMouseDoubleClickHandler.current.OpenContentAction(owner, (Vector2)Input.mousePosition);
-                if (!window.IsVisible()) return "window_closed";
+                if (!window.IsVisible())
+                {
+                    receipt["reason"]="native_open_did_not_show_window";
+                    return "window_closed";
+                }
             }
             var read = ReadWindow(owner);
             if (location != null) read.View["location"] = location;
@@ -224,7 +289,7 @@ namespace WhiteDragon.Ledger
                 PublishWindow(id, read, receipt, continueView ? prior : null);
                 return "observed";
             }
-            if (phase != "MORNING" && phase != "CLOSED") return "shop_open";
+            if (phase != "MORNING" && phase != "CLOSED" && (archive || !CanInteractWithStock(owner))) return "shop_open";
             if (window.isLocked || (!archive && GeneralHelper.IsItemLocked(owner)) || Interactable.isPaused) return "locked";
             if (action == "close_archive")
             {
@@ -236,18 +301,70 @@ namespace WhiteDragon.Ledger
             }
             string control = (string)request["control"];
             if (prior == null || prior.Token != (string)request["window_token"] ||
-                prior.Window != window || !JToken.DeepEquals(prior.View["location"],location) || !DecisionControls(prior).SequenceEqual(DecisionControls(read), JToken.EqualityComparer) ||
+                prior.Window != window || !JToken.DeepEquals(prior.View["location"],location) ||
+                !JToken.DeepEquals(prior.View["recipe_id"],read.View["recipe_id"]) || !DecisionControls(prior).SequenceEqual(DecisionControls(read), JToken.EqualityComparer) ||
                 !read.Controls.TryGetValue(control, out var element) || !prior.Controls.TryGetValue(control, out var old) ||
-                !ReferenceEquals(old, element)) return "window_changed";
+                !ReferenceEquals(old, element))
+            {
+                PublishWindow(id,read,receipt);
+                receipt["reason"]="refresh_controls_before_action";
+                return "window_changed";
+            }
             var row = (JObject)((JArray)read.View["controls"]).FirstOrDefault(r => (string)r["control"] == control);
+            if (request["quantity"]!=null && (action!="press_control" || !(element is MachineryButton) || request["tab_index"]!=null))
+                return "batch_unavailable";
             workstations.Remove(id);
             string status;
-            if (action == "press_control")
+            bool confirmationWasOpen=NativeItemPanels.ConfirmationOpen;
+            if (action=="adjust_control")
+            {
+                if ((string)row["type"]=="text")
+                {
+                    receipt["reason"]="read_only_text";
+                    if (owner.identifier=="heating_plate") receipt["heating"]=HeatingView(owner);
+                    return "read_only_control";
+                }
+                if ((bool?)row["enabled"]!=true) return "control_unavailable";
+                var values=request["values"] as JArray;
+                if (values==null || values.Any(v=>v.Type!=JTokenType.Integer && v.Type!=JTokenType.Float)) return "invalid_value";
+                if (element is MachinerySlider slider && values.Count==1 &&
+                    (double)values[0]>=slider.min && (double)values[0]<=slider.max)
+                {
+                    slider.SetValue((float)values[0],notify:true);
+                    slider.onReleased?.Invoke(slider.value);
+                    receipt["value"]=slider.value;
+                }
+                else if (element is MachineryRangeSlider range && values.Count==2 &&
+                    (double)values[0]>=range.min && (double)values[1]<=range.max && (double)values[0]<=(double)values[1])
+                {
+                    range.SetValues((float)values[0],(float)values[1],notify:true);
+                    range.onReleased?.Invoke(range.low,range.high);
+                    receipt["values"]=new JArray(range.low,range.high);
+                }
+                else return "invalid_value";
+                status="adjusted";
+            }
+            else if (action=="press_control" && element is MachineryRadioButton radio)
+            {
+                if ((bool?)row["enabled"]!=true || radio.text!=(string)request["label"]) return "button_unavailable";
+                status=radio.Select() ? "pressed" : "button_rejected";
+            }
+            else if (action=="press_control" && request["tab_index"]?.Type==JTokenType.Integer)
+            {
+                int index=(int)request["tab_index"];
+                if (!(element is MachineryTabs tabs) || index<0 || index>=tabs.count ||
+                    (string)request["label"]!=tabs.GetCaption(index)) return "tab_unavailable";
+                tabs.Select(index,notify:true);
+                receipt["selected"]=tabs.selected;
+                status=tabs.selected==index ? "tab_selected" : "tab_unconfirmed";
+            }
+            else if (action == "press_control")
             {
                 if (!(element is MachineryButton button) || (bool?)row["enabled"] != true ||
                     button.text != (string)request["label"]) return "button_unavailable";
                 receipt["label"] = button.text;
-                status = button.Select() ? "pressed" : "button_rejected";
+                status = request["quantity"]!=null ? ProduceBatch(owner,button,(int)request["quantity"],receipt) :
+                    button.Select() ? "pressed" : "button_rejected";
             }
             else
             {
@@ -256,6 +373,12 @@ namespace WhiteDragon.Ledger
                     status = TransferBatch(owner, storage, row, location, request, receipt);
                 else
                     status = TransferOne(owner, storage, row, location, (string)request["source"], (int)request["item_id"], receipt);
+            }
+            NativeItemPanels.CaptureConfirmation(confirmationWasOpen);
+            if ((action=="press_control" || action=="adjust_control") && NativeItemPanels.ActiveKey() is string activePanel)
+            {
+                receipt["next_tool"]="item_panel";
+                receipt["panel"]=activePanel;
             }
             FlushChanges();
             receipt["owner_id"] = id;

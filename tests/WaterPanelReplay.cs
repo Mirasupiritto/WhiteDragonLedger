@@ -32,6 +32,7 @@ namespace WhiteDragon.Ledger
             phase = "OPEN";
             var ui = WaterStripUIManager.Instance;
             var bottle = Item(961, "bottle", 2);
+            bottle.volume=200000;
             var other = Item(962, "bottle", 2);
             var strip = Item(963, "water_test_strip", 0);
             stripSupplies.Add(strip);

@@ -72,7 +72,7 @@ class ShopDeskReplay(unittest.TestCase):
             self.assertEqual(sell_order(self.folder, **dict(plan, lines=[dict(item_id=25, min_price=1)]))["status"], "stale_order")
             done = dict(waiting, status="finished", remaining_budget=62, items=[dict(item_id=25, received=40)])
             self.put(f"receipt-{token}.json", done)
-            self.assertEqual(sell_order(self.folder, **plan), done)
+            self.assertEqual(sell_order(self.folder, **plan), dict(done, replayed=True))
             send.assert_not_called()
 
     def test_morning_keeps_unknown_water_unknown(self):

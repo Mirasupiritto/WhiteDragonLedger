@@ -14,10 +14,10 @@ namespace WhiteDragon.Ledger
             {
                 string inbox = channel + "-" + generation + ".json";
                 if (!ModHelper.ModDataFileExists(ModId, inbox)) return false;
-                var request = JObject.Parse(ModHelper.ReadModDataFileText(ModId, inbox));
+                var request = ReadInbox(inbox);
+                if (request == null) return true;
                 string id = (string)request["command_id"];
-                string file = "receipt-" + id + ".json";
-                if (Guid.TryParseExact(id, "N", out var key) && id == key.ToString("N") && !ModHelper.ModDataFileExists(ModId, file))
+                if (!AlreadyHandled(channel, id, generation))
                 {
                     if (id != (string)lastReceipt?["command_id"])
                     {
@@ -25,7 +25,7 @@ namespace WhiteDragon.Ledger
                         try { lastReceipt["status"] = act(request, lastReceipt); }
                         catch (Exception error) { Debug.LogException(error); }
                     }
-                    Write(file, lastReceipt);
+                    StoreCommandReceipt(channel, lastReceipt);
                 }
                 ModHelper.DeleteModDataFile(ModId, inbox);
                 return true;

@@ -1,0 +1,101 @@
+using System;
+using System.Linq;
+using Newtonsoft.Json.Linq;
+
+namespace WhiteDragon.Ledger
+{
+    public sealed partial class InventoryObserver
+    {
+        private JObject HeatingView(GameItem machine)
+        {
+            var vessel=(MachineHelper.GetBodyStorage(machine,1) as GameSlotInventory)?.childItem;
+            int upgrades=MachineBlender.GetUpgradeCount(machine);
+            return new JObject { ["mode_index"]=machine.GetTagReadonly("HEATING_PLATE_STATE").GetInt(),
+                ["target_c"]=machine.GetTagReadonly("CURRENT_TARGET_TEMP").GetInt(),
+                ["current_c"]=vessel==null ? JValue.CreateNull() : new JValue(vessel.GetTagReadonly("CONTAINER_TEMP_TAG").GetDouble()),
+                ["vessel_id"]=vessel==null ? JValue.CreateNull() : new JValue(LocalId(vessel)),
+                ["upgrades"]=upgrades, ["target_adjustable"]=upgrades>=2,
+                ["target_hint"]=upgrades>=2 ? "Use the native minus/plus buttons (5 C per press)." :
+                    "Fixed target at this upgrade level. Target buttons unlock at upgrade 2." };
+        }
+
+        private JObject FilterView(GameItem vessel)
+        {
+            var filter=WaterHelper.GetFilterItem(vessel);
+            return new JObject { ["filter_id"]=filter==null ? JValue.CreateNull() : new JValue(LocalId(filter)),
+                ["direction"]="pour_into_this_container", ["next_tool"]=filter==null ? "transfer_slot_item" : "water_use" };
+        }
+
+        private void DescribeFilter(GameItem item,JObject receipt)
+        {
+            if (!item.IsTag("WATER_FILTER")) return;
+            var choices=new JArray();
+            foreach (var area in areas)
+                foreach (var vessel in area.Key.childItems)
+                    if (vessel.IsTag("FILTER_CONTAINER_TAG") && GeneralHelper.IsItemEffectivelyOwned(vessel))
+                        choices.Add(new JObject { ["id"]=LocalId(vessel), ["name"]=vessel.GetDisplayName(true), ["area"]=area.Value });
+            receipt["filter_route"]=new JObject { ["receivers"]=choices, ["receiver_tag"]="FILTER_CONTAINER_TAG",
+                ["hint"]="Open a compatible receiving vessel (e.g. water_pitcher), insert this filter in its slot, then pour the source liquid into the receiver using water_use preview/apply." };
+        }
+
+        private string ProduceBatch(GameItem machine, MachineryButton button, int quantity, JObject receipt)
+        {
+            if (quantity<1 || quantity>64 || machine.identifier!="chem_finisher" ||
+                button.text!=LocHelper.GetLocalizedMechanic("mech_chem_finisher_btn_output")) return "batch_unavailable";
+            var input=MachineHelper.GetBodyStorage(machine,1) as GameSlotInventory;
+            var output=MachineHelper.GetBodyStorage(machine,2) as GameGridInventory;
+            if (input==null || output==null) return "machine_changed";
+            string kind=machine.GetTagReadonly("SELECTED_CHEM_ID_TAG").GetString();
+            receipt["requested"]=quantity;
+            receipt["produced"]=0;
+            for (int i=0;i<quantity;i++)
+            {
+                if (!MachineChemFinisher.CanOutput(machine,input)) { receipt["reason"]="recipe_not_ready"; break; }
+                if (output.IsInsertLocked() || button.isDisabled) { receipt["reason"]="output_locked"; break; }
+                // With a partly filled grid, use a produced unit's footprint to prove there is room
+                // before the native callback consumes any more reagent.
+                if (output.childItems.Count>0)
+                {
+                    var sample=output.childItems.FirstOrDefault(x=>x.identifier==kind);
+                    var free=InventoryCapacity(output)["largest_free"];
+                    if (sample==null || (int)free["w"]<sample.modifiedShape.globalWidth || (int)free["h"]<sample.modifiedShape.globalHeight)
+                    { receipt["reason"]="clear_output_space"; break; }
+                }
+                int before=KindQuantity(output,kind);
+                if (!button.Select()) { receipt["reason"]="button_rejected"; break; }
+                int count=KindQuantity(output,kind)-before;
+                if (count!=1) { receipt["reason"]="output_unconfirmed"; break; }
+                receipt["produced"]=i+1;
+            }
+            return (int)receipt["produced"]==quantity ? "produced" : "batch_incomplete";
+        }
+
+        private string RequestSupplierQuote(JObject request,JObject receipt)
+        {
+            if (order!=null || staged!=null || stagedBundle.Count!=0 || CounterStage()!="ready" ||
+                !merchant.IsClientSelling() || merchant.isOfferWholesale || merchant.isRegularSellDisable)
+                return "quote_unavailable";
+            var shop=EmporiumEntry.Instance;
+            var front=shop.frontInvinvElement;
+            var table=shop.backInvinvElement;
+            int id=(int)request["item_id"];
+            if (!itemsById.TryGetValue(id,out var item) || GeneralHelper.IsItemOwned(item) || item.parentInventory!=front ||
+                !shop.GetAllNonOwnedItem().Contains(item)) return "offer_changed";
+            if (GeneralHelper.IsItemLocked(item) || table.childItems.Count!=0 || table.IsInsertLocked() || front.IsRemoveLocked() || !item.MayRemove())
+                return "counter_unavailable";
+            int units=item.unitCount;
+            ModHelper.MoveItemToBackCounter(item);
+            if (item.parentInventory!=table) return "placement_unconfirmed";
+            try
+            {
+                if (table.childItems.Count==1 && table.childItems[0]==item && item.unitCount==units)
+                    receipt["quote"]=new JObject { ["price"]=item.GetNegociatedValue(), ["side"]="buy", ["item_id"]=id, ["price_source"]="table_quote" };
+            }
+            finally { ModHelper.MoveItemToFrontCounter(item); }
+            receipt["item_id"]=id;
+            receipt["returned_to_front"]=item.parentInventory==front && item.unitCount==units;
+            if (!(bool)receipt["returned_to_front"]) return "return_unconfirmed";
+            return receipt["quote"] is JObject ? "quoted" : "quote_unavailable";
+        }
+    }
+}

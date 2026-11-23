@@ -43,7 +43,7 @@ class MoveMailbox(unittest.TestCase):
             self.assertEqual(self.request(), response)
         self.head["revision"] = 3
         self.publish_head()
-        self.assertEqual(self.request(), response)
+        self.assertEqual(self.request(), dict(response, replayed=True))
         self.assertFalse(self.inbox.exists())
         with self.assertRaises(ValueError):
             self.request(revision=3)
@@ -69,7 +69,7 @@ class MoveMailbox(unittest.TestCase):
             self.inbox.unlink()
         with patch("command_transport.time.sleep",side_effect=tick):
             settled = stage(visit)
-        self.assertEqual(stage(visit),settled)
+        self.assertEqual(stage(visit), dict(settled, replayed=True))
         self.assertEqual((settled["actual_area"],settled["load_scans"]),("back",1))
         with self.assertRaises(ValueError):
             stage("c"*32)
@@ -91,7 +91,7 @@ class MoveMailbox(unittest.TestCase):
             with patch("command_transport.time.sleep", side_effect=tick):
                 settled = move_item(self.folder, 16, "back", dest, self.generation, 2, cmd)
             self.assertEqual((settled["status"], settled["actual_area"]), ("moved", dest))
-            self.assertEqual(move_item(self.folder, 16, "back", dest, self.generation, 2, cmd), settled)
+            self.assertEqual(move_item(self.folder, 16, "back", dest, self.generation, 2, cmd), dict(settled, replayed=True))
             with self.assertRaises(ValueError):
                 move_item(self.folder, 16, "back", dest, self.generation, 2, cmd, visit="b"*32)
         for src, dst in (("back", "front"), ("inventory", "back"), ("showcase", "back")):

@@ -49,6 +49,22 @@ class LedgerReplay(unittest.TestCase):
         self.assertEqual(moved["items"][0]["id"], 7)
         self.assertEqual(len(self.read(area="inventory")["items"]), 1)
 
+    def test_bag_move_updates_one_row_and_unpack_clears_ancestry(self):
+        bag = dict(self.bottle, id=22, kind="fanny_pack")
+        part = dict(self.bottle, id=650, kind="part")
+        packed = dict(part, parent_id=22, container_path=[{"id":22,"name":"腰包"}], access="unpack_first")
+        self.event(1, op="baseline", items=[bag,part])
+        for rev, row in enumerate([part, packed, dict(packed, area="showcase"), part],1):
+            if rev > 1:
+                changes = [row, dict(bag, area="showcase")] if rev == 3 else [row]
+                self.event(rev, op="delta", upsert=changes, remove=[])
+            self.head(rev)
+            summary = self.read()
+            self.assertEqual(summary["load_scans"],1)
+            self.assertEqual(len(summary["items"]),2)
+            self.assertEqual(next(r for r in summary["items"] if r["id"]==650), row)
+            self.assertEqual(self.read()["applied_records"],0)
+
     def test_label_change_at_same_location(self):
         self.event(1, op="baseline", items=[dict(self.bottle, bottle_label="鐵鏽水")])
         self.head(1)

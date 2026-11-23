@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using Newtonsoft.Json.Linq;
 using TMPro;
 
@@ -9,11 +8,6 @@ namespace WhiteDragon.Ledger
 {
     public sealed partial class InventoryObserver
     {
-        private static readonly FieldInfo MultiBookIndexField = typeof(MultiPageUIManager).GetField("currentBookIndex",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-        private static readonly FieldInfo MultiPageField = typeof(MultiPageUIManager).GetField("currentPage",
-            BindingFlags.Instance | BindingFlags.NonPublic);
-
         private static bool IsBookOrGuide(GameItem item)
         {
             if (item == null) return false;
@@ -33,21 +27,81 @@ namespace WhiteDragon.Ledger
                 case "newspaper": document = ReadNewspaper(); break;
                 case "exchange_directive": document = ReadExchangeList(); break;
                 case "slip":
-                    document = new JObject { ["title"]=item.GetTagReadonly("SLIP_TITLE").GetString(),
-                        ["body"]=item.GetTagReadonly("SLIP_BODY").GetString() };
+                case "rev_codeword": document = TaggedPaper(item, "SLIP_TITLE", "SLIP_BODY"); break;
+                case "handnote": document = TaggedPaper(item, "HANDNOTE_TITLE", "HANDNOTE_BODY", "HANDNOTE_SIGN"); break;
+                case "sec_slip": document = TaggedPaper(item, "title", "body"); break;
+                case "tutorial_page": document = TaggedPaper(item, "TUTORIAL_PAGE_TITLE", "TUTORIAL_PAGE_BODY", "TUTORIAL_PAGE_SIGNATURE"); break;
+                case "procurement_slip":
+                    document = TaggedPaper(item, "PROCUREMENT_HEADER", "PROCUREMENT_ORDER_BODY");
+                    document["client"] = item.GetTagReadonly("PROCUREMENT_CLIENT_NAME").GetString();
+                    document["reward"] = item.GetTagReadonly("PROCUREMENT_FINAL_REWARD").GetInt();
+                    document["due_in_days"] = item.GetTagReadonly("PROCUREMENT_DAY").GetInt();
                     break;
-                case "handnote":
-                    document = new JObject { ["title"]=item.GetTagReadonly("HANDNOTE_TITLE").GetString(),
-                        ["body"]=item.GetTagReadonly("HANDNOTE_BODY").GetString(),
-                        ["signature"]=item.GetTagReadonly("HANDNOTE_SIGN").GetString() };
+                case "expedition_log":
+                    var entries = new JArray((item.GetTagReadonly("LOG_CONTENT_TAG").GetString() ?? "").Split(new[] { '/' })
+                        .Where(entry => !string.IsNullOrWhiteSpace(entry)));
+                    document = new JObject { ["source"]="expedition_log", ["lines"]=entries, ["readable"]=entries.Count > 0 };
+                    if (entries.Count == 0) document["reason"] = "empty_log";
+                    break;
+                case "loan_contract":
+                    var loan = LoanPanelUIManager.Instance;
+                    document = null;
+                    if (loan?.panel != null)
+                    {
+                        bool open = loan.panel.activeSelf;
+                        try
+                        {
+                            if (!open) loan.OpenUI();
+                            string body = VisibleText(loan.body);
+                            document = new JObject { ["source"]="loan_panel", ["body"]=body, ["readable"]=!string.IsNullOrWhiteSpace(body) };
+                            if (!(bool)document["readable"]) document["reason"] = "no_document_text";
+                        }
+                        finally { if (!open) loan.CloseUI(); }
+                    }
+                    break;
+                case "cert1": case "cert2": case "cert3": case "cert4":
+                    int rank = AppraisalRankHelper.GetRank();
+                    document = new JObject { ["source"]="appraisal_items", ["rank"]=rank, ["items"]=new JArray(
+                        AppraisalItemRegistry.GetUnlocked(rank).Select(type => new JObject {
+                            ["name"]=type.GetDisplayName(), ["allowed"]=!AppraisalItemRegistry.IsBlocked(type,rank)
+                        })) };
+                    break;
+                case "intel_sec":
+                    var record = PlayerStore.Instance.secData;
+                    document = record == null ? null : new JObject { ["source"]="security_record",
+                        ["note"]=record.note, ["officer"]=record.GetCaseOfficer(record.GetTotalCrimeValue()),
+                        ["suspected_crime"]=record.GetSuspectedCrimeDisplay(), ["action"]=record.GetAction(),
+                        ["operation"]=record.GetOperation(), ["evidence"]=record.GetEvidenceLevelDisplay(),
+                        ["projected_sentence"]=record.GetProjectedSentence() };
                     break;
                 default:
-                    if (!IsBookOrGuide(item)) return "no_content_window";
-                    document = ReadGuideOrBook(item, out var reason);
-                    if (document == null) return reason ?? "document_unavailable";
+                    string reason = null;
+                    if (item.IsTag(MiscItemDirectory.TUTORIAL_PAPER_TAG))
+                        document = TaggedPaper(item, "TUTORIAL_PAGE_TITLE", "TUTORIAL_PAGE_BODY", "TUTORIAL_PAGE_SIGNATURE");
+                    else if (item.IsTag("HANDNOTE_BODY"))
+                        document = TaggedPaper(item, "HANDNOTE_TITLE", "HANDNOTE_BODY", "HANDNOTE_SIGN");
+                    else if (item.IsTag("SLIP_BODY"))
+                        document = TaggedPaper(item, "SLIP_TITLE", "SLIP_BODY");
+                    else document = ReadGuideOrBook(item, out reason);
+                    if (document == null)
+                    {
+                        receipt["item_id"] = LocalId(item);
+                        receipt["name"] = item.GetDisplayName(true);
+                        receipt["reason"] = reason ?? "document_unavailable";
+                        if (item.IsTag(BookHelper.BOOK_ID)) receipt["book_id"] = item.GetTagReadonly(BookHelper.BOOK_ID)?.GetString();
+                        return (string)receipt["reason"];
+                    }
+                    if (item.IsTag(BookHelper.BOOK_ID)) document["book_id"] = item.GetTagReadonly(BookHelper.BOOK_ID)?.GetString();
                     break;
             }
-            if (document == null) return "document_unavailable";
+            if (document == null)
+            {
+                receipt["reason"] = "document_source_unavailable";
+                receipt["kind"] = item.identifier;
+                return "document_unavailable";
+            }
+            if (document["readable"] == null) document["readable"] = true;
+            if (document["title"] == null) document["title"] = item.GetDisplayName(true);
             int id = LocalId(item);
             var read = new WindowRead();
             read.View = new JObject { ["owner_id"]=id, ["save_id"]=item.GetUniqueID(), ["name"]=item.GetDisplayName(true),
@@ -125,8 +179,7 @@ namespace WhiteDragon.Ledger
         private static JObject ReadStoreBookData(string bookId)
         {
             if (string.IsNullOrEmpty(bookId)) return null;
-            var data = StoreBookData.GetBookById(bookId);
-            if (data == null) return null;
+            if (StoreBookData.bookDatas == null || !StoreBookData.bookDatas.TryGetValue(bookId, out var data)) return null;
             var pages = new JArray();
             int count = data.pageCount > 0 ? data.pageCount : Math.Max(data.subtitle?.Length ?? 0, data.body?.Length ?? 0);
             for (int i = 0; i < count; i++)
@@ -135,136 +188,17 @@ namespace WhiteDragon.Ledger
                 string body = data.body != null && i < data.body.Length ? data.body[i] : null;
                 pages.Add(new JObject { ["page"] = i + 1, ["subtitle"] = subtitle, ["body"] = body });
             }
-            return new JObject { ["title"] = data.title, ["book_id"] = bookId, ["readable"] = true, ["pages"] = pages };
+            bool readable = pages.Any(page => !string.IsNullOrWhiteSpace((string)page["body"]) || !string.IsNullOrWhiteSpace((string)page["subtitle"]));
+            var document = new JObject { ["source"]="book_table", ["title"]=data.title, ["book_id"]=bookId,
+                ["readable"]=readable, ["page_count"]=count, ["pages"]=pages };
+            if (!readable) document["reason"] = "missing_book_text";
+            return document;
         }
 
-        private static JArray ExtractTextLines(IEnumerable<TextMeshProUGUI> labels)
-        {
-            var lines = new JArray();
-            if (labels == null) return lines;
-            foreach (var label in labels)
-                if (label != null && !string.IsNullOrWhiteSpace(label.text))
-                    lines.Add(label.text.Trim());
-            return lines;
-        }
-
-        private static JObject UnreadableGuide(GameItem item, int pageCount) => new JObject {
-            ["title"] = item.GetDisplayName(true),
-            ["readable"] = false,
-            ["page_count"] = pageCount,
-            ["pages"] = new JArray(),
-            ["reason"] = "image_only_guide",
-            ["note"] = "此手冊頁面由遊戲內插圖構成，無可讀取的 TextMeshPro 文字元件。"
+        private static JObject MissingBookText(GameItem item, string bookId) => new JObject {
+            ["title"] = item.GetDisplayName(true), ["book_id"] = bookId, ["readable"] = false,
+            ["reason"] = "missing_book_text", ["note"] = "找不到這本手冊的正文資料。", ["pages"] = new JArray()
         };
 
-        private static JObject ReadGuideOrBook(GameItem item, out string unavailableReason)
-        {
-            unavailableReason = null;
-            if (item.IsTag(BookHelper.BOOK_ID))
-            {
-                string bookId = item.GetTagReadonly(BookHelper.BOOK_ID)?.GetString();
-                var bookDoc = ReadStoreBookData(bookId);
-                if (bookDoc != null) return bookDoc;
-            }
-            var multi = MultiPageUIManager.Instance;
-            var paper = PaperUIManager.Instance;
-            bool wasMultiOpen = multi != null && multi.panel != null && (multi.panel.activeInHierarchy || multi.panel.activeSelf);
-            bool wasPaperBookOpen = paper != null && paper.bookPanel != null && (paper.bookPanel.activeInHierarchy || paper.bookPanel.activeSelf);
-            var paperGuidePanels = paper == null ? null : new[] {
-                paper.foodStampGuidePanel, paper.augIdGuide, paper.cigaretteGuidePanel,
-                paper.cigaretteColorPanel, paper.injectorGuidePanel, paper.codeBookPanel
-            };
-            bool wasPaperGuideOpen = paperGuidePanels != null &&
-                paperGuidePanels.Any(p => p != null && (p.activeInHierarchy || p.activeSelf));
-            bool openedByInspect = false;
-            try
-            {
-                if (!wasMultiOpen && !wasPaperBookOpen && !wasPaperGuideOpen)
-                {
-                    if (!item.MayActivateSlotItem() || !item.CanActivateSlotItem())
-                    {
-                        unavailableReason = "document_locked";
-                        return null;
-                    }
-                    item.ActivateSlotItem();
-                    openedByInspect = true;
-                }
-                if (multi != null && multi.panel != null && (multi.panel.activeInHierarchy || multi.panel.activeSelf))
-                {
-                    int bookIndex = MultiBookIndexField != null ? (int)MultiBookIndexField.GetValue(multi) : 0;
-                    if (multi.books != null && bookIndex >= 0 && bookIndex < multi.books.Count && multi.books[bookIndex] != null)
-                    {
-                        var bookRoot = multi.books[bookIndex];
-                        var pages = new JArray();
-                        if (!wasMultiOpen)
-                        {
-                            int lastPage = MultiPageField != null ? (int)MultiPageField.GetValue(multi) : 0;
-                            for (int guard = 0; guard < 32; guard++)
-                            {
-                                var lines = ExtractTextLines(bookRoot.GetComponentsInChildren<TextMeshProUGUI>(false));
-                                if (lines.Count > 0)
-                                    pages.Add(new JObject { ["page"] = lastPage + 1, ["lines"] = lines });
-                                multi.FlipRightClicked();
-                                int nextPage = MultiPageField != null ? (int)MultiPageField.GetValue(multi) : lastPage;
-                                if (nextPage == lastPage) break;
-                                lastPage = nextPage;
-                            }
-                        }
-                        if (pages.Count == 0)
-                        {
-                            var allLines = ExtractTextLines(bookRoot.GetComponentsInChildren<TextMeshProUGUI>(true));
-                            if (allLines.Count > 0)
-                                pages.Add(new JObject { ["page"] = 1, ["lines"] = allLines });
-                        }
-                        return pages.Count > 0
-                            ? new JObject { ["title"] = item.GetDisplayName(true), ["readable"] = true, ["pages"] = pages }
-                            : UnreadableGuide(item, 0);
-                    }
-                }
-                if (paper != null && paper.bookPanel != null && (paper.bookPanel.activeInHierarchy || paper.bookPanel.activeSelf))
-                {
-                    if (PaperUIManager.currentBook != null && PaperUIManager.currentBook.IsTag(BookHelper.BOOK_ID))
-                    {
-                        var bookDoc = ReadStoreBookData(PaperUIManager.currentBook.GetTagReadonly(BookHelper.BOOK_ID)?.GetString());
-                        if (bookDoc != null) return bookDoc;
-                    }
-                    var page = new JObject {
-                        ["page"] = Math.Max(1, paper.bookCurrentPage),
-                        ["subtitle"] = paper.bookSubtitle?.text,
-                        ["body"] = paper.bookBody?.text
-                    };
-                    bool hasText = !string.IsNullOrWhiteSpace((string)page["subtitle"]) || !string.IsNullOrWhiteSpace((string)page["body"]);
-                    return hasText
-                        ? new JObject { ["title"] = !string.IsNullOrWhiteSpace(paper.bookTitle?.text) ? paper.bookTitle.text : item.GetDisplayName(true),
-                            ["readable"] = true, ["pages"] = new JArray { page } }
-                        : UnreadableGuide(item, 1);
-                }
-                if (paperGuidePanels != null)
-                {
-                    foreach (var panel in paperGuidePanels)
-                    {
-                        if (panel == null || (!panel.activeInHierarchy && !panel.activeSelf)) continue;
-                        var lines = ExtractTextLines(panel.GetComponentsInChildren<TextMeshProUGUI>(true));
-                        return lines.Count > 0
-                            ? new JObject { ["title"] = item.GetDisplayName(true), ["readable"] = true,
-                                ["pages"] = new JArray { new JObject { ["page"] = 1, ["lines"] = lines } } }
-                            : UnreadableGuide(item, 1);
-                    }
-                }
-                unavailableReason = "document_unavailable";
-                return null;
-            }
-            finally
-            {
-                if (openedByInspect)
-                {
-                    if (!wasMultiOpen && multi != null && multi.panel != null && (multi.panel.activeInHierarchy || multi.panel.activeSelf))
-                        multi.CloseUI();
-                    if (!wasPaperBookOpen && paper != null && paper.bookPanel != null && (paper.bookPanel.activeInHierarchy || paper.bookPanel.activeSelf))
-                        paper.CloseBook();
-                    if (!wasPaperGuideOpen && paper != null) paper.CloseAllPaperUI();
-                }
-            }
-        }
     }
 }
