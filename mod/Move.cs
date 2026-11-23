@@ -65,8 +65,12 @@ namespace WhiteDragon.Ledger
             int id = (int)request["item_id"];
             string source = (string)request["source"], destination = (string)request["destination"];
             itemsById.TryGetValue(id, out var item);
-            bool shelves = (source == "inventory" && destination == "showcase") || (source == "showcase" && destination == "inventory");
-            if (shelves && (int)request["revision"] <= sequence && item?.parentInventory != null && GeneralHelper.IsItemOwned(item) &&
+            bool validArea = source == "inventory" || source == "showcase" || source == "front" || source == "back";
+            bool allowAlreadyAtDest = destination == "inventory" || destination == "showcase" ||
+                (destination == "back" && request["visit"] != null && (string)request["visit"] == visitId);
+            if (validArea && allowAlreadyAtDest && source != destination && (int)request["revision"] <= sequence &&
+                item?.parentInventory != null &&
+                (GeneralHelper.IsItemOwned(item) || (source == "front" && destination == "back")) &&
                 areas.TryGetValue(item.parentInventory, out var current) && current == destination)
             {
                 var settled = Receipt(request, "already_in_destination");
@@ -94,6 +98,13 @@ namespace WhiteDragon.Ledger
                 if (container == null) return Receipt(request, "machine_changed");
                 if (loading)
                 {
+                    if (container.childItem == item && item.parentInventory == container)
+                    {
+                        var settled = Receipt(request, "already_in_destination");
+                        settled["actual_area"] = "purifier";
+                        settled["quantity"] = item.unitCount;
+                        return settled;
+                    }
                     if (container.childItem != null) return Receipt(request, "purifier_occupied");
                     if (!areas.TryGetValue(item.parentInventory, out var area) || area != source)
                         return Receipt(request, "source_changed");

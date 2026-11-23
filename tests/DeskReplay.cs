@@ -134,6 +134,7 @@ namespace WhiteDragon.Ledger {
         public long GetNegociatedValue() => price;
         public long GetCurrentValue(bool useRetailMarkup = false, bool withChild = true, bool includeEvents = true, bool forceMarkup = false, long extraMarketMod = 0L) => price;
         public long GetBaseValue() => price;
+        public List<string> GetGameItemType() => new List<string> { identifier ?? "misc" };
         public bool IsTag(string key) => (key=="LIQUID_CONTAINER_TAG" && identifier=="bottle") || waterTags.Contains(key);
         public GameItem GetTagReadonly(string key) => scratchTagReader == null ? this : scratchTagReader(key);
         public int GetInt() => associatedId;
@@ -678,7 +679,12 @@ namespace WhiteDragon.Ledger {
             Expect((string)receipt["customer"]=="喬治奧" && (int)receipt["waiting"]==waiting,"dismiss identifies guest and remaining queue");
             Expect(!observedVariety,"dismissal clears the previous visitor's variety rule");
             // The new arrival has the same display name. Only the visit identity is authoritative.
-            Expect(ActAtCounter(req,receipt)=="visit_changed" && store.currentClientInstance!=null,"old visit cannot dismiss new arrival");
+            Expect(ActAtCounter(req,receipt)=="customer_replaced" && store.currentClientInstance!=null,"old visit cannot dismiss new arrival");
+            var savedForLeft = store.currentClientInstance;
+            store.currentClientInstance = null;
+            Expect(ActAtCounter(req,receipt)=="customer_left", "dismiss reports customer_left when client is gone");
+            store.currentClientInstance = savedForLeft;
+            ObserveVisit();
             req["visit"]=visitId;
             req["revision"]=sequence+1;
             Expect(ActAtCounter(req,receipt)=="stale_observation" && store.currentClientInstance!=null,"future revision rejected");

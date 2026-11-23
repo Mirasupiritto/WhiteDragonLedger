@@ -108,3 +108,35 @@ class TrashLedger(unittest.TestCase):
             self.assertEqual(reply["status"], "awaiting_report")
             self.assertEqual(reply["day_after"], 3)
             self.assertEqual(reply["night_report"]["status"], "awaiting_report")
+
+    def test_get_shop_status_section_cache_and_verbose(self):
+        from mcp.server.fastmcp import FastMCP
+        from shop_day import register_day_tools
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            folder = Path(temp)
+            server = FastMCP("replay")
+            register_day_tools(server, folder, folder / "account.sqlite")
+            gen = "a" * 32
+            cal = {"day": 10, "due_day": 14, "amount": 100}
+            tr = {"status": "unavailable", "stacks": 0}
+            sl = {"service_cost": 0, "available": False}
+            sample = dict(status="observed", slot=4, generation=gen, revision=2, phase="OPEN", day=10,
+                          cash=120, calendar=cal, trash=tr, sleep=sl, night_report={"status": "ready", "day": 10})
+            with patch("shop_day.shop_status", return_value=sample), patch("shop_day.trash_contents", return_value=tr):
+                first = json.loads(asyncio.run(server.call_tool("get_shop_status", {}))[0].text)
+                second = json.loads(asyncio.run(server.call_tool("get_shop_status", {}))[0].text)
+                full = json.loads(asyncio.run(server.call_tool("get_shop_status", {"verbose": True}))[0].text)
+            self.assertEqual(first["calendar"], cal)
+            self.assertEqual(first["trash"], tr)
+            self.assertEqual(first["sleep"], sl)
+            self.assertNotIn("calendar", second)
+            self.assertNotIn("trash", second)
+            self.assertNotIn("sleep", second)
+            self.assertEqual(second["unchanged_sections"], ["calendar", "trash", "sleep"])
+            self.assertEqual((full["calendar"], full["trash"], full["sleep"]), (cal, tr, sl))
+            updated_tr = {"status": "unavailable", "stacks": 1}
+            with patch("shop_day.shop_status", return_value=sample), patch("shop_day.trash_contents", return_value=updated_tr):
+                third = json.loads(asyncio.run(server.call_tool("get_shop_status", {}))[0].text)
+            self.assertEqual(third["trash"], updated_tr)
+            self.assertNotIn("calendar", third)
+            self.assertEqual(third["unchanged_sections"], ["calendar", "sleep"])

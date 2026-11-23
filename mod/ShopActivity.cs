@@ -60,7 +60,7 @@ namespace WhiteDragon.Ledger
                     AdvCalendarUIManager.Instance.CloseUI();
                     return "close_requested";
             }
-            if (visitId == null || (string)request["visit"] != visitId) return "visit_changed";
+            if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);
             switch (action)
             {
                 case "equip":

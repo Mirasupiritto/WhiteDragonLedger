@@ -71,7 +71,7 @@ namespace WhiteDragon.Ledger
             request["page"]=responses["page"];
             request["choice_id"]=responses["response_choices"][0]["id"];
             store.currentClientInstance=new StoreClientInstance();
-            Expect(ActAtCounter(request,reply)=="visit_changed" && paper.responseClicks==0,"changed visit");
+            Expect(ActAtCounter(request,reply)=="customer_replaced" && paper.responseClicks==0,"changed visit reports customer_replaced");
             request["visit"]=visitId;
             request["page"]=CounterView()["page"];
             shop.responseWindow.visible=false;

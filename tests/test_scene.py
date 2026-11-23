@@ -45,7 +45,7 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(inbox.exists())
                 self.assertFalse((folder / "ledger.sqlite").exists())
 
-    async def test_dynamic_list_cached_calls_and_arrival(self):
+    async def test_permanent_tool_list_scene_gating_and_arrival(self):
         changes = asyncio.Queue()
 
         async def handle(message):
@@ -67,39 +67,38 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 "--journal", temp, "--database", str(database)])
             async with stdio_client(server) as streams, ClientSession(*streams, message_handler=handle) as client:
                 init = await client.initialize()
-                self.assertTrue(init.capabilities.tools.listChanged)
-                tools = {t.name for t in (await client.list_tools()).tools}
-                self.assertIn("get_shop_ledger", tools)
-                self.assertIn("dismiss_trade_ticket", tools)
-                self.assertIn("water_use", tools)
-                self.assertIn("dismiss_customer", tools)
-                self.assertIn("water_panel", tools)
-                self.assertIn("pay_info_receipt", tools)
-                self.assertIn("barter_offer", tools)
-                self.assertIn("get_phone_contacts", tools)
-                self.assertIn("query_inventory", tools)
-                self.assertIn("find_stock", tools)
-                self.assertIn("list_stock_tags", tools)
-                self.assertIn("get_stock_items", tools)
-                self.assertNotIn("get_travel_options", tools)
-                common = {"get_scene", "wait_for_scene"}
-                options = {"destinations": [{"id": "forest", "available": True}], "selected_id": None}
-                publish(2, "selecting_destination", "pawnshop", travel_options=options)
-                await asyncio.wait_for(changes.get(), 4)
-                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common | {"get_travel_options", "travel_menu"})
+                self.assertFalse(bool(init.capabilities.tools and init.capabilities.tools.listChanged))
+                listed = (await client.list_tools()).tools
+                tools = {t.name for t in listed}
+                wait_tool = next(t for t in listed if t.name == "wait_for_scene")
+                self.assertEqual(wait_tool.inputSchema["properties"]["timeout"]["maximum"], 60)
+                for expected in (
+                    "get_scene", "wait_for_scene", "get_shop_ledger", "dismiss_trade_ticket",
+                    "water_use", "fill_and_purify_bottles", "dismiss_customer", "next_customer",
+                    "finish_customer", "water_panel", "pay_info_receipt", "barter_offer",
+                    "get_phone_contacts", "query_inventory", "find_stock", "list_stock_tags",
+                    "get_stock_items", "get_travel_options", "travel_menu", "explore",
+                    "get_specializations", "choose_specialization", "starting_perks", "starting_difficulty",
+                ):
+                    self.assertIn(expected, tools)
+
                 async def read(name, **args):
                     result = await client.call_tool(name, args)
                     self.assertFalse(result.isError, result.content)
                     return json.loads(result.content[0].text)
+
+                self.assertEqual((await read("explore", mode="read"))["tool_status"], "unavailable_in_scene")
+                options = {"destinations": [{"id": "forest", "available": True}], "selected_id": None}
+                publish(2, "selecting_destination", "pawnshop", travel_options=options)
+                self.assertEqual({t.name for t in (await client.list_tools()).tools}, tools)
                 self.assertEqual((await read("get_travel_options"))["options"], options)
                 self.assertNotIn("travel_options", await read("get_scene"))
                 self.assertEqual((await read("query_inventory"))["tool_status"], "unavailable_in_scene")
                 self.assertEqual((await read("find_stock", owned=True))["tool_status"], "unavailable_in_scene")
                 self.assertEqual((await read("wait_for_scene", session="test", after_revision=1, timeout=0))["wait_result"], "timeout")
                 publish(3, "transitioning", "pawnshop")
-                await asyncio.wait_for(changes.get(), 4)
                 self.assertEqual((await read("get_travel_options"))["tool_status"], "unavailable_in_scene")
-                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common)
+                self.assertEqual({t.name for t in (await client.list_tools()).tools}, tools)
                 waiter = asyncio.create_task(client.call_tool("wait_for_scene", {"session":"test", "after_revision":2}))
                 publish(4, "ready", "dumping_ground")
                 arrival = await waiter
@@ -112,28 +111,26 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(reply.isError, reply.content)
                     self.assertEqual(json.loads(reply.content[0].text)["tool_status"], "unavailable_in_scene")
                 self.assertFalse(database.exists())
-                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common | {"explore"})
                 publish(5, "ready", "pawnshop")
-                await asyncio.wait_for(changes.get(), 4)
-                self.assertEqual({t.name for t in (await client.list_tools()).tools}, tools)
                 publish(6, "selecting_specialization", None)
-                await asyncio.wait_for(changes.get(), 4)
-                self.assertEqual({t.name for t in (await client.list_tools()).tools},
-                                 common | {"get_specializations", "choose_specialization"})
                 self.assertEqual((await read("query_inventory"))["tool_status"], "unavailable_in_scene")
                 publish(7, "selecting_perks", None)
-                await asyncio.wait_for(changes.get(), 4)
-                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common | {"starting_perks"})
                 self.assertEqual((await read("get_specializations"))["tool_status"], "unavailable_in_scene")
                 publish(8, "selecting_difficulty", None)
-                await asyncio.wait_for(changes.get(), 4)
-                self.assertEqual({t.name for t in (await client.list_tools()).tools}, common | {"starting_difficulty"})
                 self.assertEqual((await read("starting_perks"))["tool_status"], "unavailable_in_scene")
                 publish(9, "waiting_for_load", None)
-                await asyncio.wait_for(changes.get(), 4)
-                self.assertEqual({t.name for t in (await client.list_tools()).tools},
-                                 common | {"get_shop_ledger", "dismiss_trade_ticket"})
                 self.assertEqual((await read("get_shop_ledger", slot=4))["open_tickets"], [])
+                # wait_for_scene must not emit repeated new_session while status=waiting_for_load
+                (folder / "scene.json").write_text(json.dumps(dict(
+                    session="reloading", status="waiting_for_load", location=None, revision=1)), encoding="utf-8")
+                self.assertEqual((await read("wait_for_scene", session="test", after_revision=9, timeout=0))["wait_result"], "timeout")
+                load_waiter = asyncio.create_task(client.call_tool("wait_for_scene", {"session": "test", "after_revision": 9, "timeout": 5}))
+                await asyncio.sleep(0.15)
+                (folder / "scene.json").write_text(json.dumps(dict(
+                    session="reloaded_sess", status="ready", location="pawnshop", revision=2)), encoding="utf-8")
+                settled = json.loads((await load_waiter).content[0].text)
+                self.assertEqual((settled["wait_result"], settled["session"]), ("new_session", "reloaded_sess"))
+                self.assertTrue(changes.empty())
 
     async def test_explore_abandon_ground_and_scratch_card_close(self):
         with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:

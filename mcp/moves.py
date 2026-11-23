@@ -59,8 +59,15 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     if previous is not None:
         return previous
     head = read_head(folder)
-    verify_location = (head.get("move_location_protocol") == 1 and {source, destination} == {"inventory", "showcase"}
-                       and revision < head["revision"])
+    verify_location = (
+        head.get("move_location_protocol") == 1
+        and revision < head["revision"]
+        and (
+            {source, destination} == {"inventory", "showcase"}
+            or (destination in {"inventory", "showcase"} and source in {"front", "back"})
+            or (destination == "back" and source in {"inventory", "showcase", "front"} and visit is not None)
+        )
+    )
     if head.get("generation") != generation or (head.get("revision") != revision and not verify_location):
         return {"status": "stale_observation", "command_id": command}
     if destination == "purifier" and head.get("purifier_put_protocol") != 1:
@@ -69,7 +76,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         return {"status": "reload_updated_mod", "command_id": command}
     if counter_move and head.get("counter_move_protocol") != 1:
         return {"status": "reload_updated_mod", "command_id": command}
-    if counter_move and not idle_clear and head["phase"] != "OPEN":
+    if counter_move and not idle_clear and not (verify_location and destination in {"inventory", "showcase"}) and head["phase"] != "OPEN":
         return {"status":"shop_closed", "command_id":command}
     if not counter_move and not verify_location and head["phase"] not in ("CLOSED", "MORNING"):
         return {"status": "shop_open", "command_id": command}
@@ -125,4 +132,6 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
         next_revision = result["revision"]
         result["moved_count"] += 1
         previous_command = command
+    if result["status"] == "moved" and result["moved_count"] == 0 and result.get("already_count"):
+        result["status"] = "already_in_destination"
     return result

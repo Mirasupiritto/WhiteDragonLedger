@@ -200,7 +200,8 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
         if context["generation"] != generation:
             stale_reason = "generation_changed"
         elif (context["customer"] or {}).get("visit") != visit:
-            stale_reason = "visit_changed"
+            current_visit = (context["customer"] or {}).get("visit")
+            stale_reason = "customer_left" if not current_visit else "customer_replaced"
         elif any(r.get("hazardous") for r in table_items):
             stale_reason = "nuclear_waste_on_counter"
         elif blocking:
@@ -209,6 +210,8 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
             stale_reason = "revision_changed"
         stale = {"status": "stale_order", "reason": stale_reason, "blocking_items": blocking,
                  "latest_revision": context["revision"]}
+        if stale_reason in {"customer_left", "customer_replaced"}:
+            stale["current_visit"] = (context["customer"] or {}).get("visit")
         if stale_reason == "nuclear_waste_on_counter":
             stale["guidance"] = NUCLEAR_WASTE_GUIDANCE
         return stale

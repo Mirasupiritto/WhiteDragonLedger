@@ -27,6 +27,28 @@ def phone_context(folder):
     return {**{key: view[key] for key in ("status", "generation", "revision", "slot", "phase")}, **view["phone"]}
 
 
+def visit_mismatch_status(current_visit, customer=None):
+    status = "customer_left" if not current_visit else "customer_replaced"
+    return {"status": status, "current_visit": current_visit, "customer": customer}
+
+
+def wait_choices_ready(folder, view, timeout=1.5):
+    if view.get("stage") != "choice_required" or "dialog_choices" not in view or view["dialog_choices"]:
+        return view
+    gen, visit = view.get("generation"), view.get("visit")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        time.sleep(0.05)
+        nxt = context(folder)
+        if nxt.get("status") != "observed":
+            return nxt
+        if nxt.get("generation") != gen or nxt.get("visit") != visit:
+            return nxt
+        if nxt.get("stage") != "choice_required" or nxt.get("dialog_choices"):
+            return nxt
+    return context(folder)
+
+
 def command(folder, action, generation, revision, *, database=None, **args):
     if not re.fullmatch("[0-9a-f]{32}", generation) or revision < 1:
         raise ValueError("Expected generation and revision from get_counter")
@@ -60,7 +82,7 @@ def command(folder, action, generation, revision, *, database=None, **args):
         if action != "advance" and view.get("dialogue_protocol") != 1:
             return {"status":"reload_updated_mod"}
         if view.get("visit") != args["visit"]:
-            return {"status":"visit_changed"}
+            return visit_mismatch_status(view.get("visit"), view.get("customer"))
         if view.get("page") != args["page"]:
             return {"status":"page_changed"}
     elif action in {"prepare_sleep","night_service"}:
@@ -110,13 +132,17 @@ def command(folder, action, generation, revision, *, database=None, **args):
         if "can_dismiss" not in view.get("reception", {}):
             return {"status": "reload_updated_mod"}
         if view.get("visit") != args["visit"] or not view.get("visit"):
-            return {"status":"visit_changed"}
+            return visit_mismatch_status(view.get("visit"), view.get("customer"))
         if view["revision"] >= revision and not view["reception"]["can_dismiss"]:
             reception = view["reception"]
             blockers = {
                 "reason": reception.get("reason", "dismiss_unavailable"),
                 "blocking_items": reception.get("blocking_items", []),
+                "visit": view.get("visit"),
+                "latest_revision": view["revision"],
             }
+            if "token" in reception:
+                blockers["reception_token"] = reception["token"]
             if "guidance" in reception:
                 blockers["guidance"] = reception["guidance"]
             return {"status": "dismiss_unavailable", **blockers}
@@ -124,7 +150,7 @@ def command(folder, action, generation, revision, *, database=None, **args):
         if view.get("barter_protocol") != 1:
             return {"status": "reload_updated_mod"}
         if view.get("visit") != args["visit"]:
-            return {"status": "visit_changed"}
+            return visit_mismatch_status(view.get("visit"), view.get("customer"))
         if view["stage"] != "barter":
             return {"status": view["stage"]}
     if action == "pay_info" and view.get("information_protocol") != 1:
@@ -157,11 +183,20 @@ def wait_opening(folder, generation, visit, timeout=25):
         view = context(folder)
         if view["status"] != "observed":
             return view
-        if view["generation"] != generation or view["visit"] != visit:
-            return {"status": "visit_changed"}
+        if view["generation"] != generation:
+            return {"status": "stale_observation"}
+        if view["visit"] != visit:
+            return visit_mismatch_status(view.get("visit"), view.get("customer"))
         stage = view["stage"]
         if stage not in {"arriving", "awaiting_opening", "speaking", "advance_required", "tablet_closed", "no_goods", "awaiting_information_receipt"}:
-            return strip_protocols(with_barter(folder, view))
+            ready_view = wait_choices_ready(folder, view)
+            if ready_view.get("status") != "observed":
+                return ready_view
+            if ready_view.get("generation") != generation:
+                return {"status": "stale_observation"}
+            if ready_view.get("visit") != visit:
+                return visit_mismatch_status(ready_view.get("visit"), ready_view.get("customer"))
+            return strip_protocols(with_barter(folder, ready_view))
         if time.monotonic() >= deadline:
             return strip_protocols({**view, "status": "still_waiting"})
         if stage in {"advance_required", "tablet_closed"}:
@@ -181,4 +216,11 @@ def ring(folder, generation, revision, waiting):
     if result["status"] != "called":
         return {**result, "bell_receipt": result}
     view = wait_opening(folder, generation, result["visit"])
-    return {**view, "bell_receipt": result}
+    opening_status = view.get("status")
+    status = "called" if opening_status in {"observed", "still_waiting"} else opening_status
+    merged = {**view, "status": status, "opening_status": opening_status, "bell_receipt": result}
+    if "reception_token" not in merged:
+        token = (merged.get("reception") or {}).get("token") or result.get("reception_token")
+        if token is not None:
+            merged["reception_token"] = token
+    return merged

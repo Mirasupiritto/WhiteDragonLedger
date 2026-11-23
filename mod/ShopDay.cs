@@ -382,10 +382,11 @@ namespace WhiteDragon.Ledger
             int cost = ServiceCost();
             reply["day_before"] = day;
             reply["service_cost"] = cost;
+            reply["bill_token"] = (string)NightBill()["bill_token"];
             if (cost != (int)request["service_cost"]) return "service_cost_changed";
             if (store.playerCash < cost) return "insufficient_cash";
             var summary = EndOfDayUIManager.Instance;
-            if (request["bill_token"] != null && ((string)NightBill()["bill_token"] != (string)request["bill_token"] ||
+            if (request["bill_token"] != null && ((string)reply["bill_token"] != (string)request["bill_token"] ||
                 summary == null || !summary.IsOpen)) return "bill_changed";
             if (!OpenBill(summary)) return "bedroll_unavailable";
             if (ServiceCost()!=cost) return "review_nightly_cost";

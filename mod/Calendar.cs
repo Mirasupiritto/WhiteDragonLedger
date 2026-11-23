@@ -60,7 +60,7 @@ namespace WhiteDragon.Ledger
                 foreach (var entry in manager.GetActiveEventOnDay(date, true, true))
                     names.Add(entry.GetDisplayName());
                 calendarDayReads++;
-                if (names.Count > 0) events.Add(new JObject { ["day"] = date, ["events"] = names });
+                if (date >= day && names.Count > 0) events.Add(new JObject { ["day"] = date, ["events"] = names });
             }
             scheduledEvents = events;
             calendarDay = day;
@@ -74,7 +74,7 @@ namespace WhiteDragon.Ledger
             var store = PlayerStore.Instance;
             string weekday = StoreUIManager.Instance.storeCalendar.GetDayOfWeek();
             RefreshCalendar(day, weekday);
-            int daysLeft = store.GetRentDayCounter();
+            int daysLeft = System.Math.Max(0, store.dayUntilRent);
             string type = store.IsPropertyPaid ? "paid_off" : store.isPayingMortgage ? "mortgage" : "rent";
             int amount = type == "rent" ? store.GetRentValue() : type == "mortgage" ? store.mortgageWeeklyPayment : 0;
             return new JObject { ["day"]=day, ["weekday"]=weekday, ["period_days"]=PlayerStore.DAY_IN_WEEK,

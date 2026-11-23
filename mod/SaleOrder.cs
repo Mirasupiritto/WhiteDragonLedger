@@ -33,6 +33,7 @@ namespace WhiteDragon.Ledger
             completedOrder = new JObject { ["command_id"] = (string)order["command_id"], ["generation"] = generation,
                 ["status"] = status, ["slot"] = slot, ["revision"] = sequence, ["visit"] = (string)order["visit"],
                 ["load_scans"] = loadScans, ["items"] = results,
+                ["reception_token"] = ReceptionView()["token"],
                 ["remaining_budget"] = merchant != null && visitId == (string)order["visit"] && merchant.useClientBudget
                     ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
             AttachReceiptIdentityChanges(completedOrder);

@@ -124,7 +124,8 @@ namespace WhiteDragon.Ledger
             foreach (var item in offered)
             {
                 var row = new JObject { ["id"] = LocalId(item), ["name"] = item.GetDisplayName(true),
-                    ["kind"] = item.identifier, ["quantity"] = item.unitCount };
+                    ["kind"] = item.identifier, ["quantity"] = item.unitCount,
+                    ["categories"] = new JArray(item.GetGameItemType()), ["price"] = item.GetNegociatedValue() };
                 if (BottleLabel(item) is string label)
                 {
                     row["bottle_label"] = label;
@@ -185,7 +186,10 @@ namespace WhiteDragon.Ledger
                 if (opened)
                 {
                     FileCounterPapers(receipt);
-                    receipt["waiting"] = PlayerStore.Instance.GetClientInQueueCount();
+                    var rec = ReceptionView();
+                    receipt["reception"] = rec;
+                    receipt["reception_token"] = rec["token"];
+                    receipt["waiting"] = rec["waiting"];
                 }
                 return opened ? "opened" : "open_unconfirmed";
             }
@@ -197,21 +201,33 @@ namespace WhiteDragon.Ledger
             if (action == "ring")
             {
                 string blocked = RingBlocker(store, (int)request["waiting"]);
-                if (blocked != null) return blocked;
+                if (blocked != null)
+                {
+                    var blockedRec = ReceptionView();
+                    receipt["reception"] = blockedRec;
+                    receipt["reception_token"] = blockedRec["token"];
+                    receipt["waiting"] = blockedRec["waiting"];
+                    if (visitId != null) receipt["visit"] = visitId;
+                    if (merchant != null) receipt["customer"] = merchant.displayName;
+                    return blocked;
+                }
                 var bell = UnityEngine.Object.FindObjectOfType<StoreBell>();
                 if (bell == null) return "bell_unavailable";
                 bell.RingBell();
                 ObserveVisit();
+                var after = ReceptionView();
+                receipt["reception"] = after;
+                receipt["reception_token"] = after["token"];
+                receipt["waiting"] = after["waiting"];
                 receipt["visit"] = visitId;
+                receipt["customer"] = merchant?.displayName;
+                receipt["stage"] = CounterStage();
                 return visitId == null ? "ring_unconfirmed" : "called";
             }
-            if (action == "advance") ObserveVisit();
+            ObserveVisit();
             if (action == "dismiss")
-            {
-                ObserveVisit();
                 receipt["revision_rechecked"] = recheckDismiss;
-            }
-            if (visitId == null || (string)request["visit"] != visitId) return "visit_changed";
+            if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);
             if (action == "pay_info") return PayInformationReceipt(request, receipt);
             if (action == "dismiss") return DismissCustomer(receipt);
             string stage = CounterStage();
@@ -220,6 +236,8 @@ namespace WhiteDragon.Ledger
                 if (stage != "advance_required") return stage;
                 if ((string)CounterView()["page"] != (string)request["page"]) return "page_changed";
                 DialogUIManager.Instance.OnAdvancePressed();
+                receipt["visit"] = visitId;
+                receipt["reception_token"] = ReceptionView()["token"];
                 return "advanced";
             }
             if (action == "tablet")
@@ -287,7 +305,13 @@ namespace WhiteDragon.Ledger
             FlushChanges();
             receipt["cash_after"] = store.playerCash;
             receipt["paid"] = before - store.playerCash;
-            receipt["items"] = view["offer"]["items"].DeepClone();
+            var boughtRows = (JArray)view["offer"]["items"].DeepClone();
+            for (int i = 0; i < items.Count && i < boughtRows.Count; i++)
+                if (items[i]?.parentInventory != null && areas.TryGetValue(items[i].parentInventory, out var finalArea))
+                    ((JObject)boughtRows[i])["actual_area"] = finalArea;
+            receipt["items"] = boughtRows;
+            receipt["visit"] = visitId;
+            receipt["reception_token"] = ReceptionView()["token"];
             return (long)receipt["paid"] == total && items.TrueForAll(GeneralHelper.IsItemOwned) ? "purchased" : "purchase_unconfirmed";
         }
 

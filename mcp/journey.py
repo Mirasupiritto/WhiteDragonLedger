@@ -29,10 +29,18 @@ def command(folder, tool, mode, session, revision, view_token, **args):
     def receipt():
         return read_command_receipt(folder, command_id, session)
 
-    previous = receipt()
-    if previous is not None:
-        return previous
-    if scene.get("session") != session or scene.get("revision") != revision or tool_region(scene) != REGIONS[tool]:
+    if re.fullmatch("[0-9a-f]{32}", session) and revision >= 1 and (reading or view_token):
+        previous = receipt()
+        if previous is not None:
+            return previous
+    if tool_region(scene) != REGIONS[tool]:
+        if (not reading and re.fullmatch("[0-9a-f]{32}", session)
+                and scene.get("session") == session and scene.get("revision") != revision):
+            return {"status": "scene_changed", "scene": scene}
+        return {**scene, "tool_status": "unavailable_in_scene"}
+    if not re.fullmatch("[0-9a-f]{32}", session) or revision < 1 or (not reading and not view_token):
+        return {"status": "observation_required"}
+    if scene.get("session") != session or scene.get("revision") != revision:
         return {"status": "scene_changed", "scene": scene}
     if scene.get("journey_protocol") != 1:
         return {"status": "reload_updated_mod"}

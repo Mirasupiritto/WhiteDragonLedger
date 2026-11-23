@@ -68,6 +68,7 @@ namespace WhiteDragon.Ledger
             {
                 receipt["cash_after"] = store.playerCash;
                 receipt["paid"] = (long)before - store.playerCash;
+                receipt["reception_token"] = ReceptionView()["token"];
             }
             return dealer.isBusinessComplete && (long)receipt["paid"] == informationPrice ?
                 "information_purchased" : "payment_unconfirmed";

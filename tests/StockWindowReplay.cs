@@ -55,7 +55,13 @@ namespace WhiteDragon.Ledger
             Expect((string)Move("front","back")["status"]=="table_occupied","occupied table");
             other.To(shop.invElement);
             req["visit"]="previous";
-            Expect((string)Move("front","back")["status"]=="visit_changed","wrong customer");
+            Expect((string)Move("front","back")["status"]=="customer_replaced","wrong customer reports customer_replaced");
+            var savedBeforeNull = store.currentClientInstance;
+            store.currentClientInstance = null;
+            ObserveVisit();
+            Expect((string)Move("front","back")["status"]=="customer_left","missing customer reports customer_left");
+            store.currentClientInstance = savedBeforeNull;
+            ObserveVisit();
             req["visit"]=visitId;
             Expect((string)Move("front","back")["status"]=="moved" && (string)Move("back","inventory")["status"]=="invalid_route" &&
                 (string)Move("back","front")["status"]=="moved" && !item.owned && store.playerCash==cash,"guest goods returned");
@@ -164,6 +170,11 @@ namespace WhiteDragon.Ledger
             Expect((string)ExecuteMove(shelve)["status"]=="stale_observation" && card.parentInventory==shop.invElement,"stale shelf request cannot move");
             card.To(shop.showcaseElement);
             Expect((string)ExecuteMove(shelve)["status"]=="already_in_destination","stale shelf request can confirm a location");
+            card.To(shop.invElement);
+            var frontCollect = new JObject { ["generation"]=generation, ["expires_ms"]=DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(),
+                ["item_id"]=LocalId(card), ["command_id"]="auto_filed_card", ["source"]="front", ["destination"]="inventory", ["revision"]=sequence-1 };
+            Expect((string)ExecuteMove(frontCollect)["status"]=="already_in_destination",
+                "auto-filed front item already in inventory confirms already_in_destination");
             phase="OPEN";
 
             var savedClient=store.currentClientInstance;

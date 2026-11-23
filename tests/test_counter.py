@@ -62,7 +62,9 @@ class CounterFlow(unittest.TestCase):
             def dismiss():
                 return counter.command(folder,"dismiss",self.generation,14,visit=self.visit)
             view["visit"]="c"*32
-            self.assertEqual(dismiss()["status"],"visit_changed")
+            self.assertEqual(dismiss()["status"],"customer_replaced")
+            view["visit"]=None
+            self.assertEqual(dismiss()["status"],"customer_left")
             view["visit"]=self.visit
             view["reception"]["can_dismiss"]=False
             self.assertEqual(dismiss()["status"],"dismiss_unavailable")
@@ -101,7 +103,7 @@ class CounterFlow(unittest.TestCase):
                 self.assertEqual(dismiss()["status"],"dismiss_unavailable")
                 view["visit"] = "c"*32
                 view["reception"]["can_dismiss"] = True
-                self.assertEqual(dismiss()["status"],"visit_changed")
+                self.assertEqual(dismiss()["status"],"customer_replaced")
                 self.assertEqual(len(attempts),1)
                 view["visit"] = self.visit
                 self.assertEqual(dismiss()["status"],"dismiss_unavailable")
@@ -215,12 +217,24 @@ class CounterFlow(unittest.TestCase):
     @patch("counter.command")
     @patch("counter.context")
     def test_ring_once_then_wait_for_observed_offer(self, context, command, sleep):
-        command.side_effect = [dict(status="called", visit=self.visit), dict(status="tablet_requested")]
+        command.side_effect = [dict(status="called", visit=self.visit, reception_token="rt1"), dict(status="tablet_requested")]
         offer = dict(total=9, items=[dict(id=12, quantity=1)])
         context.side_effect = [dict(self.view, stage="tablet_closed"), dict(self.view, stage="ready", offer=offer)]
         result = counter.ring(self.folder, self.generation, 2, 3)
+        self.assertEqual(result["status"], "called")
+        self.assertEqual(result["opening_status"], "observed")
+        self.assertEqual(result["reception_token"], "rt1")
         self.assertEqual(result["offer"], offer)
         self.assertEqual([call.args[1] for call in command.call_args_list], ["ring", "tablet"])
+
+    @patch("counter.command")
+    def test_ring_blocked_returns_uniform_bell_receipt_shape(self, command):
+        blocked = dict(status="occupied", visit=self.visit, waiting=2, reception_token="rt2")
+        command.return_value = blocked
+        result = counter.ring(self.folder, self.generation, 2, 2)
+        self.assertEqual(result["status"], "occupied")
+        self.assertEqual(result["bell_receipt"], blocked)
+        self.assertEqual(result["reception_token"], "rt2")
 
     @patch("counter.time.sleep")
     @patch("counter.command")
@@ -276,8 +290,20 @@ class CounterFlow(unittest.TestCase):
     @patch("counter.context")
     def test_wait_does_not_follow_different_visit(self, context, command):
         context.return_value = dict(self.view, visit="another", stage="ready")
-        self.assertEqual(counter.wait_opening(self.folder, self.generation, self.visit)["status"], "visit_changed")
+        self.assertEqual(counter.wait_opening(self.folder, self.generation, self.visit)["status"], "customer_replaced")
+        context.return_value = dict(self.view, visit=None, stage="idle")
+        self.assertEqual(counter.wait_opening(self.folder, self.generation, self.visit)["status"], "customer_left")
         command.assert_not_called()
+
+    @patch("counter.time.sleep")
+    @patch("counter.context")
+    def test_choice_required_waits_for_dialog_choices_before_returning(self, context, sleep):
+        empty = dict(self.view, stage="choice_required", dialog_choices=[])
+        populated = dict(self.view, stage="choice_required", dialog_choices=[dict(id=0, text="Yes", enabled=True)])
+        context.side_effect = [empty, empty, populated]
+        result = counter.wait_opening(self.folder, self.generation, self.visit)
+        self.assertEqual(result["stage"], "choice_required")
+        self.assertEqual(result["dialog_choices"], [dict(id=0, text="Yes", enabled=True)])
 
     @patch("counter.exchange")
     @patch("counter.context")
@@ -289,8 +315,75 @@ class CounterFlow(unittest.TestCase):
                          ("dismiss_unavailable", "dismiss_unavailable", []))
 
         blocker = [dict(id=5, kind="mug", area="back")]
-        view["reception"] = dict(can_dismiss=False, reason="order_in_progress", blocking_items=blocker)
+        view["reception"] = dict(can_dismiss=False, reason="order_in_progress", blocking_items=blocker, token="rt_block")
         detailed = counter.command(self.folder, "dismiss", self.generation, 2, visit=self.visit)
-        self.assertEqual((detailed["status"], detailed["reason"], detailed["blocking_items"]),
-                         ("dismiss_unavailable", "order_in_progress", blocker))
+        self.assertEqual((detailed["status"], detailed["reason"], detailed["blocking_items"], detailed["reception_token"]),
+                         ("dismiss_unavailable", "order_in_progress", blocker, "rt_block"))
         exchange.assert_not_called()
+
+    def test_new_water_and_customer_workflow_tools(self):
+        import asyncio
+        import json
+        import os
+        import tempfile
+        from mcp.server.fastmcp import FastMCP
+        from pawnshop_tools import register_pawnshop_tools
+
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as tmp:
+            folder = Path(tmp)
+            server = FastMCP("replay")
+            register_pawnshop_tools(server, folder, folder / "ledger.sqlite")
+
+            def call(name, **args):
+                res = asyncio.run(server.call_tool(name, args))
+                return json.loads(res[0].text)
+
+            with patch("counter.command", return_value={"status": "transferred", "water_ml": 500}) as cmd:
+                out = call("water_use", source_id=10, target_id="faucet", generation=self.generation,
+                           revision=2, mode="apply_now")
+            self.assertEqual(out["status"], "transferred")
+            self.assertEqual(cmd.call_args.kwargs["mode"], "apply_now")
+
+            seq = [
+                {"status": "transferred", "revision": 3, "water_ml": 500, "bottle_label": "dirty"},
+                {"status": "purifier_used", "revision": 4, "water_ml": 500, "bottle_label": "clean",
+                 "charge_used": 5, "charge_remaining": 15, "liters_remaining": 1.5},
+                {"status": "transferred", "revision": 5, "water_ml": 500, "bottle_label": "dirty"},
+                {"status": "purifier_used", "revision": 6, "water_ml": 500, "bottle_label": "clean",
+                 "charge_used": 5, "charge_remaining": 10, "liters_remaining": 1.0},
+            ]
+            with patch("counter.command", side_effect=seq), patch("counter.context", return_value={"status": "waiting_for_load"}):
+                batch = call("fill_and_purify_bottles", bottle_ids=[10, 11], purifier_id=20,
+                             generation=self.generation, revision=2)
+            self.assertEqual((batch["status"], batch["completed_count"], batch["failed_count"],
+                              batch["charge_remaining"], batch["liters_remaining"], batch["revision"]),
+                             ("completed", 2, 0, 10, 1.0, 6))
+            self.assertEqual(batch["items"][1]["status"], "filled_and_purified")
+
+            with (patch("counter.context", return_value=dict(self.view, stage="idle", visit=None, waiting=2)),
+                  patch("counter.ring", return_value={"status": "called", "visit": self.visit, "stage": "ready", "reception_token": "rt"})):
+                nxt = call("next_customer")
+            self.assertEqual((nxt["status"], nxt["visit"], nxt["reception_token"]), ("called", self.visit, "rt"))
+
+            with (patch("counter.context", return_value=dict(self.view, stage="speaking", visit=self.visit)),
+                  patch("counter.wait_opening", return_value=dict(self.view, stage="ready", reception={"token": "rt2"}))):
+                occupied = call("next_customer")
+            self.assertEqual((occupied["status"], occupied["already_at_counter"], occupied["reception_token"]),
+                             ("already_present", True, "rt2"))
+
+            with patch("counter.command", return_value={"status": "dismissed", "waiting": 1, "reception_token": "rt3"}):
+                fin = call("finish_customer", generation=self.generation, revision=6, visit=self.visit)
+            self.assertEqual((fin["status"], fin["reception_token"]), ("dismissed", "rt3"))
+
+            services = [{"id": f"svc_{i}", "title": f"Svc {i}", "tab": "water" if i < 5 else "security",
+                         "cost": 10, "unlocked": False, "ready": i % 2 == 0} for i in range(10)]
+            net_panel = {"status": "observed", "panel": {"services": services, "tabs": [{"id": "0", "label": "All"}],
+                         "cash": 50, "favor": 5, "panel_token": "pt1"}}
+            with (patch("counter.context", return_value=dict(self.view, wild_network_protocol=1, stage="wild_network", slot=4)),
+                  patch("counter.command", return_value=net_panel)):
+                compact_net = call("wild_network", mode="read")
+                full_net = call("wild_network", mode="read", verbose=True)
+            self.assertNotIn("services", compact_net["panel"])
+            self.assertEqual(compact_net["panel"]["service_summary"]["total_count"], 10)
+            self.assertEqual(compact_net["panel"]["service_summary"]["ready_count"], 5)
+            self.assertEqual(len(full_net["panel"]["services"]), 10)

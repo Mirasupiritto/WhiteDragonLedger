@@ -85,7 +85,7 @@ namespace WhiteDragon.Ledger
             Expect(ActAtCounter(request, result) == "payment_unavailable", "button disabled");
             button.button.enabled = true;
             request["visit"] = "previous";
-            Expect(ActAtCounter(request, result) == "visit_changed" && ui.paymentCalls == 0, "wrong dealer visit");
+            Expect(ActAtCounter(request, result) == "customer_replaced" && ui.paymentCalls == 0, "wrong dealer visit");
             request["visit"] = visitId;
             Expect(ActAtCounter(request, result) == "information_purchased" &&
                 (int)result["paid"] == 13 && (int)result["cash_after"] == 87, "confirmed debit");

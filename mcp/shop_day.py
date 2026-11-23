@@ -1,4 +1,5 @@
 """Shop calendar, nightly services and the current contents of the trash bin."""
+import copy
 import json
 import time
 
@@ -6,6 +7,35 @@ import counter
 from database import transaction
 from ledger import read_head
 from shopdesk import published
+
+
+class SectionCache:
+    """Remember calendar/trash/sleep snapshots per generation to suppress unchanged repeats."""
+
+    def __init__(self):
+        self._seen = {}
+
+    def filter(self, generation, payload, *, verbose=False):
+        if not generation or payload.get("status") != "observed":
+            return payload
+        state = self._seen.setdefault(generation, {})
+        if len(self._seen) > 4:
+            for old in [k for k in self._seen if k != generation]:
+                del self._seen[old]
+        out = dict(payload)
+        unchanged = []
+        for key in ("calendar", "trash", "sleep"):
+            if key not in out:
+                continue
+            val = out[key]
+            if verbose or key not in state or state[key] != val:
+                state[key] = copy.deepcopy(val)
+            else:
+                del out[key]
+                unchanged.append(key)
+        if unchanged and not verbose:
+            out["unchanged_sections"] = unchanged
+        return out
 
 
 def shop_status(folder):
@@ -45,13 +75,20 @@ def trash_contents(folder, database, view):
         return {**summary,"items":[dict(row) for row in rows]}
 
 
-def register_day_tools(server, folder, database):
+def register_day_tools(server, folder, database, section_cache=None):
+    cache = section_cache if section_cache is not None else getattr(server, "section_cache", None)
+    if cache is None:
+        cache = SectionCache()
+    server.section_cache = cache
+
     @server.tool()
-    def get_shop_status() -> dict:
-        """Current cash, calendar events, rent, trash contents, night report, shop appeal, status summary (including injury), nuclear_waste counts and sleep costs inside the pawnshop."""
+    def get_shop_status(verbose: bool = False) -> dict:
+        """Current cash, calendar events, rent, trash contents, night report, shop appeal, status summary (including injury), nuclear_waste counts and sleep costs inside the pawnshop.
+        Unchanged calendar/trash/sleep sections are omitted after the first read on this connection unless verbose=True."""
         view = shop_status(folder)
         if view["status"] == "observed":
             view["trash"] = trash_contents(folder, database, view)
+            view = cache.filter(view.get("generation"), view, verbose=verbose)
         return view
 
     @server.tool()

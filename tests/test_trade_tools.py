@@ -286,3 +286,41 @@ class TradeTools(unittest.TestCase):
         self.assertTrue(ctx["forced_choice"])
         self.assertEqual(ctx["forced_choice_reason"], "必收核廢料（1/3/5 桶）")
         self.assertEqual(ctx["table_items"][0]["kind"], "nuclear_waste")
+
+    def test_offer_summary_and_purchase_shop_update_dedup(self):
+        from scene_server import _slim_purchase_update
+        large_items = [
+            {"id": 100 + i, "name": f"Item {i}", "kind": "bottle" if i < 4 else "soap",
+             "categories": ["WATER"] if i < 4 else ["HOUSEHOLD_GOOD"], "quantity": 1, "price": 10}
+            for i in range(7)
+        ]
+        view = dict(
+            status="observed", slot=4, generation=self.generation, revision=5, phase="OPEN",
+            customer=dict(remaining=200),
+            counter=dict(
+                visit=self.visit, customer="供貨商", stage="ready", lines=["Bulk stock"], demand={}, quote=None,
+                offer={"visit": self.visit, "wholesale": True, "total": 70, "items": large_items},
+                offer_token="tok_bulk",
+                reception={"token": "rec_1"},
+            ),
+        )
+        ctx = trade_tools.context(view)
+        summarized = trade_tools.summarize_offer(ctx, verbose=False)
+        self.assertTrue(summarized["offer"]["summary_only"])
+        self.assertEqual((summarized["offer"]["item_count"], summarized["offer"]["total"], summarized["offer_token"]),
+                         (7, 70, "tok_bulk"))
+        self.assertEqual(len(summarized["offer"]["categories"]), 2)
+        self.assertEqual(trade_tools.summarize_offer(ctx, verbose=True)["offer"]["items"], large_items)
+
+        purchase_result = {"status": "purchased", "items": [{"id": 100}, {"id": 101}]}
+        dup_only = {"status": "observed", "mode": "delta", "revision": 6, "cursor": "c2",
+                    "upsert": [{"id": 100, "area": "inventory"}, {"id": 101, "area": "inventory"}],
+                    "remove": [], "fields": {}}
+        self.assertEqual(_slim_purchase_update("buy_merchant_batch", purchase_result, dup_only),
+                         {"status": "unchanged", "revision": 6, "cursor": "c2"})
+
+        with_side_effect = {"status": "observed", "mode": "delta", "revision": 7, "cursor": "c3",
+                            "upsert": [{"id": 100, "area": "inventory"}, {"id": 205, "area": "inventory"}],
+                            "remove": [], "fields": {}}
+        slimmed = _slim_purchase_update("buy_merchant_batch", purchase_result, with_side_effect)
+        self.assertEqual([r["id"] for r in slimmed["upsert"]], [205])

@@ -33,6 +33,7 @@ namespace WhiteDragon.Ledger
             foreach (var slot in frame.gridContent.GetComponentsInChildren<WildNetworkSlot>())
                 if (seen.Add(slot.id) && store.networkUpgrade.TryGetValue(slot.id, out var upgrade))
                     services.Add(new JObject { ["id"]=slot.id, ["title"]=upgrade.GetLocalizedTitle(),
+                        ["tab"]=NetworkUpgrade.GetTabLabel(upgrade.tab ?? ""), ["cost"]=upgrade.GetCost(),
                         ["unlocked"]=upgrade.IsUnlocked(), ["ready"]=upgrade.IsReady() });
 
             string selected = (string)NetworkSelectionField.GetValue(null);
@@ -46,7 +47,11 @@ namespace WhiteDragon.Ledger
             if (selected != null && services.Any(row => (string)row["id"] == selected))
             {
                 var upgrade = store.networkUpgrade[selected];
-                view["cost"] = upgrade.GetCost();
+                int cost = upgrade.GetCost();
+                int favorToSpend = System.Math.Min(cost, System.Math.Max(0, store.wildFavor));
+                view["cost"] = cost;
+                view["favor_to_spend"] = favorToSpend;
+                view["cash_to_pay"] = System.Math.Max(0, cost - favorToSpend);
                 view["can_buy"] = NativeButton.Enabled(frame.useButton) && upgrade.IsReady() && !upgrade.IsUnlocked();
             }
             if (observedNetworkFrame != frame || previousNetwork == null || !JToken.DeepEquals(previousNetwork, view))
@@ -122,7 +127,7 @@ namespace WhiteDragon.Ledger
                 // Grid children from the old tab are destroyed by Unity at the end of this frame.
                 string actual = tab ? NetworkTabField.GetValue(null).ToString() : (string)NetworkSelectionField.GetValue(null);
                 if (actual != id) return "selection_unconfirmed";
-                if (tab) return "tab_selected";
+                if (tab) { ReadNetwork(frame); receipt["panel_token"] = networkToken; return "tab_selected"; }
                 AttachNetworkSelection(frame, receipt);
                 return "service_selected";
             }

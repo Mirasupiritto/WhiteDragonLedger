@@ -19,7 +19,8 @@ namespace WhiteDragon.Ledger
             }
             else
             {
-                if (visitId == null || (string)request["visit"] != visitId) return Receipt(request,"visit_changed");
+                if (visitId == null || (string)request["visit"] != visitId)
+                    return Receipt(request, VisitMismatchStatus());
                 stage = CounterStage(true);
                 bool canCollect = collect && PlayerStore.Instance.isClientArrived && PlayerStore.Instance.lockAllInventoryFlag == 0 &&
                     !WildNetworkUI.IsOpen && ResponseInventory() == null;

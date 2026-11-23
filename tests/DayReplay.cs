@@ -51,12 +51,12 @@ namespace WhiteDragon.Ledger
     public partial class PlayerStore {
         public const int DAY_IN_WEEK = 7;
         public bool IsPropertyPaid,isPayingMortgage,isStampIntroduced;
-        public int mortgageWeeklyPayment=20,garbageLevel,baseStoreAttractiveness=25,projectorAttractivenessBonus;
+        public int mortgageWeeklyPayment=20,garbageLevel,baseStoreAttractiveness=25,projectorAttractivenessBonus,dayUntilRent=4,rentValue=100;
         public List<StoreService> storeService=new List<StoreService>();
         public List<string> nightLogs=new List<string>();
         public CommissaryData commissaryData=new CommissaryData();
         public List<StartingPerk> startingPerks=new List<StartingPerk>();
-        public int GetRentValue()=>100;
+        public int GetRentValue()=>rentValue;
         public int GetRentDayCounter()=>(7-StoreStation.Instance.dayCounter%7)%7;
         public int GetTrashAttPenalty()=>garbageLevel*5;
         public int GetCurrentStoreAttractiveness()=>Math.Max(0,baseStoreAttractiveness-GetTrashAttPenalty()+projectorAttractivenessBonus);
@@ -100,6 +100,20 @@ namespace WhiteDragon.Ledger
             ResetCalendar();
             Expect((int)DayView()["calendar"]["event_day_reads"] == 14, "new load resets native counts");
             Expect((int)day["calendar"]["days_until_due"]==4 && (int)day["calendar"]["due_day"]==14,"rent due");
+            // Past days are filtered out of scheduled_events; paying rent on due day moves next raised rent to day+7.
+            var spanning = new StoreEvent { IsKnown = true, startDay = 8, totalDuration = 5 };
+            manager.Activate(spanning);
+            var trimmedEvents = (JArray)DayView()["calendar"]["scheduled_events"];
+            Expect((int)trimmedEvents[0]["day"] == 10, "calendar trims past-day events before current day");
+            station.dayCounter = 14; store.dayUntilRent = 0; store.rentValue = 100;
+            var dueToday = DayView()["calendar"];
+            Expect((int)dueToday["due_day"] == 14 && (int)dueToday["days_until_due"] == 0 && (int)dueToday["amount"] == 100,
+                "rent due today uses dayUntilRent=0");
+            store.dayUntilRent = 7; store.rentValue = 110;
+            var afterPaid = DayView()["calendar"];
+            Expect((int)afterPaid["due_day"] == 21 && (int)afterPaid["days_until_due"] == 7 && (int)afterPaid["amount"] == 110,
+                "after paying rent on due day, next raised rent attaches to new due_day=21 instead of old 14");
+            station.dayCounter = 10; store.dayUntilRent = 4; store.rentValue = 100;
             var bin=EmporiumEntry.Instance.trashcanInvElement;
             var piece=Item(1378,"waste",0);
             piece.To(bin);bin.onSlotAddItemLateFunc(piece,bin,null);

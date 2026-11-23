@@ -98,7 +98,7 @@ namespace WhiteDragon.Ledger
         private string ActOnBarter(JObject request, JObject receipt)
         {
             ObserveVisit();
-            if (visitId == null || visitId != (string)request["visit"]) return "visit_changed";
+            if (visitId == null || visitId != (string)request["visit"]) return VisitMismatchStatus(receipt);
             string stage = CounterStage();
             if (stage != "barter") return stage;
             var offer = merchant.barterOffer;
@@ -130,6 +130,8 @@ namespace WhiteDragon.Ledger
             receipt["payment"] = lastBarterView["payment_on_counter"].DeepClone();
             submittedBarterVisit = visitId;
             NegociationUIManager.Instance.OnOfferAcceptClick();
+            receipt["visit"] = visitId;
+            receipt["reception_token"] = ReceptionView()["token"];
             return merchant.isBusinessComplete && rewards.All(GeneralHelper.IsItemOwned) ? "exchanged" : "exchange_unconfirmed";
         }
     }

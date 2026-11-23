@@ -69,6 +69,7 @@ namespace WhiteDragon.Ledger
             if ((int)request["day"] != day || sleepSubmittedDay == day) return "day_changed_or_pending";
             var bill = NightBill();
             receipt["bill"] = bill;
+            receipt["bill_token"] = billToken;
             if ((string)request["bill_token"] != billToken) return "bill_changed";
             var summary = EndOfDayUIManager.Instance;
             if ((string)request["action"] == "prepare_sleep")
@@ -76,6 +77,7 @@ namespace WhiteDragon.Ledger
                 if (!OpenBill(summary)) return "bedroll_unavailable";
                 var opened = NightBill();
                 receipt["bill"] = opened;
+                receipt["bill_token"] = billToken;
                 return (string)opened["status"] ?? "bill_open";
             }
             if (!(bool)bill["open"]) return "bill_closed";
@@ -92,6 +94,7 @@ namespace WhiteDragon.Ledger
                     pair.Item2.gameObject.activeInHierarchy);
                 entry.Item2.Toggle();
                 receipt["bill"] = NightBill();
+                receipt["bill_token"] = billToken;
                 receipt["service_id"] = id;
                 receipt["selected"] = entry.Item2.IsOn;
                 return entry.Item2.IsOn == selected && entry.Item1.isUsing == selected ? "service_set" : "change_unconfirmed";

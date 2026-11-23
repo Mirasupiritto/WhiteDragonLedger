@@ -2,7 +2,7 @@
 
 白龍店帳讓 AI 助手透過本機 MCP 經營《深空當鋪》（Probably Stolen）。它能聽完客人的需求、查庫存、談價買賣，也能幫你決定今晚要留多少錢交租。玩家可以只交代一件事，例如「這批水最多花 90，買完告訴我實付多少」，也可以讓助手經營一天。
 
-**0.21.0 · Windows · 遊戲版本 0.46D · MIT**。支援本機 stdio MCP 的助手就能使用，Computer Use 為選配。遊戲提供台詞、交易條件、物品位置和成交金額；通緝照比對、包裝驗偽與目視鑑定由玩家協助。
+**0.22.0 · Windows · 遊戲版本 0.46D · MIT**。支援本機 stdio MCP 的助手就能使用，Computer Use 為選配。遊戲提供台詞、交易條件、物品位置和成交金額；通緝照比對、包裝驗偽與目視鑑定由玩家協助。
 
 ## 第一次讓助手看店
 
@@ -13,9 +13,9 @@
 | 想讓助手做的事 | 可以看到的結果 |
 |---|---|
 | 配新角色 | 玩家從主選單點「新遊戲」，助手比較專精、分配特性點、選難度。選好停在難度頁，由玩家按「開始遊戲」。見[專精](docs/specializations.md)、[特性](docs/starting-perks.md)、[難度](docs/difficulties.md)比較表。 |
-| 接客與交易 | 讀交易平板的需求、限制和預算，按瓶貼或分類找貨（含 `size`/`slot`/`rotatable` 與 `estimated_value` 參考估值）。可設整批買入上限、逐件或整批（`bundle=True`）售價底線，或比較拾荒客的三個交換方案。成交回執列出實收或實付；驗出贗品等身分變更時附 `identity_changed`；無變動時 `shop_update` 精簡為 `unchanged`。 |
-| 整貨與查帳 | 空櫃檯可將多件自有貨從後櫃一次收回庫存，也可批次搬貨到展示櫃；附區域容量與剩餘最大矩形 `{w,h,free_cells,largest_free}`，放不下會回報 `no_space`／`showcase_full`。可查機台槽位、微型淨水器餘量（`liters_remaining`）、空水瓶（`water_ml:0`/`empty:true`，按 `WATER` 找貨不遺漏）、藥片待反應說明與批次損益。 |
-| 經營人脈 | 喬的人脈網路首次列出服務，選中後只回該項詳情、報價與餘額，可直接決定是否購買。付款回執分列人情與現金。反饋箱首查預設精簡列出派系聲望、啟用效果與最近正負門檻（`verbose=True` 看全表）；續查只回差異，相同時回「無變動」。 |
+| 接客與交易 | 支援 `next_customer`／`finish_customer` 一步接客與送客，並在各種回執隨附下一步所需 token；讀交易平板的需求、限制和預算，大貨單預設回分類摘要（`verbose=True` 取全）。可設整批買入上限（`shop_update` 不重複列出已成交品項）、逐件或整批（`bundle=True`）售價底線，或比較拾荒客的三個交換方案；離店／換客區分 `customer_left` 與 `customer_replaced`。 |
+| 整貨與查帳 | 工具常駐不隨切換場景消失（錯場景回 `tool_status:"unavailable_in_scene"`）；`get_shop_status`／`get_counter`／`query_inventory` 未變動的日曆、垃圾與睡覺欄位預設省略（`verbose=True` 取全），並正確追蹤交租後下週 `due_day` 與調漲金額。空櫃檯與已歸庫物件可由 `move_items` 確認 `already_in_destination`；支援 `water_use(mode="apply_now")` 低風險一步裝水／淨化／測水與 `fill_and_purify_bottles` 多瓶批次處理。 |
+| 經營人脈 | 喬的人脈網路（`wild_network`）大清單預設回分類摘要（`verbose=True` 取明細），選中項附人情與現金分帳試算（`favor_to_spend`／`cash_to_pay`）。電話撥號與選項回執附最新 `phone_token`，營業中撥號回 `phone_unavailable`（`reason:"shop_open"`）。反饋箱首查預設精簡列出派系聲望、啟用效果與最近正負門檻（`verbose=True` 看全表）；續查只回差異。 |
 | 歇業後安排 | `get_shop_status` 與 `sleep` 隔日回執提供跟隨遊戲語系的夜間報告與多種 `alerts`（通緝來客、垃圾警告、未付保險、傷勢癒合等）、店鋪吸引力明細、狀態摘要（含傷勢 `injury`）、店鋪容量與核廢料統計；可核對房租、垃圾與夜間服務費，或帶上各背包容量資訊選包外出拾荒並監控傷勢與阻塞原因。打烊、出門、睡覺各自操作。 |
 
 開店收到的報紙、便條、情報紙條、聯絡人名片與夜間返店的腰包／背包會自動收進庫存；`sell_order`／`trade_batch`／`dismiss_customer` 也會先自動清空檯上非本單雜物（核廢料除外），`counter_unavailable`、`stale_order`、`dismiss_unavailable` 統一回報 `reason` 與 `blocking_items`。遇到必收核廢料對話時，`get_trade_context` 會標註 `forced_choice: true` 與後果說明，檯上核廢料擋住交易時會回報 `nuclear_waste_on_counter` 與處理指引。庫存滿時可在 `get_counter` 查到留在交易檯的文件編號。過夜後，`sleep` 等到當晚晨報就緒才回傳文字（逾時仍未完成時回 `awaiting_report` 而不沿用舊報）。
@@ -27,7 +27,7 @@
 ### 容器、文件與刮刮卡
 
 - 同一個容器槽位可用 `transfer_slot_items` 批次存取，回執列出各件實際搬入的數量或停手原因。
-- 閱讀自有報紙或地下交易所清單時，`inspect_item_window` 可讀出本期新聞或收購條件。
+- 閱讀自有報紙、地下交易所清單或手冊／圖鑑時，`inspect_item_window` 可讀出正文（若遊戲手冊為純圖片無文字元件則明確標註 `image_only_guide`）。
 - 刮刮卡支援逐格 `reveal`（左／中／右）、一次刮完剩餘格的 `reveal_all` 與 `close` 關閉面板。第 5 欄已實測只刮中間，回執只報該格符號，左右兩格仍有覆層。
 - 夜間出門（`shop_activity`）若立即開出選包介面會直接附上 `page` 與 `response_choices`；`travel_menu` 選卡／翻頁會附最新憑證，也可一步 `depart`；`explore` 搜索或搬貨後附最新槽位，必要時可帶 `abandon_ground=True` 放棄地面物直接返店。
 

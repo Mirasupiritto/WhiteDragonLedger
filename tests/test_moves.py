@@ -272,6 +272,20 @@ class MoveMailbox(unittest.TestCase):
         self.assertEqual(res["identity_changed"][0]["to"], "紅牌香菸（贗品）")
         self.assertEqual(res["items"][1]["status"], "not_attempted")
 
+    def test_all_already_in_destination_batch_and_front_back_verify_location(self):
+        self.head.update(revision=5, move_location_protocol=1, counter_move_protocol=1, phase="OPEN")
+        self.publish_head()
+        already = dict(status="already_in_destination", actual_area="inventory", revision=5, slot=4,
+                       phase="OPEN", full_scans=1, load_scans=1, quantity=1)
+        def reply(folder, inbox, request, reader, previous_command=None):
+            return dict(already, command_id=request["command_id"], expected_revision=request["revision"],
+                        item_id=request["item_id"], requested_area="inventory", **{"from": "front"})
+        with patch("moves.exchange", side_effect=reply):
+            res = move_items(self.folder, [25, 26], "front", "inventory", self.generation, 2, visit="c" * 32)
+        self.assertEqual(res["status"], "already_in_destination")
+        self.assertEqual(res["already_count"], 2)
+        self.assertEqual([r["status"] for r in res["items"]], ["already_in_destination", "already_in_destination"])
+
 
 if __name__ == "__main__":
     unittest.main()

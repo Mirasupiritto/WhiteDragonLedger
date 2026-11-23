@@ -73,6 +73,8 @@ namespace WhiteDragon.Ledger {
             store.lockShutterButtonFlag=0;
             Expect(ActAtCounter(shutter,opened)=="opened" && (string)opened["phase"]=="OPEN","native morning opening");
             Expect(ActAtCounter(shutter,opened)=="shutter_unavailable" && StoreShutterButton.Instance.clicks==1,"open never closes");
+            store.storeState = PlayerStore.StoreState.CLOSED;
+            phase = "CLOSED";
             var directory=PlayerStore.Instance.PhoneClientDict;
             directory.Add(1,new StorePhoneClient {dialogFuncId="Wild"});
             directory.Add(3,new StorePhoneClient {listed=true, dialogFuncId="Mining"});
@@ -100,7 +102,9 @@ namespace WhiteDragon.Ledger {
             request["phone_token"]=PhoneView()["phone_token"];
             Expect(ActOnPhone(request,result)=="unavailable","unavailable contact");
             request["number"]=1;
-            Expect(ActOnPhone(request,result)=="connected" && phone.calls==1,"explicit dial");
+            result = new JObject();
+            Expect(ActOnPhone(request,result)=="connected" && phone.calls==1 &&
+                !string.IsNullOrEmpty((string)result["phone_token"]),"explicit dial attaches next phone_token");
             var talk=DialoguePhoneUIManager.Instance;
             talk.page=new object();talk.choice=true;
             var option=new DialogChoiceBubble {type=1,index=0,enabled=true};option.gameObject.activeInHierarchy=true;option.TMP.text="order";
@@ -111,7 +115,21 @@ namespace WhiteDragon.Ledger {
             talk.page=new object();
             Expect(ActOnPhone(request,result)=="phone_changed" && option.clicks==0,"old choice blocked");
             request["phone_token"]=PhoneView()["phone_token"];
-            Expect(ActOnPhone(request,result)=="choice_submitted" && option.clicks==1,"explicit service selection");
+            result = new JObject();
+            Expect(ActOnPhone(request,result)=="choice_submitted" && option.clicks==1 &&
+                !string.IsNullOrEmpty((string)result["phone_token"]),"explicit service selection attaches next phone_token");
+            // Open shop blocks opening phone or dialing with reason="shop_open".
+            phone.CloseUI();
+            talk.page = null; talk.choice = false; talk.dialogChoiceBubbles.Clear();
+            string savedPhase = phase;
+            phase = "OPEN";
+            var closedPhoneView = PhoneView();
+            var blockedReceipt = new JObject();
+            var blockedDial = new JObject { ["action"]="dial", ["number"]=1, ["phone_token"]=closedPhoneView["phone_token"] };
+            Expect(!(bool)closedPhoneView["can_open"] && ActOnPhone(blockedDial, blockedReceipt)=="phone_unavailable" &&
+                (string)blockedReceipt["reason"]=="shop_open", "phone_unavailable returns reason=shop_open when shop is OPEN");
+            store.storeState = PlayerStore.StoreState.OPEN;
+            phase = string.IsNullOrEmpty(savedPhase) ? "OPEN" : savedPhase;
 
             // P0-1 acceptance 3: card_rev delivered on front is auto-filed to inventory and still readable by get_phone_contacts.
             directory.Add(StorePhoneClient.REV_MERCHANT_NUMBER, new StorePhoneClient { dialogFuncId="RevMerchant" });

@@ -52,7 +52,7 @@ namespace WhiteDragon.Ledger
             var choices = new JArray();
             var view = new JObject { ["panel_open"] = panelOpen, ["contacts"] = contacts, ["choices"] = choices };
             view["keypad_protocol"] = 1;
-            view["can_open"] = phone != null && !panelOpen && !Interactable.isPaused &&
+            view["can_open"] = phone != null && phase != "OPEN" && !panelOpen && !Interactable.isPaused &&
                 PlayerStore.Instance.lockStorePhysicalFlag == 0 && !PlayerStore.Instance.IsClientPresent();
             if (panelOpen)
             {
@@ -99,6 +99,16 @@ namespace WhiteDragon.Ledger
             return view;
         }
 
+        private void AttachPhoneState(JObject receipt, bool includeTalkState)
+        {
+            var after = PhoneView();
+            var keys = includeTalkState
+                ? new[] { "phone_token", "panel_open", "display", "status_text", "connected_to", "line", "can_advance", "choices" }
+                : new[] { "phone_token", "panel_open", "display", "status_text", "connected_to" };
+            foreach (var key in keys)
+                if (after[key] != null) receipt[key] = after[key].DeepClone();
+        }
+
         private string ActOnPhone(JObject request, JObject receipt)
         {
             var phone = PhoneUIManager.Instance;
@@ -131,9 +141,7 @@ namespace WhiteDragon.Ledger
                         break;
                     default: return "invalid_mode";
                 }
-                var after = PhoneView();
-                foreach (var key in new[] { "phone_token", "panel_open", "display", "status_text", "connected_to" })
-                    if (after[key] != null) receipt[key] = after[key].DeepClone();
+                AttachPhoneState(receipt, false);
                 return "submitted";
             }
             if (action == "dial")
@@ -146,6 +154,7 @@ namespace WhiteDragon.Ledger
                     phone.OpenUI();
                     phone.AutoCall(number);
                     receipt["number"] = number;
+                    AttachPhoneState(receipt, true);
                     return phone.currentPhoneClient == PlayerStore.Instance.PhoneClientDict[number] ? "connected" : "dial_unconfirmed";
                 }
                 return "unknown_contact";
@@ -156,6 +165,7 @@ namespace WhiteDragon.Ledger
             {
                 if ((bool?)view["can_advance"] != true) return "not_waiting";
                 talk.OnAdvancePressed();
+                AttachPhoneState(receipt, true);
                 return "advanced";
             }
             foreach (var button in talk.dialogChoiceBubbles)
@@ -164,6 +174,7 @@ namespace WhiteDragon.Ledger
                     button.index != (int)request["choice_id"] || !button.IsInteractable()) continue;
                 receipt["selected_label"] = button.TMP.text;
                 button.OnDialogChoiceClick();
+                AttachPhoneState(receipt, true);
                 return "choice_submitted";
             }
             return "choice_unavailable";

@@ -121,7 +121,7 @@ namespace WhiteDragon.Ledger
             Expect(ActAtCounter(req,reply)=="exchanged" && ui.barterClicks==1 && store.playerCash==originalCash,"exact chosen barter");
             Expect(ActAtCounter(req,reply)=="business_complete" && ui.barterClicks==1,"duplicate cannot accept again");
             store.currentClientInstance=new StoreClientInstance();ObserveVisit();
-            Expect(ActAtCounter(req,reply)=="visit_changed","new visit rejects old choice");
+            Expect(ActAtCounter(req,reply)=="customer_replaced","new visit rejects old choice");
             food.To(shop.invElement);
             foreach(var item in front) item.To(shop.frontInvinvElement);
             foreach(var item in back) item.To(shop.backInvinvElement);

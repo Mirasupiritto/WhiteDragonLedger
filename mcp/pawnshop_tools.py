@@ -1,4 +1,5 @@
 """MCP tools available inside the pawnshop."""
+import time
 from typing import Literal
 from uuid import uuid4
 
@@ -17,9 +18,69 @@ class SaleLine(BaseModel):
     min_price: int = Field(ge=0)
 
 
+def _sync_revision(folder, generation, target_revision):
+    view = counter.context(folder)
+    if view.get("status") != "observed" or view.get("generation") != generation or view.get("revision", 0) >= target_revision:
+        return
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        time.sleep(0.02)
+        view = counter.context(folder)
+        if view.get("status") != "observed" or view.get("generation") != generation or view.get("revision", 0) >= target_revision:
+            return
+
+
+def _summarize_wild_network(result, *, verbose=False):
+    if verbose or not isinstance(result, dict) or result.get("status") != "observed":
+        return result
+    panel = result.get("panel")
+    if not isinstance(panel, dict) or not isinstance(panel.get("services"), list):
+        return result
+    services = panel["services"]
+    if len(services) <= 8:
+        return result
+    grouped = {}
+    ready_count = unlocked_count = total_cost = ready_cost = 0
+    for svc in services:
+        cost = int(svc.get("cost") or 0)
+        total_cost += cost
+        ready = bool(svc.get("ready"))
+        unlocked = bool(svc.get("unlocked"))
+        if ready and not unlocked:
+            ready_count += 1
+            ready_cost += cost
+        if unlocked:
+            unlocked_count += 1
+        cat = svc.get("tab") or "general"
+        bucket = grouped.setdefault(cat, {"category": cat, "count": 0, "ready_count": 0,
+                                          "unlocked_count": 0, "ready_cost": 0, "total_cost": 0})
+        bucket["count"] += 1
+        bucket["total_cost"] += cost
+        if ready and not unlocked:
+            bucket["ready_count"] += 1
+            bucket["ready_cost"] += cost
+        if unlocked:
+            bucket["unlocked_count"] += 1
+    out_panel = dict(panel)
+    out_panel.pop("services", None)
+    out_panel["service_summary"] = {
+        "total_count": len(services),
+        "ready_count": ready_count,
+        "unlocked_count": unlocked_count,
+        "locked_count": max(0, len(services) - ready_count - unlocked_count),
+        "ready_total_cost": ready_cost,
+        "total_cost": total_cost,
+        "categories": list(grouped.values()),
+        "summary_only": True,
+    }
+    return {**result, "panel": out_panel}
+
+
 def register_pawnshop_tools(server, folder, database):
+    section_cache = getattr(server, "section_cache", None) or shop_day.SectionCache()
+    server.section_cache = section_cache
     trade_tools.register(server, folder, database)
-    shop_day.register_day_tools(server, folder, database)
+    shop_day.register_day_tools(server, folder, database, section_cache=section_cache)
 
     @server.tool()
     def advance_dialogue(generation: str, revision: int, visit: str, page: str) -> dict:
@@ -53,11 +114,13 @@ def register_pawnshop_tools(server, folder, database):
     @server.tool()
     def query_inventory(name: str | None = None,
                         area: Literal["inventory", "showcase", "front", "back"] | None = None,
-                        owned: bool | None = None) -> dict:
+                        owned: bool | None = None,
+                        verbose: bool = False) -> dict:
         """Query the most recently published inventory by literal name substring, area or owner.
         Items include size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate, before haggling/markup),
         water_ml/empty/contains_water on water containers, and charge_remaining/liters_remaining on portable_water_purifier.
-        Includes area capacity{w,h,free_cells,largest_free{w,h}} for inventory/showcase. IDs are scoped to generation."""
+        Includes area capacity{w,h,free_cells,largest_free{w,h}} for inventory/showcase. IDs are scoped to generation.
+        Unchanged calendar/trash sections are omitted after the first read unless verbose=True."""
         account = lookup(folder, database, name, area, owned)
         if account["status"] == "observed":
             status = shop_day.shop_status(folder)
@@ -65,6 +128,7 @@ def register_pawnshop_tools(server, folder, database):
                 if not same_observation(account, status):
                     return {"status": "observation_changed"}
                 account.update(calendar=status["calendar"], trash=shop_day.trash_contents(folder, database, status))
+                account = section_cache.filter(account.get("generation"), account, verbose=verbose)
             elif status["status"] in {"load_changed", "waiting_for_load"}:
                 return {"status": "observation_changed"}
         return shopdesk.strip_protocols(account)
@@ -124,7 +188,7 @@ def register_pawnshop_tools(server, folder, database):
                             since_token: str | None = None) -> dict:
         """Inspect an owned inventory/showcase item, or a directly held owned back-counter item after closing.
         Slot items include save_id for matching night loot. Optionally open a closed window.
-        Newspapers, exchange lists, slips and handnotes return window.document. Other windows return visible slots, text and controls. Pass the last token as since_token for changes only."""
+        Newspapers, exchange lists, slips, handnotes, and readable guides/books return window.document (pure-image guides report readable=false, reason=image_only_guide). Other windows return visible slots, text and controls. Pass the last token as since_token for changes only."""
         return counter.command(folder, "inspect_window", generation, revision, owner_id=owner_id,
                                open_if_closed=open_if_closed, since_token=since_token, read_id=uuid4().hex)
 
@@ -166,21 +230,108 @@ def register_pawnshop_tools(server, folder, database):
 
     @server.tool()
     def water_use(source_id: int, target_id: int | Literal["faucet", "drain"], generation: str, revision: int,
-                  mode: Literal["preview", "apply"] = "preview", use_token: str | None = None) -> dict:
-        """Preview or apply a water interaction without unexpected consumption. Sources include bottles, rations, tablets, portable purifiers and fresh strips.
-        To fill a container from the tap, pass the water container as source_id and target_id="faucet" (從水龍頭裝進容器); pass target_id="drain" to empty it.
+                  mode: Literal["preview", "apply", "apply_now"] = "preview", use_token: str | None = None) -> dict:
+        """Preview or apply a water interaction. Sources include bottles, rations, tablets, portable purifiers and fresh strips.
+        Low-risk operations (filling from target_id="faucet", purifying with portable_water_purifier, or testing with water_test_strip) support mode="apply_now" in a single call without preview. High-risk operations (drain, bottle-to-bottle pour, tablet, ration) reject apply_now with preview_required and must use preview + apply.
+        To fill a container from the tap, pass the water container as source_id and target_id="faucet"; pass target_id="drain" to empty it.
         Passing a water_tablet_container as source returns reason="open_container_first" (unpack a tablet first with inspect_item_window + transfer_slot_items).
         purifier_used reports charge_remaining and liters_remaining; tablet_used explains effect_pending (chlorine reacts over time/overnight and resets strip exposure).
-        Submit the same two IDs with mode=apply and the preview token; only the test panel supplies a tested water-quality result."""
+        For mode="apply", submit the same two IDs with the preview use_token."""
         if source_id < 1 or (isinstance(target_id, int) and (target_id < 1 or target_id == source_id)):
             raise ValueError("Choose a source and a distinct water target from the current observation")
         if mode == "preview":
             return counter.command(folder, "water_use", generation, revision, source_id=source_id,
                                    target_id=target_id, mode=mode, read_id=uuid4().hex)
+        if mode == "apply_now":
+            return counter.command(folder, "water_use", generation, revision, source_id=source_id,
+                                   target_id=target_id, mode=mode)
         if not use_token:
             raise ValueError("Use the token from the water_use preview")
         return counter.command(folder, "water_use", generation, revision, source_id=source_id,
                                target_id=target_id, mode=mode, use_token=use_token)
+
+    @server.tool()
+    def fill_and_purify_bottles(bottle_ids: list[int], purifier_id: int, generation: str, revision: int) -> dict:
+        """Fill each empty bottle from the faucet and immediately purify it with the given portable_water_purifier using low-risk apply_now.
+        Returns per-bottle status/water_ml/bottle_label and final purifier charge_remaining and liters_remaining. Stops on notice, empty charge, or closed faucet."""
+        if not bottle_ids or any(i < 1 for i in bottle_ids) or len(set(bottle_ids)) != len(bottle_ids):
+            raise ValueError("Provide a nonempty list of distinct positive bottle IDs")
+        if purifier_id < 1 or purifier_id in bottle_ids:
+            raise ValueError("Provide a valid purifier_id distinct from bottle_ids")
+        cur_rev = revision
+        results = []
+        charge_remaining = None
+        liters_remaining = None
+        overall = "completed"
+        for idx, bottle_id in enumerate(bottle_ids):
+            fill_res = counter.command(folder, "water_use", generation, cur_rev,
+                                       source_id=bottle_id, target_id="faucet", mode="apply_now")
+            if "revision" in fill_res and isinstance(fill_res["revision"], int):
+                cur_rev = max(cur_rev, fill_res["revision"])
+            if fill_res.get("status") != "transferred":
+                results.append({"bottle_id": bottle_id, "status": fill_res.get("status"),
+                                "step": "fill", "reason": fill_res.get("reason")})
+                overall = "partial" if any(r["status"] == "filled_and_purified" for r in results) else fill_res.get("status", "failed")
+                results.extend({"bottle_id": pending, "status": "not_attempted"} for pending in bottle_ids[idx + 1:])
+                break
+            _sync_revision(folder, generation, cur_rev)
+            purify_res = counter.command(folder, "water_use", generation, cur_rev,
+                                         source_id=purifier_id, target_id=bottle_id, mode="apply_now")
+            if "revision" in purify_res and isinstance(purify_res["revision"], int):
+                cur_rev = max(cur_rev, purify_res["revision"])
+            if "charge_remaining" in purify_res:
+                charge_remaining = purify_res["charge_remaining"]
+            if "liters_remaining" in purify_res:
+                liters_remaining = purify_res["liters_remaining"]
+            if purify_res.get("status") != "purifier_used":
+                row = {"bottle_id": bottle_id, "status": purify_res.get("status"),
+                       "step": "purify", "fill_status": "transferred"}
+                for k in ("reason", "notice", "panel_token"):
+                    if k in purify_res:
+                        row[k] = purify_res[k]
+                results.append(row)
+                overall = "partial" if any(r["status"] == "filled_and_purified" for r in results) else purify_res.get("status", "failed")
+                results.extend({"bottle_id": pending, "status": "not_attempted"} for pending in bottle_ids[idx + 1:])
+                break
+            row = {
+                "bottle_id": bottle_id,
+                "status": "filled_and_purified",
+                "fill_status": "transferred",
+                "purify_status": "purifier_used",
+                "charge_used": purify_res.get("charge_used"),
+                "charge_remaining": charge_remaining,
+                "liters_remaining": liters_remaining,
+            }
+            for k in ("water_ml", "bottle_label"):
+                if k in purify_res:
+                    row[k] = purify_res[k]
+                elif k in fill_res:
+                    row[k] = fill_res[k]
+            results.append(row)
+            _sync_revision(folder, generation, cur_rev)
+        if charge_remaining is None:
+            info = shopdesk.machines(folder)
+            if info.get("status") == "observed":
+                for p in info.get("portable_purifiers", []):
+                    if p.get("id") == purifier_id:
+                        charge_remaining = p.get("charge_remaining")
+                        liters_remaining = p.get("liters_remaining")
+                        break
+        completed_count = sum(1 for r in results if r.get("status") == "filled_and_purified")
+        reply = {
+            "status": overall,
+            "generation": generation,
+            "revision": cur_rev,
+            "purifier_id": purifier_id,
+            "completed_count": completed_count,
+            "failed_count": len(bottle_ids) - completed_count,
+            "items": results,
+        }
+        if charge_remaining is not None:
+            reply["charge_remaining"] = charge_remaining
+        if liters_remaining is not None:
+            reply["liters_remaining"] = liters_remaining
+        return reply
 
     @server.tool()
     def water_panel(generation: str, revision: int, mode: Literal["read", "match", "close", "notice_close"] = "read",
@@ -237,20 +388,80 @@ def register_pawnshop_tools(server, folder, database):
                                   database=database, bundle=bundle)
 
     @server.tool()
-    def get_counter() -> dict:
-        """Read shop phase, waiting count, opening lines, and visible merchandise or the information dealer's receipt and price."""
+    def get_counter(verbose: bool = False) -> dict:
+        """Read shop phase, waiting count, opening lines, and visible merchandise or the information dealer's receipt and price.
+        Unchanged calendar/trash/sleep sections and large (>5 item) supplier offers return summaries unless verbose=True."""
         view = shopdesk.published(folder)
         if view["status"] != "observed" or view.get("counter_protocol") != 2:
             return counter.context(folder)
+        if (view["counter"].get("stage") == "choice_required"
+                and "dialog_choices" in view["counter"] and not view["counter"]["dialog_choices"]):
+            counter.wait_choices_ready(folder, counter.context(folder))
+            view = shopdesk.published(folder)
+            if view["status"] != "observed" or view.get("counter_protocol") != 2:
+                return counter.context(folder)
         day_info = {k: v for k, v in view["day_info"].items() if k in {"calendar", "trash", "sleep"}}
         result = {**{k:view[k] for k in ("status","slot","phase","generation","revision","day")}, **view["counter"], **day_info}
         result["trash"] = shop_day.trash_contents(folder, database, result)
-        return shopdesk.strip_protocols(counter.with_barter(folder, result))
+        result = section_cache.filter(result.get("generation"), result, verbose=verbose)
+        if isinstance(result.get("reception"), dict) and "token" in result["reception"]:
+            result["reception_token"] = result["reception"]["token"]
+        result = shopdesk.strip_protocols(counter.with_barter(folder, result))
+        return trade_tools.summarize_offer(result, verbose=verbose)
 
     @server.tool()
-    def ring_customer(generation: str, revision: int, waiting: int) -> dict:
-        """Ring once at an empty open counter. Wait for the greeting, stopping at choices."""
-        return counter.ring(folder, generation, revision, waiting)
+    def ring_customer(generation: str, revision: int, waiting: int, verbose: bool = False) -> dict:
+        """Ring once at an empty open counter, wait for the greeting (stopping at choices), and return status="called" with trade state.
+        Large (>5 item) supplier offers return a summary unless verbose=True."""
+        return trade_tools.summarize_offer(counter.ring(folder, generation, revision, waiting), verbose=verbose)
+
+    @server.tool()
+    def next_customer(generation: str | None = None, revision: int | None = None, waiting: int | None = None,
+                      verbose: bool = False) -> dict:
+        """One-step guest admission: if counter is idle, ring the bell, wait through opening dialogue and return trade-ready state; if a customer is already at the counter, finish opening and return status="already_present".
+        Large (>5 item) supplier offers return a summary unless verbose=True."""
+        view = counter.context(folder)
+        if view.get("status") != "observed":
+            return view
+        if ((generation is not None and generation != view["generation"])
+                or (revision is not None and revision != view["revision"])):
+            return {"status": "stale_observation", "generation": view["generation"], "latest_revision": view["revision"]}
+        if view.get("phase") != "OPEN":
+            return {"status": "shop_closed", "phase": view.get("phase"),
+                    "generation": view["generation"], "revision": view["revision"],
+                    "can_open_shop": view.get("can_open_shop")}
+        if view.get("stage") == "idle" and not view.get("visit"):
+            ring_wait = view.get("waiting", 0) if waiting is None else waiting
+            return trade_tools.summarize_offer(
+                counter.ring(folder, view["generation"], view["revision"], ring_wait),
+                verbose=verbose,
+            )
+        if not view.get("visit") and view.get("stage") == "arriving":
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline:
+                time.sleep(0.15)
+                view = counter.context(folder)
+                if view.get("status") != "observed":
+                    return view
+                if view.get("visit") or view.get("stage") != "arriving":
+                    break
+        if view.get("visit"):
+            waited = counter.wait_opening(folder, view["generation"], view["visit"])
+            if waited.get("status") == "observed":
+                waited = {**waited, "status": "already_present", "already_at_counter": True}
+            if "reception_token" not in waited and isinstance(waited.get("reception"), dict) and "token" in waited["reception"]:
+                waited["reception_token"] = waited["reception"]["token"]
+            return trade_tools.summarize_offer(waited, verbose=verbose)
+        cleaned = shopdesk.strip_protocols(dict(view))
+        if "reception_token" not in cleaned and isinstance(cleaned.get("reception"), dict) and "token" in cleaned["reception"]:
+            cleaned["reception_token"] = cleaned["reception"]["token"]
+        return trade_tools.summarize_offer(cleaned, verbose=verbose)
+
+    @server.tool()
+    def finish_customer(generation: str, revision: int, visit: str) -> dict:
+        """Dismiss the completed customer visit in one step (auto-clearing non-order owned clutter).
+        If blocked, returns status="dismiss_unavailable" with reason, blocking_items, reception_token and latest_revision; if visitor left or changed, returns customer_left or customer_replaced."""
+        return counter.command(folder, "dismiss", generation, revision, visit=visit)
 
     @server.tool()
     def wait_for_opening(generation: str, visit: str) -> dict:
@@ -309,11 +520,12 @@ def register_pawnshop_tools(server, folder, database):
     @server.tool()
     def wild_network(mode: Literal["read", "tab", "select", "buy", "close"] = "read",
                      generation: str | None = None, revision: int | None = None, panel_token: str | None = None,
-                     target: str | None = None, cost: int | None = None, since_token: str | None = None) -> dict:
-        """Read Joe's visible network catalog on entry and after changing tabs. Pass since_token for an unchanged check.
-        On 0.19.1+, select and buy return selected details and a fresh top-level panel_token while the panel stays open.
+                     target: str | None = None, cost: int | None = None, since_token: str | None = None,
+                     verbose: bool = False) -> dict:
+        """Read Joe's visible network catalog on entry and after changing tabs. Large catalogs (>8 services) return service_summary by category unless verbose=True. Pass since_token for an unchanged check.
+        Select and buy return selected details (including favor_to_spend and cash_to_pay split) and a fresh top-level panel_token while the panel stays open.
         Chain using the receipt's generation, revision and panel_token. Buy requires selected_id and the quoted cost.
-        The purchase receipt separates favor spent and cash paid."""
+        The purchase receipt separates favor_spent and cash_paid."""
         if mode == "read":
             view = counter.context(folder)
             if view["status"] != "observed":
@@ -322,8 +534,9 @@ def register_pawnshop_tools(server, folder, database):
                 return {"status":"reload_updated_mod"}
             if view["stage"] != "wild_network":
                 return {"status":"panel_closed", "slot":view["slot"]}
-            return counter.command(folder, "wild_network", view["generation"], view["revision"],
-                                   mode=mode, since_token=since_token, read_id=uuid4().hex)
+            res = counter.command(folder, "wild_network", view["generation"], view["revision"],
+                                  mode=mode, since_token=since_token, read_id=uuid4().hex)
+            return _summarize_wild_network(res, verbose=verbose)
         if not generation or revision is None or not panel_token:
             raise ValueError("Use generation, revision and panel_token from the open panel")
         if mode in {"tab","select","buy"} and not target:

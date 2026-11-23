@@ -29,10 +29,12 @@ namespace WhiteDragon.Ledger
 
         private string WaterUseAction(JObject request, JObject receipt)
         {
-            bool apply = (string)request["mode"] == "apply";
-            if (!apply && (string)request["mode"] != "preview") return "invalid_action";
+            string mode = (string)request["mode"];
+            bool applyNow = mode == "apply_now";
+            bool apply = applyNow || mode == "apply";
+            if (!apply && mode != "preview") return "invalid_action";
             if (!apply) waterPlan = null;
-            if (apply && (waterPlan == null || waterUseToken != (string)request["use_token"])) return "water_plan_changed";
+            if (mode == "apply" && (waterPlan == null || waterUseToken != (string)request["use_token"])) return "water_plan_changed";
             var shop = EmporiumEntry.Instance;
             if (!itemsById.TryGetValue((int)request["source_id"], out var source) || source == null ||
                 !GeneralHelper.IsItemEffectivelyOwned(source))
@@ -96,6 +98,13 @@ namespace WhiteDragon.Ledger
             if (operation == "pour") plan["source_ul"] = WaterHelper.GetCurrentCapacityUL(source);
             if (!fixture) plan["target_ul"] = WaterHelper.GetCurrentCapacityUL(target);
             if (operation == "test") plan["available_strips"] = AvailableStrips();
+            bool lowRisk = (operation == "pour" && area == "faucet") || operation == "purify" || operation == "test";
+            if (applyNow && !lowRisk)
+            {
+                receipt["operation"] = operation;
+                receipt["reason"] = "requires_preview_and_apply";
+                return "preview_required";
+            }
             if (!apply)
             {
                 waterPlan = plan;
@@ -104,7 +113,7 @@ namespace WhiteDragon.Ledger
                 receipt["use_token"] = waterUseToken;
                 return "preview";
             }
-            if (!JToken.DeepEquals(plan, waterPlan)) return "water_plan_changed";
+            if (!applyNow && !JToken.DeepEquals(plan, waterPlan)) return "water_plan_changed";
             waterPlan = null;
             int charge = operation == "purify" ? DurabilityHelper.GetRealDurability(source) : 0;
             receipt["operation"] = operation;
@@ -137,6 +146,8 @@ namespace WhiteDragon.Ledger
                 receipt["liters_remaining"] = Math.Round(Math.Max(0, remaining) * 0.1, 1);
                 int used = charge - remaining;
                 receipt["charge_used"] = used;
+                if (BottleLabel(target) is string purifiedLabel) receipt["bottle_label"] = purifiedLabel;
+                receipt["water_ml"] = WaterHelper.IsEmpty(target) ? 0 : Math.Max(0, WaterHelper.GetCurrentCapacityUL(target)) / 1000;
                 return used > 0 ? "purifier_used" : "use_unconfirmed";
             }
             if (!fixture) receipt["target_change_ul"] = WaterHelper.GetCurrentCapacityUL(target) - (int)plan["target_ul"];
@@ -146,6 +157,11 @@ namespace WhiteDragon.Ledger
                 receipt["source_change_ul"] = delta;
                 bool transferred = fixture ? (area == "drain" ? delta < 0 : delta != 0) :
                     delta < 0 && (int)receipt["target_change_ul"] > 0;
+                if (transferred && area == "faucet")
+                {
+                    if (BottleLabel(source) is string filledLabel) receipt["bottle_label"] = filledLabel;
+                    receipt["water_ml"] = WaterHelper.IsEmpty(source) ? 0 : Math.Max(0, WaterHelper.GetCurrentCapacityUL(source)) / 1000;
+                }
                 return transferred ? "transferred" : "use_unconfirmed";
             }
             int units = source.parentInventory == null ? 0 : source.unitCount;

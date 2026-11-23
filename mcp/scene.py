@@ -3,6 +3,8 @@ import asyncio
 import json
 from pathlib import Path
 from contextvars import ContextVar
+from typing import Annotated
+from pydantic import Field
 
 
 shop_visit = ContextVar("shop_visit", default=None)
@@ -68,18 +70,24 @@ def register_scene_tools(server, folder):
         return {**scene, "options": options}
 
     @server.tool()
-    async def wait_for_scene(session: str, after_revision: int, timeout: float = 20) -> dict:
-        """Wait for the next ready location after a receipt, or report a new load or timeout."""
+    async def wait_for_scene(
+        session: str,
+        after_revision: int,
+        timeout: Annotated[float, Field(default=20, ge=0, le=60, description="Maximum seconds to wait (0-60).")] = 20,
+    ) -> dict:
+        """Wait (up to 60s) for the next ready location after a receipt, or report a new load or timeout."""
         if not 0 <= timeout <= 60:
             raise ValueError("timeout must be between 0 and 60 seconds")
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         while True:
             scene = read_scene(folder)
-            if scene.get("session") and scene["session"] != session:
-                return {**scene, "wait_result": "new_session"}
-            if scene.get("status") == "ready" and scene["revision"] > after_revision:
-                return {**scene, "wait_result": "arrived"}
+            status = scene.get("status")
+            if status not in {"waiting_for_load", "transitioning", "reading_scene", "waiting_for_scene_observer"}:
+                if scene.get("session") and scene["session"] != session:
+                    return {**scene, "wait_result": "new_session"}
+                if status == "ready" and scene["revision"] > after_revision:
+                    return {**scene, "wait_result": "arrived"}
             remaining = deadline - loop.time()
             if remaining <= 0:
                 return {**scene, "wait_result": "timeout"}

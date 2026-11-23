@@ -17,8 +17,10 @@ namespace WhiteDragon.Ledger
     public class NetworkUpgrade
     {
         public int cost=12, state=1, cooldownCurrent;
+        public string tab = "services";
         public int GetCost() => cost;
         public string GetLocalizedTitle() => "First referral";
+        public static string GetTabLabel(string tab) => tab;
         public bool IsUnlocked() => state==2;
         public bool IsReady() => state==1;
     }
@@ -127,7 +129,9 @@ namespace WhiteDragon.Ledger
             Expect(Send("select","referral")=="service_selected","select without spending");
             var detail = AcceptSelection();
             Expect((string)detail["selected_id"] == "referral" && (bool)detail["can_buy"] && (bool)detail["ready"] &&
-                   (int)detail["cost"] == 12 && (int)detail["cash"] == 100 && (int)detail["favor"] == 5, "selected quote");
+                   (int)detail["cost"] == 12 && (int)detail["cash"] == 100 && (int)detail["favor"] == 5 &&
+                   (int)detail["favor_to_spend"] == 5 && (int)detail["cash_to_pay"] == 7,
+                   "selected quote with favor/cash split");
             Expect(Send("buy","referral",13)=="quote_changed" && store.playerCash==100,"wrong price no payment");
             upgrade.cost=14;
             Expect(Send("buy","referral",12)=="panel_changed","stale panel no payment");
@@ -141,6 +145,7 @@ namespace WhiteDragon.Ledger
                    "native purchase spends both balances");
             detail = AcceptSelection();
             Expect((int)detail["cash"] == 93 && (int)detail["favor"] == 0 && (bool)detail["unlocked"] &&
+                   (int)detail["favor_to_spend"] == 0 && (int)detail["cash_to_pay"] == 12 &&
                    !(bool)detail["can_buy"], "post-purchase selection reflects applied cost and state");
             string purchasedToken = token;
             token = quoteToken;

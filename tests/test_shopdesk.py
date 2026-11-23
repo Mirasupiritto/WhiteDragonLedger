@@ -156,4 +156,10 @@ class ShopDeskReplay(unittest.TestCase):
         with patch("shopdesk.buyer", return_value=clean_snap):
             visit_stale = sell_order(self.folder, lines, self.gen, 9, other_visit)
         self.assertEqual((visit_stale["status"], visit_stale["reason"], visit_stale["blocking_items"]),
-                         ("stale_order", "visit_changed", []))
+                         ("stale_order", "customer_replaced", []))
+
+        left_snap = dict(status="observed", phase="OPEN", generation=self.gen, revision=9, slot=4,
+                         customer=None, table_items=[])
+        with patch("shopdesk.buyer", return_value=left_snap):
+            left_stale = sell_order(self.folder, lines, self.gen, 9, visit)
+        self.assertEqual((left_stale["status"], left_stale["reason"]), ("stale_order", "customer_left"))

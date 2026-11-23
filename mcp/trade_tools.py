@@ -44,11 +44,48 @@ def context(view):
                 "forced_choice", "forced_choice_reason", "table_items"):
         if key in desk:
             result[key] = desk[key]
+    if isinstance(desk.get("reception"), dict) and "token" in desk["reception"]:
+        result["reception_token"] = desk["reception"]["token"]
     if bottles:
         result["seller_water"] = {"count":len(bottles), "bottles":bottles}
         if any("capacity_ml" not in row for row in bottles):
             result["seller_water"]["capacity_status"] = "reload_updated_mod"
     return result
+
+
+def summarize_offer(payload, *, verbose=False):
+    if verbose or not isinstance(payload, dict):
+        return payload
+    offer = payload.get("offer")
+    if not isinstance(offer, dict):
+        return payload
+    items = offer.get("items") or []
+    if len(items) <= 5:
+        return payload
+    grouped = {}
+    total_qty = 0
+    for item in items:
+        qty = item.get("quantity", 1)
+        total_qty += qty
+        cats = item.get("categories") or []
+        cat = cats[0] if cats else ("water" if "bottle_label" in item else item.get("kind") or "misc")
+        bucket = grouped.setdefault(cat, {"category": cat, "count": 0, "quantity": 0, "subtotal": 0})
+        bucket["count"] += 1
+        bucket["quantity"] += qty
+        bucket["subtotal"] += item.get("price", 0)
+    out = dict(payload)
+    out["offer"] = {
+        "visit": offer.get("visit"),
+        "wholesale": offer.get("wholesale"),
+        "total": offer.get("total"),
+        "item_count": len(items),
+        "total_quantity": total_qty,
+        "categories": list(grouped.values()),
+        "summary_only": True,
+    }
+    if isinstance(out.get("seller_water"), dict):
+        out["seller_water"] = {"count": out["seller_water"].get("count", 0), "summary_only": True}
+    return out
 
 
 def wait_event(folder, event, timeout):
@@ -76,7 +113,11 @@ def wait_event(folder, event, timeout):
         elif event == "next_customer_available" and desk["reception"].get("can_ring"):
             reason = event
         elif identity != initial:
-            reason = "visit_changed"
+            reason = "customer_left" if not identity[2] else "customer_replaced"
+        elif (stage == "choice_required" and "dialog_choices" in desk
+              and not desk["dialog_choices"] and time.monotonic() < deadline):
+            time.sleep(min(.05, max(0, deadline - time.monotonic())))
+            continue
         elif stage in {"advance_required","confirmation_required","choice_required","information","conversation_paused"}:
             reason = "input_needed"
         elif event == "next_customer_available" and not desk.get("waiting"):
@@ -170,9 +211,14 @@ def register(server, folder, database):
         return tracker.report(since, full)
 
     @server.tool()
-    def get_trade_context() -> dict:
-        """Read the customer, budget, tablet requirements, quote, offered water, mandatory forced_choice warnings, and any page awaiting a choice."""
-        return counter.with_barter(folder, context(shopdesk.published(folder)))
+    def get_trade_context(verbose: bool = False) -> dict:
+        """Read the customer, budget, tablet requirements, quote, offered water, mandatory forced_choice warnings, and any page awaiting a choice.
+        Supplier offers with >5 items return a category/count/total summary unless verbose=True."""
+        ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
+        if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
+            counter.wait_choices_ready(folder, ctx)
+            ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
+        return summarize_offer(ctx, verbose=verbose)
 
     @server.tool()
     def wait_for_shop_event(event: Literal["goods_offered","next_customer_available","opening_finished"],

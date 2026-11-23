@@ -178,6 +178,37 @@ namespace WhiteDragon.Ledger
             Expect(Apply()=="sample_taken" && (int)receipt["panel"]["bottle_id"]==LocalId(dest) &&
                 (int)receipt["available_strips"]==unused-1 && !(bool)receipt["panel"]["can_match"],"sample identity and remaining supply");
             Expect(Preview(strip,LocalId(dest))=="source_unavailable","used strip cannot sample again");
+
+            // P2-10: low-risk apply_now works in one step for faucet, purify, test; rejects high-risk drain/pour/tablet/ration.
+            phase = "MORNING";
+            store.currentClientInstance = null;
+            ObserveVisit();
+            source.volume = 0;
+            purifier.charge = 10;
+            var quickBottle = Item(978, "bottle", 1);
+            quickBottle.volume = 0;
+            var quickStrip = Item(979, "water_test_strip", 1);
+            quickStrip.waterTags.Add("WATER_TESTING_STRIP_TAG");
+            stripSupplies.Add(quickStrip);
+            string ApplyNow(GameItem item, JToken target)
+            {
+                request.Remove("use_token");
+                request["mode"] = "apply_now";
+                request["source_id"] = LocalId(item);
+                request["target_id"] = target;
+                receipt = new JObject();
+                return ActAtCounter(request, receipt);
+            }
+            Expect(ApplyNow(quickBottle, "faucet") == "transferred" && quickBottle.volume == 50,
+                "apply_now fills owned bottle directly from faucet");
+            Expect(ApplyNow(purifier, LocalId(quickBottle)) == "purifier_used" && (int)receipt["charge_remaining"] == 9,
+                "apply_now purifies bottle directly");
+            Expect(ApplyNow(quickStrip, LocalId(quickBottle)) == "sample_taken",
+                "apply_now tests bottle directly with strip");
+            Expect(ApplyNow(quickBottle, "drain") == "preview_required" && quickBottle.volume == 50,
+                "apply_now rejects high-risk drain with preview_required");
+            Expect(ApplyNow(quickBottle, LocalId(source)) == "preview_required" && source.volume == 0,
+                "apply_now rejects bottle-to-bottle pour with preview_required");
             Console.WriteLine("Water use replay passed.");
         }
     }

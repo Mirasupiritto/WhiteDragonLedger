@@ -221,11 +221,15 @@ namespace WhiteDragon.Ledger
             if (Time.realtimeSinceStartup < nextView) return;
             nextView = Time.realtimeSinceStartup + 1f;
             var machines = MachineRows();
+            var counter = CounterView();
+            if ((string)counter["stage"] == "choice_required" &&
+                counter["dialog_choices"] is JArray dc && dc.Count == 0)
+                nextView = Time.realtimeSinceStartup + 0.05f;
             var customer = merchant == null ? null : new JObject { ["visit"] = visitId,
                 ["name"] = merchant.displayName, ["remaining"] = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
             var doc = new JObject { ["generation"] = generation, ["slot"] = slot, ["revision"] = sequence,
                 ["phase"] = phase, ["day"] = StoreStation.Instance.dayCounter, ["customer"] = customer,
-                ["day_info"] = DayView(), ["phone"] = PhoneView(), ["counter_protocol"] = 2, ["counter"] = CounterView(), ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["portable_purifiers"] = PortablePurifierRows(), ["last_night"] = night.DeepClone() };
+                ["day_info"] = DayView(), ["phone"] = PhoneView(), ["counter_protocol"] = 2, ["counter"] = counter, ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["portable_purifiers"] = PortablePurifierRows(), ["last_night"] = night.DeepClone() };
             var text = doc.ToString(Formatting.None);
             if (text == previousView) return;
             ModHelper.WriteModDataFileText(ModId, deskFile, text);

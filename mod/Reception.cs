@@ -46,12 +46,23 @@ namespace WhiteDragon.Ledger
             return !StoreUIManager.Instance.isAboutToStartMainDialog && !NegociationUIManager.IsTradeLocked();
         }
 
+        private string VisitMismatchStatus(JObject receipt = null)
+        {
+            if (receipt != null)
+            {
+                receipt["visit"] = visitId;
+                if (merchant != null) receipt["customer"] = merchant.displayName;
+            }
+            return visitId == null ? "customer_left" : "customer_replaced";
+        }
+
         private string DismissBlockerReason(PlayerStore store)
         {
             if (WildNetworkUI.IsOpen) return "wild_network_open";
             if (ResponseInventory() != null) return "response_required";
             if (phase != "OPEN") return "shop_closed";
-            if (visit == null || store.currentClientInstance != visit) return "visit_changed";
+            if (visit == null || store.currentClientInstance != visit)
+                return store.currentClientInstance == null ? "customer_left" : "customer_replaced";
             if (!store.isClientArrived) return "client_arriving";
             if (store.isClientBeingArrested) return "client_being_arrested";
             if (store.isHandlingShootout) return "shootout_in_progress";
@@ -100,6 +111,12 @@ namespace WhiteDragon.Ledger
             if (!CanDismissCustomer(store))
             {
                 DescribeDismissBlock(store, receipt);
+                receipt["visit"] = visitId;
+                if (merchant != null) receipt["customer"] = merchant.displayName;
+                var rec = ReceptionView();
+                receipt["reception"] = rec;
+                receipt["reception_token"] = rec["token"];
+                receipt["waiting"] = rec["waiting"];
                 return "dismiss_unavailable";
             }
             var departing = visit;
@@ -107,7 +124,12 @@ namespace WhiteDragon.Ledger
             receipt["customer"] = merchant.displayName;
             store.TryPlayerDismissCurrentClient(true);
             ObserveVisit();
-            receipt["waiting"] = store.GetClientInQueueCount();
+            var after = ReceptionView();
+            receipt["reception"] = after;
+            receipt["reception_token"] = after["token"];
+            receipt["waiting"] = after["waiting"];
+            receipt["can_ring"] = after["can_ring"];
+            receipt["can_close_shop"] = after["can_close_shop"];
             return store.currentClientInstance != departing ? "dismissed" : "dismiss_intercepted";
         }
 
@@ -158,13 +180,16 @@ namespace WhiteDragon.Ledger
             int waiting = (int)view["waiting"];
             receipt["waiting"] = waiting;
             receipt["reception"] = view;
+            receipt["reception_token"] = view["token"];
             if ((string)request["reception_token"] != receptionToken) return "reception_changed";
             if ((string)request["action"] == "auto_receive")
             {
                 bool enable = (bool)request["enabled"];
                 if (enable && ClosePrompt) return "close_prompt_open";
                 autoReceiveDay = enable ? StoreStation.Instance.dayCounter : 0;
-                receipt["reception"] = ReceptionView();
+                var afterAuto = ReceptionView();
+                receipt["reception"] = afterAuto;
+                receipt["reception_token"] = afterAuto["token"];
                 return enable ? "auto_receive_enabled" : "auto_receive_disabled";
             }
             if (!CanCloseShop())
@@ -183,7 +208,9 @@ namespace WhiteDragon.Ledger
                 shutter.EndAndClose();
             else if (!ClosePrompt)
                 shutter.OnClick();
-            receipt["reception"] = ReceptionView();
+            var afterClose = ReceptionView();
+            receipt["reception"] = afterClose;
+            receipt["reception_token"] = afterClose["token"];
             receipt["phase"] = PlayerStore.Instance.storeState.ToString();
             if (PlayerStore.Instance.storeState == PlayerStore.StoreState.CLOSED)
             {

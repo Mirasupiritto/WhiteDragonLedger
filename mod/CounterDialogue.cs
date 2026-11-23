@@ -79,7 +79,7 @@ namespace WhiteDragon.Ledger
         private string SubmitDecision(JObject request, JObject receipt)
         {
             ObserveVisit();
-            if ((string)request["visit"] != visitId) return "visit_changed";
+            if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);
             bool response = (string)request["action"] == "response_choice";
             string stage = CounterStage();
             if (stage != (response ? "response_required" : "choice_required")) return "page_changed";
@@ -97,6 +97,9 @@ namespace WhiteDragon.Ledger
             else
                 DialogUIManager.Instance.dialogChoiceBubbles.First(button => VisibleChoice(button) && button.index == id)
                     .OnDialogChoiceClick();
+            ObserveVisit();
+            receipt["visit"] = visitId;
+            receipt["reception_token"] = ReceptionView()["token"];
             return "choice_submitted";
         }
     }
