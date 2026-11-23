@@ -60,8 +60,10 @@ namespace WhiteDragon.Ledger
     public partial class GameItem { public void CloseContentWindow(){contentWindow.Hide();} }
     public static class ScavHelper
     {
-        public static bool CanScavenge()=>GetScavTimeLeft()>0;
-        public static int GetScavTimeLeft()=>2-MapUIManager.Instance.attempts;
+        public static int maxAttempts = 2;
+        public static int GetMaxScavAttempts() => maxAttempts;
+        public static bool CanScavenge() => (PlayerStore.Instance?.healthData?.isWoundedFresh != true) && GetScavTimeLeft() > 0;
+        public static int GetScavTimeLeft() => Math.Max(0, maxAttempts - MapUIManager.Instance.attempts);
         public static float GetMinorWoundChance()=>.1f;
         public static float GetMajorWoundChance()=>.02f;
     }
@@ -183,6 +185,39 @@ namespace WhiteDragon.Ledger
             Expect(map.attempts==1 && ModHelper.ModDataFileExists(ModId,"receipt-"+id+".json"),"repeat envelope spends one night attempt");
             receipt=JObject.Parse(ModHelper.ReadModDataFileText(ModId,"receipt-"+id+".json"));
             Expect(receipt["view"]["slots"]!=null && (string)receipt["view_token"]!=null,"scavenge returns chainable view");
+            Expect((string)receipt["view"]["injury"]["severity"]=="none" && (string)receipt["scavenge_outcome"]=="completed",
+                "healthy scavenge exposes none injury");
+            // Simulate wound during next scavenge
+            var prevAttempts = map.attempts;
+            var prevOnScav = MapUIManager.Instance;
+            ScavHelper.maxAttempts = 3;
+            person.healthData.woundState = 2;
+            person.healthData.isWoundedFresh = true;
+            person.healthData.isWoundStable = false;
+            ReputationUIManager.Instance.reputationNotifier.activeInHierarchy = true;
+            ReputationUIManager.Instance.reputationNotifierTMP.text = "你在搜尋時割傷了手臂";
+            r["action"]="read"; ActOnJourney(r,receipt);
+            Expect(!(bool)receipt["view"]["can_scavenge"] && (string)receipt["view"]["scavenge_blocked_reason"]=="injured" &&
+                (string)receipt["view"]["injury"]["severity"]=="minor" && (string)receipt["view"]["notification"]=="你在搜尋時割傷了手臂",
+                "injured dumping ground reports injury details and blocked reason");
+            r["action"]="scavenge"; r["view_token"]=receipt["view_token"];
+            Expect(ActOnJourney(r,receipt)=="scavenge_unavailable" && (string)receipt["scavenge_blocked_reason"]=="injured" &&
+                (string)receipt["injury"]["severity"]=="minor","scavenge refusal includes injury and blocked reason");
+            person.healthData.isWoundedFresh = false;
+            person.healthData.woundState = 6;
+            ScavHelper.maxAttempts = 0;
+            ReputationUIManager.Instance.reputationNotifier.activeInHierarchy = false;
+            r["action"]="read"; ActOnJourney(r,receipt);
+            Expect((string)receipt["view"]["scavenge_blocked_reason"]=="no_attempts" &&
+                (string)receipt["view"]["injury"]["severity"]=="major" && (bool)receipt["view"]["injury"]["serious"],
+                "zero attempts and major injury status reported");
+            ScavHelper.maxAttempts = 2;
+            map.attempts = 2;
+            r["action"]="read"; ActOnJourney(r,receipt);
+            Expect((string)receipt["view"]["scavenge_blocked_reason"]=="out_of_time", "exhausted attempts report out_of_time");
+            person.healthData = new HealthData();
+            map.attempts = prevAttempts;
+            r["action"]="read"; ActOnJourney(r,receipt);
             r["action"]="return";r["view_token"]=receipt["view_token"];
             Expect(ActOnJourney(r,receipt)=="return_requested" && map.IsInTransit,"return once ground empty");
             Console.WriteLine("Journey replay passed: door, packing, report, visit identity, destination, bag slots, scavenging, replay and return.");

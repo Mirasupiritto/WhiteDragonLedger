@@ -139,8 +139,8 @@ def register(server, folder):
     def explore(mode: Literal["read", "move", "open_bag", "close_bag", "scavenge", "return"] = "read",
                 session: str = "", revision: int = 0, view_token: str = "", item_id: int = 0,
                 source: str = "", target: str = "", abandon_ground: bool = False) -> dict:
-        """Read visible night inventory, pockets, bag slots and scavenging conditions. Move one observed item
-        by its scene-local game ID and slot keys. Use the returned view.slots and view_token for the next action.
+        """Read visible night inventory, pockets, bag slots, injury status and scavenging conditions (including scavenge_blocked_reason when blocked and any native notification).
+        Move one observed item by its scene-local game ID and slot keys. Use the returned view.slots and view_token for the next action.
         Collect the ground before returning, or pass abandon_ground=True with mode='return' to discard remaining ground items."""
         return command(folder, "explore", mode, session, revision, view_token, item_id=item_id, source=source,
                        target=target, abandon_ground=abandon_ground)

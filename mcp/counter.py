@@ -112,8 +112,14 @@ def command(folder, action, generation, revision, *, database=None, **args):
         if view.get("visit") != args["visit"] or not view.get("visit"):
             return {"status":"visit_changed"}
         if view["revision"] >= revision and not view["reception"]["can_dismiss"]:
-            blockers = {k: view["reception"][k] for k in ("reason", "blocking_items") if k in view["reception"]}
-            return {"status":"dismiss_unavailable", **blockers}
+            reception = view["reception"]
+            blockers = {
+                "reason": reception.get("reason", "dismiss_unavailable"),
+                "blocking_items": reception.get("blocking_items", []),
+            }
+            if "guidance" in reception:
+                blockers["guidance"] = reception["guidance"]
+            return {"status": "dismiss_unavailable", **blockers}
     if action == "barter":
         if view.get("barter_protocol") != 1:
             return {"status": "reload_updated_mod"}

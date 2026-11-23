@@ -106,7 +106,7 @@ def register_pawnshop_tools(server, folder, database):
     def move_items(item_ids: list[int], source: Literal["inventory", "showcase", "front", "back"],
                    destination: Literal["inventory", "showcase"], generation: str, revision: int, visit: str | None = None) -> dict:
         """Move owned stock between inventory and showcase with the shutter closed, or collect owned front/back items to inventory.
-        Pass the current visit during service, or omit it at an empty counter. Pass the generation and
+        Pass the current visit during any arrived customer visit without an active order (including ready, barter, seller-only or dialogue), or omit it at an empty counter. Pass the generation and
         starting revision from query_inventory. Returns one receipt with each observed destination
         and game scan counters. Stops at the first unconfirmed or rejected item. The original
         arguments recover completed lines and can continue pending lines."""
@@ -221,7 +221,10 @@ def register_pawnshop_tools(server, folder, database):
     @server.tool()
     def sell_order(lines: list[SaleLine], generation: str, revision: int, visit: str,
                    stop_same_kind_on_budget: bool = False, bundle: bool = False) -> dict:
-        """Sell only the listed owned items, each with its own minimum. Set bundle=True to stage all listed
+        """Sell only the listed owned items, each with its own minimum. Before staging, auto-returns any
+        non-order owned counter items (excluding nuclear_waste) to inventory and reports cleared_items.
+        counter_unavailable and stale_order always attach reason and blocking_items (with guidance for nuclear_waste_on_counter).
+        Set bundle=True to stage all listed
         items onto the trade table together and settle in one click (rolling all items back to their original
         areas if any item is declined, below minimum, duplicate variety, or the combined quote exceeds budget).
         With bundle=False (default), sells one item at a time and can opt in to stop_same_kind_on_budget.
@@ -285,7 +288,7 @@ def register_pawnshop_tools(server, folder, database):
 
     @server.tool()
     def dismiss_customer(generation: str, revision: int, visit: str) -> dict:
-        """Dismiss this visit when reception.can_dismiss is true. A newer inventory revision rechecks the same visit. After dismiss_unavailable, retry the original arguments when this visit can leave. A completed dismissal returns its original receipt."""
+        """Dismiss this visit when reception.can_dismiss is true. Automatically returns non-order owned counter items (excluding nuclear_waste) to inventory as cleared_items without blocking dismissal. A newer inventory revision rechecks the same visit. After dismiss_unavailable (which always attaches reason and blocking_items), retry the original arguments when this visit can leave. A completed dismissal returns its original receipt."""
         return counter.command(folder, "dismiss", generation, revision, visit=visit)
 
     @server.tool()

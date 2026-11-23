@@ -11,6 +11,14 @@ from command_transport import exchange, read_command_receipt, read_optional_json
 import trade_journal
 
 
+NUCLEAR_WASTE_GUIDANCE = (
+    "交易檯（back）上有核廢料（nuclear_waste）。請先用 move_items 將核廢料移至 inventory（庫存）或 showcase（展示櫃）；"
+    "垃圾桶無法消除核廢料。若庫存滿了或放不下，需由玩家清出空間或於夜間 CLOSED 後，在店內用 inspect_item_window＋transfer_slot_items "
+    "裝入夠大的背包（如 6x6 小背包以上，3x3 腰包放不下），再帶去垃圾場（dumping_ground）移到 ground 後以 abandon_ground=True 返店"
+    "（或由玩家於 UI 放進背包／手部帶去垃圾場拋棄；拋棄達標會觸發喬治奧來店歸還一次）。"
+)
+
+
 def strip_protocols(data):
     if isinstance(data, dict):
         return {k: strip_protocols(v) for k, v in data.items() if not k.endswith("_protocol")}
@@ -183,7 +191,26 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
         if pending:
             return receipt() or pending
     if (context["generation"],context["revision"],(context["customer"] or {}).get("visit")) != (generation,revision,visit):
-        return {"status":"stale_order"}
+        table_items = context.get("table_items")
+        if table_items is None:
+            desk_view = published(folder)
+            table_items = desk_view.get("counter", {}).get("table_items", []) if desk_view.get("status") == "observed" else []
+        blocking = [{"id": r["id"], "kind": r["kind"], "area": r["area"]} for r in table_items]
+        if context["generation"] != generation:
+            stale_reason = "generation_changed"
+        elif (context["customer"] or {}).get("visit") != visit:
+            stale_reason = "visit_changed"
+        elif any(r.get("hazardous") for r in table_items):
+            stale_reason = "nuclear_waste_on_counter"
+        elif blocking:
+            stale_reason = "trade_table_not_empty"
+        else:
+            stale_reason = "revision_changed"
+        stale = {"status": "stale_order", "reason": stale_reason, "blocking_items": blocking,
+                 "latest_revision": context["revision"]}
+        if stale_reason == "nuclear_waste_on_counter":
+            stale["guidance"] = NUCLEAR_WASTE_GUIDANCE
+        return stale
     request = dict(plan, command_id=command)
     def send():
         return exchange(folder, folder/f"sale-{generation}.json", request, receipt)

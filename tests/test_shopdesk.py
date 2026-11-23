@@ -122,3 +122,34 @@ class ShopDeskReplay(unittest.TestCase):
         self.assertNotEqual(captured[0]["command_id"], captured[1]["command_id"])
         self.assertEqual(single["status"], "finished")
         self.assertEqual(bundled["status"], "finished")
+
+    def test_stale_order_always_attaches_reason_blocking_items_and_waste_guidance(self):
+        from unittest.mock import patch
+        visit = "e" * 32
+        other_visit = "f" * 32
+        lines = [dict(item_id=10, min_price=4)]
+
+        waste_snap = dict(
+            status="observed", phase="OPEN", generation=self.gen, revision=9, slot=4,
+            customer=dict(visit=visit, name="Buyer"),
+            table_items=[dict(id=77, kind="nuclear_waste", area="back", owned=True, hazardous=True)],
+        )
+        with patch("shopdesk.buyer", return_value=waste_snap):
+            waste_stale = sell_order(self.folder, lines, self.gen, 8, visit)
+        self.assertEqual(waste_stale["status"], "stale_order")
+        self.assertEqual(waste_stale["reason"], "nuclear_waste_on_counter")
+        self.assertEqual(waste_stale["blocking_items"], [dict(id=77, kind="nuclear_waste", area="back")])
+        self.assertEqual(waste_stale["latest_revision"], 9)
+        self.assertIn("nuclear_waste", waste_stale["guidance"])
+
+        clean_snap = dict(status="observed", phase="OPEN", generation=self.gen, revision=9, slot=4,
+                          customer=dict(visit=visit, name="Buyer"), table_items=[])
+        with patch("shopdesk.buyer", return_value=clean_snap):
+            rev_stale = sell_order(self.folder, lines, self.gen, 8, visit)
+        self.assertEqual((rev_stale["status"], rev_stale["reason"], rev_stale["blocking_items"]),
+                         ("stale_order", "revision_changed", []))
+
+        with patch("shopdesk.buyer", return_value=clean_snap):
+            visit_stale = sell_order(self.folder, lines, self.gen, 9, other_visit)
+        self.assertEqual((visit_stale["status"], visit_stale["reason"], visit_stale["blocking_items"]),
+                         ("stale_order", "visit_changed", []))

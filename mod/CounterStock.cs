@@ -21,7 +21,8 @@ namespace WhiteDragon.Ledger
             {
                 if (visitId == null || (string)request["visit"] != visitId) return Receipt(request,"visit_changed");
                 stage = CounterStage(true);
-                bool canCollect = collect && (stage == "business_complete" || stage == "tablet_closed");
+                bool canCollect = collect && PlayerStore.Instance.isClientArrived && PlayerStore.Instance.lockAllInventoryFlag == 0 &&
+                    !WildNetworkUI.IsOpen && ResponseInventory() == null;
                 if ((!canCollect && stage != "ready" && stage != "barter") || order != null || Interactable.isPaused ||
                     NegociationUIManager.IsTradeLocked()) return Receipt(request,"trade_unavailable");
             }
@@ -35,8 +36,13 @@ namespace WhiteDragon.Ledger
                 source == "back" && (owned ? destination == "inventory" || destination == "showcase" : destination == "front");
             if (!allowed && !(collect && owned)) return Receipt(request,"invalid_route");
             if (destination == "back" && shop.backInvinvElement.childItems.Count != 0 &&
-                (!owned || stage != "ready" || shop.backInvinvElement.childItems.Any(existing => !GeneralHelper.IsItemOwned(existing))))
-                return Receipt(request,"table_occupied");
+                (!owned || stage != "ready" ||
+                 shop.backInvinvElement.childItems.Any(existing => !GeneralHelper.IsItemOwned(existing) || IsHazardousWasteItem(existing))))
+            {
+                var occupied = Receipt(request, "table_occupied");
+                DescribeBlockedTable(occupied, false, true);
+                return occupied;
+            }
             var target = destination == "back" ? shop.backInvinvElement : destination == "front" ? shop.frontInvinvElement :
                 destination == "showcase" ? shop.showcaseElement : shop.invElement;
             var window = destination == "back" ? shop.backInvWindow : destination == "front" ? shop.frontInvWindow :

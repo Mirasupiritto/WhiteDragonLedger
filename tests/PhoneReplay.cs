@@ -106,6 +106,20 @@ namespace WhiteDragon.Ledger {
             Expect(ActOnPhone(request,result)=="phone_changed" && option.clicks==0,"old choice blocked");
             request["phone_token"]=PhoneView()["phone_token"];
             Expect(ActOnPhone(request,result)=="choice_submitted" && option.clicks==1,"explicit service selection");
+
+            // P0-1 acceptance 3: card_rev delivered on front is auto-filed to inventory and still readable by get_phone_contacts.
+            directory.Add(StorePhoneClient.REV_MERCHANT_NUMBER, new StorePhoneClient { dialogFuncId="RevMerchant" });
+            var revCard = Item(804, "card_rev", 0);
+            revCard.To(EmporiumEntry.Instance.frontInvinvElement);
+            QueueFrontPaper(revCard, revCard.parentInventory, null);
+            FileCounterPapers();
+            Expect(revCard.parentInventory == EmporiumEntry.Instance.invElement, "delivered card filed to inventory");
+            var contactsAfter = (JArray)PhoneView()["contacts"];
+            bool foundRevCard = false;
+            foreach (JObject c in contactsAfter)
+                if ((long)c["number"] == StorePhoneClient.REV_MERCHANT_NUMBER && (int)c["card_id"] == LocalId(revCard))
+                    foundRevCard = true;
+            Expect(foundRevCard, "card collected into inventory remains readable by get_phone_contacts");
         }
     }
 }

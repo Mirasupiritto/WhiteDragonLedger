@@ -97,6 +97,13 @@ namespace WhiteDragon.Ledger
                     ["sold_kinds"]=new JArray(merchant.varietyTrackingList.Distinct()) };
             view["quote_ready"] = merchant != null && CounterStage(true) == "ready";
             view["quote"] = TableQuote();
+            var backTableItems = new JArray();
+            foreach (var item in EmporiumEntry.Instance.backInvinvElement.childItems)
+                backTableItems.Add(new JObject {
+                    ["id"]=LocalId(item), ["kind"]=item.identifier, ["area"]="back",
+                    ["owned"]=GeneralHelper.IsItemOwned(item), ["hazardous"]=IsHazardousWasteItem(item)
+                });
+            if (backTableItems.Count > 0) view["table_items"] = backTableItems;
             ObserveDecision(stage, view);
             if (phase == "OPEN") view["waiting"] = store.GetClientInQueueCount();
             if (stage == "information")
@@ -234,6 +241,9 @@ namespace WhiteDragon.Ledger
             var shop = EmporiumEntry.Instance;
             var items = shop.GetAllNonOwnedItem();
             var ui = NegociationUIManager.Instance;
+            var cleared = new JArray();
+            if (!merchant.isOfferWholesale && ClearNonOrderBackTable(null, cleared) > 0)
+                FlushChanges();
             if (merchant.isOfferWholesale)
                 ui.OnWholesaleClick();
             else
@@ -242,9 +252,17 @@ namespace WhiteDragon.Ledger
                 foreach (var item in items)
                 {
                     if (item.parentInventory == shop.backInvinvElement) continue;
-                    if (item.parentInventory != shop.frontInvinvElement || !item.MayRemove()) return "placement_blocked";
+                    if (item.parentInventory != shop.frontInvinvElement || !item.MayRemove())
+                    {
+                        DescribeBlockedTable(receipt, false);
+                        return "placement_blocked";
+                    }
                     ModHelper.MoveItemToBackCounter(item);
-                    if (item.parentInventory != shop.backInvinvElement) return "placement_failed";
+                    if (item.parentInventory != shop.backInvinvElement)
+                    {
+                        DescribeBlockedTable(receipt, false);
+                        return "placement_failed";
+                    }
                 }
                 long stagedTotal = 0;
                 foreach (var item in items) stagedTotal += item.GetNegociatedValue();
@@ -255,8 +273,16 @@ namespace WhiteDragon.Ledger
                 if (store.playerCash < total) return "insufficient_cash";
                 ui.OnBuyAllClick();
             }
+            foreach (var item in items)
+                if (GeneralHelper.IsItemOwned(item) && !IsHazardousWasteItem(item) &&
+                    (item.parentInventory == shop.frontInvinvElement || item.parentInventory == shop.backInvinvElement))
+                {
+                    pendingPapers.Add(item);
+                    papersDirty = true;
+                }
             CloseTransactions();
             FileCounterPapers(receipt);
+            if (cleared.Count > 0) receipt["cleared_items"] = cleared;
             foreach (var item in items) changed.Add(item);
             FlushChanges();
             receipt["cash_after"] = store.playerCash;

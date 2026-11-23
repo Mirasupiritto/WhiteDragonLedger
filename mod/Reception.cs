@@ -37,21 +37,69 @@ namespace WhiteDragon.Ledger
         {
             if (ResponseInventory() != null || WildNetworkUI.IsOpen || phase != "OPEN" || visit == null || store.currentClientInstance != visit ||
                 !store.isClientArrived || store.lockNextBellFlag > 0 || !store.IsClientDimissable() ||
-                Interactable.isPaused || order != null || store.isClientBeingArrested || store.isHandlingShootout)
+                Interactable.isPaused || order != null || staged != null || stagedBundle.Count > 0 ||
+                store.isClientBeingArrested || store.isHandlingShootout)
                 return false;
             var dialog = DialogUIManager.Instance;
             if (dialog != null && (dialog.GetCurrentDialog() != null || dialog.IsChoice() ||
                 dialog.HasPausedConversation || dialog.isWaitingForManualAdvance)) return false;
-            return !StoreUIManager.Instance.isAboutToStartMainDialog && !NegociationUIManager.IsTradeLocked() &&
-                !EmporiumEntry.Instance.backInvinvElement.childItems.Exists(GeneralHelper.IsItemOwned);
+            return !StoreUIManager.Instance.isAboutToStartMainDialog && !NegociationUIManager.IsTradeLocked();
+        }
+
+        private string DismissBlockerReason(PlayerStore store)
+        {
+            if (WildNetworkUI.IsOpen) return "wild_network_open";
+            if (ResponseInventory() != null) return "response_required";
+            if (phase != "OPEN") return "shop_closed";
+            if (visit == null || store.currentClientInstance != visit) return "visit_changed";
+            if (!store.isClientArrived) return "client_arriving";
+            if (store.isClientBeingArrested) return "client_being_arrested";
+            if (store.isHandlingShootout) return "shootout_in_progress";
+            if (store.lockNextBellFlag > 0) return "bell_locked";
+            if (!store.IsClientDimissable()) return "client_not_dismissable";
+            if (order != null || staged != null || stagedBundle.Count > 0) return "order_in_progress";
+            var dialog = DialogUIManager.Instance;
+            if ((dialog != null && (dialog.GetCurrentDialog() != null || dialog.IsChoice() ||
+                dialog.HasPausedConversation || dialog.isWaitingForManualAdvance)) ||
+                StoreUIManager.Instance.isAboutToStartMainDialog)
+                return "dialogue_in_progress";
+            if (Interactable.isPaused) return "paused";
+            if (NegociationUIManager.IsTradeLocked()) return "trade_locked";
+            return "dismiss_unavailable";
+        }
+
+        private void DescribeDismissBlock(PlayerStore store, JObject target)
+        {
+            target["reason"] = DismissBlockerReason(store);
+            var rows = new JArray();
+            var shop = EmporiumEntry.Instance;
+            foreach (var item in shop.backInvinvElement.childItems)
+            {
+                if (!GeneralHelper.IsItemOwned(item) || !IsActiveOrderItem(item)) continue;
+                rows.Add(new JObject { ["id"]=LocalId(item), ["kind"]=item.identifier, ["area"]="back" });
+            }
+            target["blocking_items"] = rows;
         }
 
         private string DismissCustomer(JObject receipt)
         {
             var store = PlayerStore.Instance;
+            if (order == null && !Interactable.isPaused && !NegociationUIManager.IsTradeLocked() &&
+                store.lockAllInventoryFlag == 0)
+            {
+                var cleared = new JArray();
+                int moved = ClearCounterInventoryToShop(EmporiumEntry.Instance.frontInvinvElement, "front", null,
+                    i => IsCounterClutter(i, true), cleared);
+                moved += ClearNonOrderBackTable(null, cleared);
+                if (moved > 0)
+                {
+                    FlushChanges();
+                    receipt["cleared_items"] = cleared;
+                }
+            }
             if (!CanDismissCustomer(store))
             {
-                DescribeBlockedTable(receipt, true);
+                DescribeDismissBlock(store, receipt);
                 return "dismiss_unavailable";
             }
             var departing = visit;
@@ -80,7 +128,7 @@ namespace WhiteDragon.Ledger
             }
             var view = new JObject { ["token"]=receptionToken, ["waiting"]=waiting, ["auto_receive"]=automatic,
                 ["close_prompt"]=prompt, ["can_ring"]=RingBlocker(store) == null, ["can_close_shop"]=available, ["can_dismiss"]=CanDismissCustomer(store) };
-            if (visitId != null && !(bool)view["can_dismiss"]) DescribeBlockedTable(view, true);
+            if (visitId != null && !(bool)view["can_dismiss"]) DescribeDismissBlock(store, view);
             return view;
         }
 

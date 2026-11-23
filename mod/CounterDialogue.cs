@@ -60,6 +60,12 @@ namespace WhiteDragon.Ledger
             view["page"] = pageToken;
             foreach (string name in new[] { "dialog_choices", "response_choices" })
                 if (decision[name] != null) view[name] = decision[name].DeepClone();
+            if (stage == "choice_required" && merchant?.identifier == "radioactiveWasteCustomer")
+            {
+                view["forced_choice"] = true;
+                view["forced_choice_reason"] =
+                    "此企業廢料主管強制要求收下 1／3／5 桶核廢料（每桶補貼 $100），沒有拒絕選項；建議選最少數量（1 桶）。核廢料無法被垃圾桶清除，留在櫃檯過夜會於隔日早晨重回 front，帶到垃圾場拋棄達標會觸發喬治奧歸還一次。";
+            }
         }
 
         private string SubmitDecision(JObject request, JObject receipt)

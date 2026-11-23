@@ -66,7 +66,9 @@ namespace WhiteDragon.Ledger {
             return result;
         }
         public GameInventory frontInvinvElement=new GameInventory();
-        public GameInventory invElement=new GameInventory(), backInvinvElement=new GameInventory(), showcaseElement=new GameInventory();
+        public GameInventory invElement=new GameInventory(), backInvinvElement=new GameInventory(), showcaseElement=new GameInventory(),
+            hiddenElement=new GameInventory();
+        public GameItem trashcan;
     }
     public class ItemCondition { public string display; }
     public class ItemFeature {
@@ -88,12 +90,26 @@ namespace WhiteDragon.Ledger {
         public bool MayActivateSlotItem() => true;
         public bool CanActivateSlotItem() => true;
         public string GetDisplayName(bool custom) => identifier;
-        public bool MayRemove() => true;
+        public bool mayRemove = true;
+        public bool MayRemove() => mayRemove;
         public long GetNegociatedValue() => price;
         public bool IsTag(string key) => (key=="LIQUID_CONTAINER_TAG" && identifier=="bottle") || waterTags.Contains(key);
         public GameItem GetTagReadonly(string key) => scratchTagReader == null ? this : scratchTagReader(key);
         public int GetInt() => associatedId;
-        public List<GameItem> FindAllChildItems() => new List<GameItem>();
+        public List<GameItem> FindAllChildItems()
+        {
+            var found = new List<GameItem>();
+            if (contentWindow?.childElement is GameInventory childInv)
+            {
+                foreach (var child in childInv.childItems)
+                {
+                    if (child == null) continue;
+                    found.Add(child);
+                    found.AddRange(child.FindAllChildItems());
+                }
+            }
+            return found;
+        }
         public void To(GameInventory target) {
             if (parentInventory is GameSlotInventory oldSlot) oldSlot.childItem = null;
             parentInventory?.childItems.Remove(this);
@@ -125,10 +141,27 @@ namespace WhiteDragon.Ledger {
         public StoreClient client=new StoreClient();
         public StoreClient GetClientBlueprint() => client;
     }
+    public class HealthData {
+        public const int SERIOUS_WOUND_THRESHOLD = 5;
+        public int woundState;
+        public bool isWoundStable = true, isWoundedFresh;
+        public static bool IsSeriouslyWounded() => PlayerStore.Instance?.healthData?.woundState > SERIOUS_WOUND_THRESHOLD;
+    }
+    public class StoreClientData {
+        public int nuclearWasteLeftOnCounter, nuclearWasteDumped;
+    }
+    public class ReputationUIManager {
+        public static ReputationUIManager Instance = new ReputationUIManager();
+        public Window reputationNotifier = new Window();
+        public TMPro.TextMeshProUGUI reputationNotifierTMP = new TMPro.TextMeshProUGUI();
+    }
     public partial class PlayerStore {
         public static bool HasInstance => Instance != null;
         public int saveSlotId=4;
         public static PlayerStore Instance=new PlayerStore();
+        public HealthData healthData = new HealthData();
+        public StoreClientData storeClientData = new StoreClientData();
+        public static StoreClientData GetStoreClientData() => Instance?.storeClientData;
         public StoreClientInstance currentClientInstance=new StoreClientInstance();
         public int playerCash=100;
         public bool CanBuyItemFromTable() => !GetCurrentlyNegociatedItem().owned;
@@ -217,6 +250,8 @@ namespace WhiteDragon.Ledger {
         public static bool IsItemEffectivelyOwned(GameItem item) => item.owned;
         public static bool IsDisplayOnly(GameItem item) => false;
         public static bool IsItemLocked(GameItem item) => false;
+        public static bool IsHazardousWaste(GameItem item) =>
+            item != null && (item.identifier == "nuclear_waste" || item.IsTag("HAZARDOUS_WASTE_TAG"));
     }
     public static class MachineryHelper { public static int GetMachinePowerUsage(GameItem machine) => 4; }
     public static class MachineHelper {
@@ -443,6 +478,7 @@ namespace WhiteDragon.Ledger {
             ReplayWaterPanel();
             ReplayWaterUse();
             ReplaySaleResume();
+            ReplayP0();
             ReplayMixedTrades();
             ReplayBundleSale();
             ReplayNetwork();
@@ -571,19 +607,29 @@ namespace WhiteDragon.Ledger {
             ++sequence;
             observedVariety=true;
             store.dismissable=false;
-            Expect(ActAtCounter(req,receipt)=="dismiss_unavailable","native dismissal locked");
+            Expect(ActAtCounter(req,receipt)=="dismiss_unavailable" && (string)receipt["reason"]=="client_not_dismissable" &&
+                ((JArray)receipt["blocking_items"]).Count==0,"native dismissal locked attaches reason and empty blocking_items");
             store.dismissable=true;
             EmporiumEntry.Instance.backInvinvElement.childItems.Clear();
+            var orderItem = Item(64002,"mug",5);
+            orderItem.To(EmporiumEntry.Instance.backInvinvElement);
+            order = new JObject { ["command_id"]="active_order", ["lines"]=new JArray() };
+            staged = orderItem;
+            Expect(ActAtCounter(req,receipt)=="dismiss_unavailable" && (string)receipt["reason"]=="order_in_progress" &&
+                (string)receipt["blocking_items"][0]["kind"]=="mug","active order staged item blocks dismiss with reason and blocking_items");
+            order = null;
+            staged = null;
+            orderItem.To(EmporiumEntry.Instance.invElement);
             var delivered = Item(64001,"card_rev",1);
             delivered.To(EmporiumEntry.Instance.frontInvinvElement);
             QueueFrontPaper(delivered,delivered.parentInventory,null);
             delivered.To(EmporiumEntry.Instance.backInvinvElement);
-            Expect(ActAtCounter(req,receipt)=="dismiss_unavailable" && (string)receipt["blocking_items"][0]["kind"]=="card_rev","diagnose the actual blocker");
-            FileCounterPapers();
-            Expect(delivered.parentInventory==EmporiumEntry.Instance.invElement,"recover this visit before dismissal");
+            Expect((bool)ReceptionView()["can_dismiss"],"stray non-order card on back does not block dismissal");
             int waiting=store.waiting;
             store.interceptDismiss=true;
-            Expect(ActAtCounter(req,receipt)=="dismiss_intercepted","intercept keeps original visit");
+            Expect(ActAtCounter(req,receipt)=="dismiss_intercepted" &&
+                delivered.parentInventory==EmporiumEntry.Instance.invElement &&
+                (string)receipt["cleared_items"][0]["kind"]=="card_rev","dismiss auto-collects stray owned counter clutter");
             store.interceptDismiss=false;
             Expect(ActAtCounter(req,receipt)=="dismissed" && visitId==null && store.waiting==waiting &&
                    (bool)receipt["revision_rechecked"],"same visit is dismissed once after the sale revision advances");
@@ -664,6 +710,130 @@ namespace WhiteDragon.Ledger {
             stray.To(EmporiumEntry.Instance.invElement);
             request["reception_token"]=ReceptionView()["token"];
             Expect(ActOnReception(request,receipt)=="closed" && (int)receipt["forfeited"]==0,"empty queue closes directly");
+        }
+
+        private void ReplayP0()
+        {
+            var store = PlayerStore.Instance;
+            var shop = EmporiumEntry.Instance;
+            phase = "OPEN";
+            store.storeState = PlayerStore.StoreState.OPEN;
+            DialogUIManager.Instance = new DialogUIManager();
+            NegociationUIManager.Instance.IsOpen = true;
+            shop.frontInvinvElement.childItems.Clear();
+            shop.backInvinvElement.childItems.Clear();
+
+            // P0-1 acceptance 1: newspaper on back + customer wants unavailable kind -> dismiss succeeds first try.
+            store.currentClientInstance = new StoreClientInstance();
+            store.currentClientInstance.client.clientBuyingIdList.Add("rare_unstocked_widget");
+            ObserveVisit();
+            var news = Item(91001, "newspaper", 0);
+            news.To(shop.backInvinvElement);
+            Expect((bool)ReceptionView()["can_dismiss"], "newspaper on back leaves customer dismissable");
+            var dismissReq = new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence, ["visit"] = visitId,
+                ["expires_ms"] = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds()
+            };
+            var dismissReceipt = new JObject();
+            Expect(ActAtCounter(dismissReq, dismissReceipt) == "dismissed" &&
+                news.parentInventory == shop.invElement &&
+                (string)dismissReceipt["cleared_items"][0]["kind"] == "newspaper",
+                "newspaper on back auto-clears and dismiss succeeds on first try");
+
+            // P0-1 acceptance 2: wholesale/batch purchase followed immediately by sell_order succeeds without counter_unavailable.
+            store.currentClientInstance = new StoreClientInstance();
+            ObserveVisit();
+            var wholesaleGood = Item(91002, "lantern", 4);
+            wholesaleGood.owned = false;
+            wholesaleGood.To(shop.frontInvinvElement);
+            var offerView = CounterView();
+            var buyReq = new JObject {
+                ["action"] = "buy", ["generation"] = generation, ["revision"] = sequence, ["visit"] = visitId,
+                ["offer_token"] = offerView["offer_token"], ["max_total"] = 10,
+                ["expires_ms"] = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds()
+            };
+            var buyReceipt = new JObject();
+            Expect(ActAtCounter(buyReq, buyReceipt) == "purchased", "wholesale/batch buy completes cleanly");
+            // Even if stray owned goods remain on back right before sell_order, sell_order clears them before staging.
+            var strayBought = Item(91003, "bottle", 3);
+            strayBought.To(shop.backInvinvElement);
+            var sellTarget = Item(91004, "lamp", 5);
+            string sellCmd = Guid.NewGuid().ToString("N");
+            Write("sale-" + generation + ".json", new JObject {
+                ["command_id"] = sellCmd, ["generation"] = generation, ["revision"] = sequence, ["visit"] = visitId,
+                ["lines"] = new JArray(new JObject { ["item_id"] = LocalId(sellTarget), ["min_price"] = 1 }),
+                ["expires_ms"] = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds()
+            });
+            for (int n = 0; n < 8; n++) { UnityEngine.Time.realtimeSinceStartup++; CheckOrder(); CloseTransactions(); }
+            var sellReceipt = JObject.Parse(ModHelper.ReadModDataFileText(ModId, "receipt-" + sellCmd + ".json"));
+            Expect((string)sellReceipt["status"] == "finished" && strayBought.parentInventory == shop.invElement &&
+                (string)sellReceipt["cleared_items"][0]["kind"] == "bottle",
+                "sell_order immediately after purchase clears non-order owned back items instead of counter_unavailable");
+
+            // P0-1: counter_unavailable always attaches reason + blocking_items even on source lock.
+            var lockedItem = Item(91005, "locked_gem", 5);
+            lockedItem.mayRemove = false;
+            string lockedCmd = Guid.NewGuid().ToString("N");
+            Write("sale-" + generation + ".json", new JObject {
+                ["command_id"] = lockedCmd, ["generation"] = generation, ["revision"] = sequence, ["visit"] = visitId,
+                ["lines"] = new JArray(new JObject { ["item_id"] = LocalId(lockedItem), ["min_price"] = 1 }),
+                ["expires_ms"] = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds()
+            });
+            for (int n = 0; n < 4; n++) { UnityEngine.Time.realtimeSinceStartup++; CheckOrder(); CloseTransactions(); }
+            var lockedReceipt = JObject.Parse(ModHelper.ReadModDataFileText(ModId, "receipt-" + lockedCmd + ".json"));
+            Expect((string)lockedReceipt["status"] == "counter_unavailable" &&
+                (string)lockedReceipt["reason"] == "source_item_locked" &&
+                (string)lockedReceipt["blocking_items"][0]["kind"] == "locked_gem" &&
+                (string)lockedReceipt["blocking_items"][0]["area"] == "inventory",
+                "locked source item reports reason and blocking_items");
+
+            // P0-3: forced_choice on radioactiveWasteCustomer + nuclear_waste_on_counter blockers + table_items exposure.
+            var wasteClient = new StoreClient {
+                identifier = "radioactiveWasteCustomer", displayName = "企業廢料主管", clientIntent = StoreClient.ClientIntent.MERCHANT
+            };
+            store.currentClientInstance = new StoreClientInstance { client = wasteClient };
+            ObserveVisit();
+            DialogUIManager.Instance = new DialogUIManager { current = new object(), choice = true };
+            var wasteChoiceView = CounterView();
+            Expect((bool)wasteChoiceView["forced_choice"] == true &&
+                !string.IsNullOrEmpty((string)wasteChoiceView["forced_choice_reason"]),
+                "radioactiveWasteCustomer dialogue choice marks forced_choice with consequences");
+            DialogUIManager.Instance = new DialogUIManager();
+
+            store.currentClientInstance = new StoreClientInstance();
+            ObserveVisit();
+            var barrel = Item(91006, "nuclear_waste", 0);
+            barrel.To(shop.backInvinvElement);
+            var withWasteView = CounterView();
+            Expect((string)withWasteView["table_items"][0]["kind"] == "nuclear_waste" &&
+                (bool)withWasteView["table_items"][0]["hazardous"] == true,
+                "CounterView exposes back-table hazardous waste for MCP stale_order inspection");
+            var wasteSaleTarget = Item(91007, "vase", 5);
+            string wasteSellCmd = Guid.NewGuid().ToString("N");
+            Write("sale-" + generation + ".json", new JObject {
+                ["command_id"] = wasteSellCmd, ["generation"] = generation, ["revision"] = sequence, ["visit"] = visitId,
+                ["lines"] = new JArray(new JObject { ["item_id"] = LocalId(wasteSaleTarget), ["min_price"] = 1 }),
+                ["expires_ms"] = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds()
+            });
+            for (int n = 0; n < 4; n++) { UnityEngine.Time.realtimeSinceStartup++; CheckOrder(); CloseTransactions(); }
+            var wasteSellReceipt = JObject.Parse(ModHelper.ReadModDataFileText(ModId, "receipt-" + wasteSellCmd + ".json"));
+            Expect((string)wasteSellReceipt["status"] == "counter_unavailable" &&
+                (string)wasteSellReceipt["reason"] == "nuclear_waste_on_counter" &&
+                (string)wasteSellReceipt["blocking_items"][0]["kind"] == "nuclear_waste" &&
+                !string.IsNullOrEmpty((string)wasteSellReceipt["guidance"]),
+                "nuclear_waste on counter blocks sell_order with nuclear_waste_on_counter and guidance");
+
+            store.currentClientInstance = null;
+            ObserveVisit();
+            var closeBlocked = new JObject();
+            ActOnReception(new JObject { ["action"] = "close_shop", ["reception_token"] = ReceptionView()["token"] }, closeBlocked);
+            Expect((string)closeBlocked["reason"] == "nuclear_waste_on_counter" &&
+                (string)closeBlocked["blocking_items"][0]["kind"] == "nuclear_waste" &&
+                !string.IsNullOrEmpty((string)closeBlocked["guidance"]),
+                "nuclear_waste on back reports nuclear_waste_on_counter when closing shop");
+            barrel.To(shop.invElement);
+            barrel.To(null);
+            Console.WriteLine("P0 replay passed: clutter cleanup, post-wholesale sale, forced waste choice and nuclear_waste blockers.");
         }
         public static int Main()
         {

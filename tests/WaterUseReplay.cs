@@ -25,6 +25,8 @@ namespace WhiteDragon.Ledger
         public int clicks;
         public void ConfirmButtonPressed() { clicks++;panel.activeInHierarchy=false; }
         public TextMeshProUGUI bodyTMP = new TextMeshProUGUI { text="mech_portable_purifier_not_enough_charge" };
+        public TextMeshProUGUI confirmButtonTMP = new TextMeshProUGUI { text="確認" };
+        public TextMeshProUGUI cancelButtonTMP = new TextMeshProUGUI { text="取消" };
     }
     public static class DurabilityHelper { public static int GetRealDurability(GameItem item) => item.charge; }
     public static class WaterHelper { public static int GetTotalCapacityML(GameItem item) => 500; public static int GetCurrentCapacityUL(GameItem item) => item.volume; }

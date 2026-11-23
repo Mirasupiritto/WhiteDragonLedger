@@ -96,6 +96,44 @@ namespace WhiteDragon.Ledger
             card.To(shop.frontInvinvElement);
             collect["item_id"]=LocalId(card);
             Expect((string)ExecuteMove(collect)["status"]=="moved" && card.parentInventory==shop.invElement, "manual collection for the same guest");
+            // P0-1: slip, postit, and backpacks auto-clean; move_items front/back -> inventory works when stage is not_selling/information/ready.
+            var infoSlip = Item(63404, "slip", 1);
+            var pack = Item(63405, "fanny_pack", 50);
+            infoSlip.To(shop.frontInvinvElement);
+            pack.To(shop.frontInvinvElement);
+            QueueFrontPaper(infoSlip, infoSlip.parentInventory, null);
+            QueueFrontPaper(pack, pack.parentInventory, null);
+            FileCounterPapers();
+            Expect(infoSlip.parentInventory == shop.invElement && pack.parentInventory == shop.invElement,
+                "auto-cleanup handles info slips and returned pouches/backpacks");
+            var buyerOnly = new StoreClient { clientIntent = StoreClient.ClientIntent.INFORMATION_DEALER, isIntroduced = true };
+            var prevClient = store.currentClientInstance;
+            store.currentClientInstance = new StoreClientInstance { client = buyerOnly };
+            ObserveVisit();
+            DialogUIManager.Instance = new DialogUIManager();
+            pack.To(shop.backInvinvElement);
+            collect["source"] = "back";
+            collect["visit"] = visitId;
+            collect["revision"] = sequence;
+            collect["item_id"] = LocalId(pack);
+            Expect((string)ExecuteMove(collect)["status"] == "moved" && pack.parentInventory == shop.invElement,
+                "move_items collects owned back items during non-sell customer stages when no order is active");
+            store.currentClientInstance = prevClient;
+            ObserveVisit();
+            var waste = Item(63406, "nuclear_waste", 0);
+            waste.To(shop.backInvinvElement);
+            var blockedToBack = (JObject)idleReq.DeepClone();
+            blockedToBack["source"] = "inventory";
+            blockedToBack["destination"] = "back";
+            blockedToBack["visit"] = visitId;
+            blockedToBack["revision"] = sequence;
+            blockedToBack["item_id"] = LocalId(card);
+            var blockedReply = ExecuteMove(blockedToBack);
+            Expect((string)blockedReply["status"] == "table_occupied" &&
+                (string)blockedReply["reason"] == "nuclear_waste_on_counter" &&
+                !string.IsNullOrEmpty((string)blockedReply["guidance"]),
+                "table_occupied reports nuclear_waste_on_counter and guidance");
+            waste.To(null);
             guestPaper.To(null);
             phase="MORNING";
             var shelve = (JObject)idleReq.DeepClone();
@@ -143,6 +181,16 @@ namespace WhiteDragon.Ledger
             var clearedClosed=ExecuteMove(idleReq);
             Expect((string)clearedClosed["status"]=="moved" && (string)clearedClosed["actual_area"]=="showcase" &&
                 shop.backInvinvElement.childItems.Count==0,"idle clear moves owned back item while CLOSED");
+            // Afterhours return while CLOSED triggers QueueCounterPapers -> FileCounterPapers clears returned backpack, never waste.
+            var returnedPack = Item(63407, "satchel", 150);
+            var leftWaste = Item(63408, "nuclear_waste", 0);
+            returnedPack.To(shop.backInvinvElement);
+            leftWaste.To(shop.backInvinvElement);
+            OnLeaveAfterhoursLate("dumping_ground");
+            FileCounterPapers();
+            Expect(returnedPack.parentInventory == shop.invElement && leftWaste.parentInventory == shop.backInvinvElement,
+                "afterhours return while CLOSED auto-collects backpack and leaves nuclear_waste on counter");
+            leftWaste.To(null);
             phase="OPEN";
             store.storeState=PlayerStore.StoreState.OPEN;
             store.currentClientInstance=savedClient;

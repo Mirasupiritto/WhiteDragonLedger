@@ -48,7 +48,7 @@ def trash_contents(folder, database, view):
 def register_day_tools(server, folder, database):
     @server.tool()
     def get_shop_status() -> dict:
-        """Current cash, calendar events, rent, trash contents, night report, shop appeal, status summary and sleep costs inside the pawnshop."""
+        """Current cash, calendar events, rent, trash contents, night report, shop appeal, status summary (including injury), nuclear_waste counts and sleep costs inside the pawnshop."""
         view = shop_status(folder)
         if view["status"] == "observed":
             view["trash"] = trash_contents(folder, database, view)

@@ -7,6 +7,50 @@ namespace WhiteDragon.Ledger
 {
     public sealed partial class InventoryObserver
     {
+        private static JObject InjuryView()
+        {
+            var health = PlayerStore.Instance?.healthData;
+            int woundState = health?.woundState ?? 0;
+            bool stable = health?.isWoundStable ?? true;
+            bool fresh = health?.isWoundedFresh ?? false;
+            bool serious = woundState > 0 && HealthData.IsSeriouslyWounded();
+            string severity = woundState <= 0 ? "none" : serious ? "major" : "minor";
+            string name = severity == "none" ? "無傷勢" : severity == "major" ? "重傷" : "輕傷";
+            string effect;
+            if (severity == "none")
+                effect = "無負面效果";
+            else if (severity == "major")
+                effect = "重傷無法夜間出門" + (fresh ? "且本次外出無法繼續拾荒" : "") +
+                    (stable ? "；傷勢已穩定（睡覺每晚恢復，降至輕傷後可恢復夜間行動）"
+                            : "；傷勢未穩定（過夜有 10% 機率惡化，可用繃帶止血穩定）");
+            else
+                effect = (fresh ? "本次外出受傷，今夜無法繼續在垃圾場拾荒" : "輕傷可夜間出門拾荒") +
+                    (stable ? "；傷勢已穩定（睡覺每晚恢復）"
+                            : "；傷勢未穩定（過夜有 10% 機率惡化為重傷，可用繃帶止血穩定）");
+            return new JObject {
+                ["severity"] = severity, ["name"] = name, ["effect"] = effect,
+                ["wound_state"] = woundState, ["serious"] = serious, ["stable"] = stable, ["fresh"] = fresh
+            };
+        }
+
+        private static string ScavengeBlockedReason()
+        {
+            if (PlayerStore.Instance?.healthData?.isWoundedFresh == true) return "injured";
+            if (ScavHelper.GetMaxScavAttempts() <= 0) return "no_attempts";
+            if (ScavHelper.GetScavTimeLeft() <= 0) return "out_of_time";
+            if (MapUIManager.Instance != null && MapUIManager.Instance.IsInTransit) return "searching";
+            return "unavailable";
+        }
+
+        private static string VisibleNotification()
+        {
+            var notifier = ReputationUIManager.Instance;
+            if (notifier == null || notifier.reputationNotifier == null || !notifier.reputationNotifier.activeInHierarchy)
+                return null;
+            string text = notifier.reputationNotifierTMP?.text;
+            return string.IsNullOrWhiteSpace(text) ? null : text;
+        }
+
         // Native game IDs are scoped to this observed trip. No night item enters the shop ID map.
         private sealed class NightInventory
         {
@@ -24,12 +68,16 @@ namespace WhiteDragon.Ledger
                 View["can_move"] = visible && !shop.afterhourWindow.isLocked && PlayerStore.Instance.lockAllInventoryFlag == 0;
                 View["can_return"] = shop.afterhourInventory.childItems.Count == 0;
                 View["can_return_abandoning_ground"] = !MapUIManager.Instance.IsInTransit;
+                View["injury"] = InjuryView();
+                if (VisibleNotification() is string notice) View["notification"] = notice;
                 if ((string)View["location"] == "dumping_ground")
                 {
-                    View["can_scavenge"] = ScavHelper.CanScavenge();
+                    bool canScavenge = ScavHelper.CanScavenge();
+                    View["can_scavenge"] = canScavenge;
                     View["scav_time_left"] = ScavHelper.GetScavTimeLeft();
                     View["minor_wound_chance"] = ScavHelper.GetMinorWoundChance();
                     View["major_wound_chance"] = ScavHelper.GetMajorWoundChance();
+                    if (!canScavenge) View["scavenge_blocked_reason"] = ScavengeBlockedReason();
                 }
                 if (!visible) return;
                 Slots.Add("ground", shop.afterhourInventory);
@@ -80,10 +128,41 @@ namespace WhiteDragon.Ledger
             }
             if (action == "scavenge")
             {
-                if ((bool?)night.View["can_scavenge"] != true) return "scavenge_unavailable";
+                if ((bool?)night.View["can_scavenge"] != true)
+                {
+                    if (night.View["scavenge_blocked_reason"] != null)
+                        receipt["scavenge_blocked_reason"] = night.View["scavenge_blocked_reason"].DeepClone();
+                    receipt["injury"] = night.View["injury"].DeepClone();
+                    return "scavenge_unavailable";
+                }
+                int woundBefore = PlayerStore.Instance?.healthData?.woundState ?? 0;
+                bool freshBefore = PlayerStore.Instance?.healthData?.isWoundedFresh ?? false;
                 map.ScavengeButtonClick();
                 receipt["scav_time_left_before"] = night.View["scav_time_left"];
-                if (map.Current?.Id == "dumping_ground") receipt["scav_time_left_after"] = ScavHelper.GetScavTimeLeft();
+                if (map.Current?.Id == "dumping_ground")
+                {
+                    receipt["scav_time_left_after"] = ScavHelper.GetScavTimeLeft();
+                    if (!ScavHelper.CanScavenge()) receipt["scavenge_blocked_reason"] = ScavengeBlockedReason();
+                }
+                var afterInjury = InjuryView();
+                receipt["injury"] = afterInjury;
+                int woundAfter = (int)afterInjury["wound_state"];
+                bool freshAfter = (bool)afterInjury["fresh"];
+                if (woundAfter > woundBefore)
+                    receipt["scavenge_outcome"] = (bool)afterInjury["serious"] ? "major_wound" : "minor_wound";
+                else if (freshAfter && !freshBefore)
+                    receipt["scavenge_outcome"] = "injured";
+                else
+                    receipt["scavenge_outcome"] = "completed";
+                if (VisibleNotification() is string notice) receipt["notification"] = notice;
+                if (ResponseInventory() != null) ObserveDecision("response_required", receipt);
+                var confirm = GenericConfirmationUIManager.Instance;
+                if (confirm != null && confirm.panel != null && confirm.panel.activeInHierarchy)
+                    receipt["confirmation"] = new JObject {
+                        ["message"] = confirm.bodyTMP?.text,
+                        ["confirm_label"] = confirm.confirmButtonTMP?.text,
+                        ["cancel_label"] = confirm.cancelButtonTMP?.text
+                    };
                 return "scavenge_requested";
             }
             if (!(bool)night.View["can_move"]) return "inventory_unavailable";

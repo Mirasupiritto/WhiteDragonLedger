@@ -257,3 +257,21 @@ class TradeTools(unittest.TestCase):
         self.assertNotIn("keypad_protocol", cleaned["phone"])
         self.assertEqual(cleaned["counter"]["visit"], self.visit)
         self.assertEqual(cleaned["phone"]["phone_token"], "p1")
+
+    def test_context_forwards_forced_choice_and_table_items(self):
+        import trade_tools
+        view = dict(
+            status="observed", slot=4, generation=self.generation, revision=3, phase="OPEN",
+            customer=dict(remaining=100),
+            counter=dict(
+                visit=self.visit, customer="企業廢料主管", stage="choice_required",
+                lines=["Take our barrels."], demand={}, quote=None,
+                page="p1", dialog_choices=[dict(id=0, text="1 barrel", enabled=True)],
+                forced_choice=True, forced_choice_reason="必收核廢料（1/3/5 桶）",
+                table_items=[dict(id=7, kind="nuclear_waste", area="back", owned=True, hazardous=True)],
+            ),
+        )
+        ctx = trade_tools.context(view)
+        self.assertTrue(ctx["forced_choice"])
+        self.assertEqual(ctx["forced_choice_reason"], "必收核廢料（1/3/5 桶）")
+        self.assertEqual(ctx["table_items"][0]["kind"], "nuclear_waste")

@@ -68,6 +68,12 @@ namespace WhiteDragon.Ledger
         private void OnLeaveEarly(string id) { awaitingLateHook = true; StartTravel(ShopScene); }
         private void OnArriveEarly(string id) { awaitingLateHook = true; StartTravel(id); }
         private void OnTravelLate(string id) { awaitingLateHook = false; }
+        private void OnLeaveAfterhoursLate(string id)
+        {
+            OnTravelLate(id);
+            if (PlayerStore.HasInstance && PlayerStore.Instance.currentClientInstance == null && order == null)
+                QueueCounterPapers();
+        }
 
         // Run before any store observer, inventory read or command dispatch.
         private bool CanObserveStore()

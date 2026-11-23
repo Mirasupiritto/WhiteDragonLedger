@@ -278,3 +278,19 @@ class CounterFlow(unittest.TestCase):
         context.return_value = dict(self.view, visit="another", stage="ready")
         self.assertEqual(counter.wait_opening(self.folder, self.generation, self.visit)["status"], "visit_changed")
         command.assert_not_called()
+
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_dismiss_unavailable_always_attaches_reason_and_blocking_items(self, context, exchange):
+        view = dict(self.view, reception=dict(can_dismiss=False))
+        context.return_value = view
+        plain = counter.command(self.folder, "dismiss", self.generation, 2, visit=self.visit)
+        self.assertEqual((plain["status"], plain["reason"], plain["blocking_items"]),
+                         ("dismiss_unavailable", "dismiss_unavailable", []))
+
+        blocker = [dict(id=5, kind="mug", area="back")]
+        view["reception"] = dict(can_dismiss=False, reason="order_in_progress", blocking_items=blocker)
+        detailed = counter.command(self.folder, "dismiss", self.generation, 2, visit=self.visit)
+        self.assertEqual((detailed["status"], detailed["reason"], detailed["blocking_items"]),
+                         ("dismiss_unavailable", "order_in_progress", blocker))
+        exchange.assert_not_called()

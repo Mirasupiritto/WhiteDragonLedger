@@ -6,6 +6,9 @@
 
 | 功能 | 最近一次證據 | 下次需要的場景或條件 |
 |---|---|---|
+| 0.20.0 交易檯雜物與診斷 | 回放驗證 `slip`／`sec_slip`／`postit`／返店背包自動收貨、報紙在 `back` 時 `dismiss` 一次成功、批發進貨後立即 `sell_order` 成功、`card_rev` 收進庫存後仍可用 `get_phone_contacts` 讀取，以及來客非賣家階段 `move_items` 歸庫與 `counter_unavailable`/`stale_order`/`dismiss_unavailable` 必附 `reason`＋`blocking_items`。 | 待實機驗收：夜間返店背包回後櫃自動收貨、情報商結帳給 `slip` 後自動清理、實機批發後立即上架、名片收進庫存後撥號。 |
+| 0.20.0 拾荒傷勢與提示 | 回放驗證 `explore` 與 `view` 附 `injury`（`none`/`minor`/`major`、名稱、效果）、不可搜索時附 `scavenge_blocked_reason`（`injured`/`out_of_time`/`no_attempts`）與通知文字 `notification`，並同步進 `get_shop_status.status_summary.injury`；已確認遊戲原生在拾荒受傷時僅彈限時通知文字而不彈互動視窗。 | 待實機驗收：於垃圾傾倒場搜到受傷時核對 `notification`、`scavenge_blocked_reason: "injured"` 及返店／隔日睡醒後的 `status_summary.injury` 變化。 |
+| 0.20.0 核廢料處理路徑 | 回放驗證 `radioactiveWasteCustomer` 對話選項標註 `forced_choice: true` 與後果說明、`get_shop_status.nuclear_waste` 統計店內／櫃檯／已拋棄數量，以及廢料擋住交易／擺放／打烊／過期報錯時回 `nuclear_waste_on_counter` 與處理指引。 | 待實機驗收：遇到企業廢料主管時選 1 桶、確認用大背包經 `dumping_ground` 拋棄與喬治奧還桶一次的實機流程。 |
 | 0.19.2 交易檯文件 | 回放開店收報、庫存滿、名片隨前櫃移到後櫃、同客收回、續賣與送客。 | 待實機核對開門收報、奧丁名片與混合買賣。 |
 | 0.19.2 夜間報告 | 連續兩個早晨回放，第二早保留垃圾警告、保護期與通緝姓名，核對吸引力顯示。 | 待自然過夜後逐行對照遊戲面板。 |
 | 後櫃批量收回庫存 | 回放核對逐件位置、原批重送、中途來客停手，以及只搬入部分堆疊時的實收數量。 | 待空櫃檯有多件自有貨時實機驗收。 |

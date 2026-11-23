@@ -159,6 +159,31 @@ namespace WhiteDragon.Ledger
             var today = DayView()["night_report"];
             Expect((int)today["day"] == station.dayCounter && (string)today["lines"][0] == "-Garbage bags piled up" &&
                 (string)today["lines"][1] == "-Protection: 2 nights" && (string)today["alerts"][0]["name"] == "Odin", "second morning uses its own logs");
+            // P0-2 injury in status_summary + P0-3 nuclear_waste counts
+            Expect((string)DayView()["status_summary"]["injury"]["severity"] == "none", "healthy status summary injury");
+            store.healthData.woundState = 2; store.healthData.isWoundedFresh = true; store.healthData.isWoundStable = false;
+            var minorDay = DayView();
+            Expect((string)minorDay["status_summary"]["injury"]["severity"] == "minor" &&
+                (string)minorDay["status_summary"]["injury"]["name"] == "輕傷", "minor injury in status summary");
+            store.healthData.woundState = 6;
+            Expect((string)DayView()["status_summary"]["injury"]["severity"] == "major" &&
+                (bool)DayView()["status_summary"]["injury"]["serious"], "major injury in status summary");
+            store.healthData = new HealthData();
+            var shop = EmporiumEntry.Instance;
+            var wasteFront = Item(88101, "nuclear_waste", 0); wasteFront.To(shop.frontInvinvElement);
+            var wasteInv = Item(88102, "nuclear_waste", 0); wasteInv.To(shop.invElement);
+            var wasteBag = Item(88103, "backpack_small", 0); wasteBag.To(shop.invElement);
+            var bagInv = new GameInventory();
+            wasteBag.contentWindow = new PixelWindow { childElement = bagInv };
+            var wasteInside = Item(88104, "nuclear_waste", 0); wasteInside.To(bagInv);
+            store.storeClientData.nuclearWasteLeftOnCounter = 1;
+            store.storeClientData.nuclearWasteDumped = 2;
+            var nw = DayView()["nuclear_waste"];
+            Expect((int)nw["on_counter"] == 2 && (int)nw["in_shop"] == 4 && (int)nw["dumped"] == 2,
+                "nuclear_waste counts front, pending morning counter, inventory, backpack and dumped totals");
+            wasteFront.To(null); wasteInv.To(null); wasteInside.To(null); wasteBag.To(null);
+            store.storeClientData.nuclearWasteLeftOnCounter = 0;
+            store.storeClientData.nuclearWasteDumped = 0;
             station.dayCounter--;
             startUi.displayCaseReminder.activeSelf = false;
             startUi.rentReminder.activeSelf = false;

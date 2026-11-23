@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using Newtonsoft.Json.Linq;
 using TMPro;
@@ -163,7 +164,51 @@ namespace WhiteDragon.Ledger
                     if (perk != null && !string.IsNullOrEmpty(perk.id)) perks.Add(perk.id);
                 if (perks.Count > 0) result["active_perks"] = perks;
             }
+            result["injury"] = InjuryView();
             return result;
+        }
+
+        private static void CollectWasteInItem(GameItem item, HashSet<GameItem> seen, ref int count)
+        {
+            if (item == null) return;
+            if (seen.Add(item) && IsHazardousWasteItem(item)) count++;
+            foreach (var child in item.FindAllChildItems())
+                if (child != null && seen.Add(child) && IsHazardousWasteItem(child)) count++;
+        }
+
+        private static void CollectWasteInInventory(GameInventory inventory, HashSet<GameItem> seen, ref int count)
+        {
+            if (inventory == null) return;
+            foreach (var item in inventory.childItems)
+                CollectWasteInItem(item, seen, ref count);
+        }
+
+        private static JObject NuclearWasteSummary()
+        {
+            var shop = EmporiumEntry.Instance;
+            var data = PlayerStore.GetStoreClientData();
+            var seenCounter = new HashSet<GameItem>();
+            int counterCount = data?.nuclearWasteLeftOnCounter ?? 0;
+            if (shop != null)
+            {
+                CollectWasteInInventory(shop.frontInvinvElement, seenCounter, ref counterCount);
+                CollectWasteInInventory(shop.backInvinvElement, seenCounter, ref counterCount);
+            }
+            var seenShop = new HashSet<GameItem>(seenCounter);
+            int shopCount = counterCount;
+            if (shop != null)
+            {
+                CollectWasteInInventory(shop.invElement, seenShop, ref shopCount);
+                CollectWasteInInventory(shop.showcaseElement, seenShop, ref shopCount);
+                CollectWasteInInventory(shop.hiddenElement, seenShop, ref shopCount);
+                CollectWasteInInventory(shop.trashcanInvElement, seenShop, ref shopCount);
+                CollectWasteInItem(shop.trashcan, seenShop, ref shopCount);
+            }
+            return new JObject {
+                ["in_shop"] = shopCount,
+                ["on_counter"] = counterCount,
+                ["dumped"] = data?.nuclearWasteDumped ?? 0
+            };
         }
 
         private JObject DayView()
@@ -175,7 +220,8 @@ namespace WhiteDragon.Ledger
             if (phase == "CLOSED") sleep["bill"] = NightBill();
             return new JObject {
                 ["calendar"]=CalendarView(day), ["trash"]=TrashSummary(day), ["sleep"]=sleep,
-                ["night_report"]=NightReportView(), ["appeal"]=AppealView(), ["status_summary"]=StatusSummaryView()
+                ["night_report"]=NightReportView(), ["appeal"]=AppealView(), ["status_summary"]=StatusSummaryView(),
+                ["nuclear_waste"]=NuclearWasteSummary()
             };
         }
 

@@ -68,7 +68,12 @@ class TrashLedger(unittest.TestCase):
                 "sleep": {"service_cost": 0, "available": False},
                 "night_report": {"lines": ["- 电费已结清。"], "reminders": ["别忘了补充展示柜存货！"]},
                 "appeal": {"total": 14, "base": 25, "trash_penalty": 15, "projector_bonus": 4, "garbage_level": 3},
-                "status_summary": {"estimated_net_worth": 320, "active_perks": ["thrifty"]},
+                "status_summary": {
+                    "estimated_net_worth": 320, "active_perks": ["thrifty"],
+                    "injury": {"severity": "minor", "name": "輕傷", "effect": "可夜間出門拾荒",
+                               "wound_state": 2, "serious": False, "stable": True, "fresh": False},
+                },
+                "nuclear_waste": {"in_shop": 2, "on_counter": 1, "dumped": 3},
             }
             (folder / f"desk-{gen}.json").write_text(json.dumps({
                 "generation": gen, "slot": 4, "revision": 2, "phase": "MORNING", "day": 3,
@@ -78,3 +83,5 @@ class TrashLedger(unittest.TestCase):
             self.assertEqual(status["night_report"]["lines"], ["- 电费已结清。"])
             self.assertEqual(status["appeal"]["total"], 14)
             self.assertEqual(status["status_summary"]["estimated_net_worth"], 320)
+            self.assertEqual(status["status_summary"]["injury"]["severity"], "minor")
+            self.assertEqual(status["nuclear_waste"], {"in_shop": 2, "on_counter": 1, "dumped": 3})

@@ -54,7 +54,7 @@ namespace WhiteDragon.Ledger
             ModHook.OnAfterhourArriveEarly += OnArriveEarly;
             ModHook.OnAfterhourArriveLate += OnTravelLate;
             ModHook.OnAfterhourLeaveEarly += OnLeaveEarly;
-            ModHook.OnAfterhourLeaveLate += OnTravelLate;
+            ModHook.OnAfterhourLeaveLate += OnLeaveAfterhoursLate;
             ModHook.OnGameLoadedInit += ResetLoad;
             ModHook.OnGameLoadedLate += Ready;
             ModHook.OnNewGameStarted += StartNewGame;
@@ -225,7 +225,7 @@ namespace WhiteDragon.Ledger
                     rows.Add(row);
                 }
             if (morningReport != null && !morningReportReady) FinishMorningReport();
-            if (phase == "OPEN") QueueCounterPapers();
+            if (phase == "OPEN" || (PlayerStore.Instance.currentClientInstance == null && order == null)) QueueCounterPapers();
             LoadDesk();
             purifierStock = ReadPurifierStock();
             Publish(new JObject { ["op"] = "baseline", ["items"] = rows, ["purifier_stock"] = purifierStock });
@@ -316,7 +316,7 @@ namespace WhiteDragon.Ledger
             ModHook.OnAfterhourArriveEarly -= OnArriveEarly;
             ModHook.OnAfterhourArriveLate -= OnTravelLate;
             ModHook.OnAfterhourLeaveEarly -= OnLeaveEarly;
-            ModHook.OnAfterhourLeaveLate -= OnTravelLate;
+            ModHook.OnAfterhourLeaveLate -= OnLeaveAfterhoursLate;
             ModHook.OnGameLoadedInit -= ResetLoad;
             ModHook.OnGameLoadedLate -= Ready;
             ModHook.OnNewGameStarted -= StartNewGame;

@@ -40,7 +40,8 @@ def context(view):
                   next_action="可以報價" if desk.get("quote_ready", desk["stage"] == "ready") else desk["stage"])
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
-    for key in ("offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices"):
+    for key in ("offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
+                "forced_choice", "forced_choice_reason", "table_items"):
         if key in desk:
             result[key] = desk[key]
     if bottles:
@@ -167,7 +168,7 @@ def register(server, folder, database):
 
     @server.tool()
     def get_trade_context() -> dict:
-        """Read the customer, budget, tablet requirements, quote, offered water and any page awaiting a choice."""
+        """Read the customer, budget, tablet requirements, quote, offered water, mandatory forced_choice warnings, and any page awaiting a choice."""
         return counter.with_barter(folder, context(shopdesk.published(folder)))
 
     @server.tool()
@@ -203,6 +204,8 @@ def register(server, folder, database):
     @server.tool()
     def trade_batch(generation: str, revision: int, visit: str, orders: list[BatchLine]) -> dict:
         """Trade the selected items in order for one visit. Price limit is a sell floor or buy ceiling.
+        Auto-returns non-order owned counter clutter (excluding nuclear_waste) to inventory as cleared_items before staging.
+        counter_unavailable and stale_order always attach reason and blocking_items (plus guidance for nuclear_waste_on_counter).
         Returns each actual payment, placement and remaining budget. Whole-lot offers require buy_merchant_batch."""
         lines = [{"item_id":r.item_id, "side":r.side,
                   ("min_price" if r.side=="sell" else "max_price"):r.price_limit} for r in orders]

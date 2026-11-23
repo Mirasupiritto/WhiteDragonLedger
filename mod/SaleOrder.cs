@@ -18,6 +18,9 @@ namespace WhiteDragon.Ledger
         private readonly Dictionary<GameItem, int> bundleQuantities = new Dictionary<GameItem, int>();
         private readonly Dictionary<GameItem, int> observedBundleSales = new Dictionary<GameItem, int>();
         private readonly HashSet<string> blockedKinds = new HashSet<string>();
+        private readonly JArray orderClearedItems = new JArray();
+        private GameItem blockedSourceItem;
+        private string blockedOrderReason;
         private float nextOrderPoll;
         private JObject completedOrder;
 
@@ -31,8 +34,13 @@ namespace WhiteDragon.Ledger
                 ["load_scans"] = loadScans, ["items"] = results,
                 ["remaining_budget"] = merchant != null && visitId == (string)order["visit"] && merchant.useClientBudget
                     ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
-            if (status == "counter_unavailable") DescribeBlockedTable(completedOrder, false);
+            if (orderClearedItems.Count > 0) completedOrder["cleared_items"] = orderClearedItems.DeepClone();
+            if (status == "counter_unavailable")
+                DescribeBlockedTable(completedOrder, false, true, blockedSourceItem, blockedOrderReason);
             staged = null;
+            blockedSourceItem = null;
+            blockedOrderReason = null;
+            orderClearedItems.Clear();
             stagedBundle.Clear();
             bundleOrigins.Clear();
             bundleQuantities.Clear();
@@ -152,8 +160,17 @@ namespace WhiteDragon.Ledger
             if (!SaleTabletReady()) return;
             if (stagedBundle.Count == 0)
             {
+                if (ClearNonOrderBackTable(null, orderClearedItems) > 0)
+                {
+                    FlushChanges();
+                    orderRevision = sequence;
+                }
                 if (table.childItems.Count != 0 || table.IsInsertLocked())
-                { StopBundle("counter_unavailable"); return; }
+                {
+                    if (table.IsInsertLocked() && table.childItems.Count == 0) blockedOrderReason = "table_insert_locked";
+                    StopBundle("counter_unavailable");
+                    return;
+                }
                 var toStage = new List<GameItem>(rows.Count);
                 var origins = new List<GameInventory>(rows.Count);
                 for (int i = 0; i < rows.Count; i++)
@@ -164,7 +181,12 @@ namespace WhiteDragon.Ledger
                         (area != "inventory" && area != "showcase"))
                     { StopBundle("source_changed"); return; }
                     if (GeneralHelper.IsItemLocked(item) || !item.MayRemove() || item.parentInventory.IsRemoveLocked())
-                    { StopBundle("counter_unavailable"); return; }
+                    {
+                        blockedSourceItem = item;
+                        blockedOrderReason = "source_item_locked";
+                        StopBundle("counter_unavailable");
+                        return;
+                    }
                     toStage.Add(item);
                     origins.Add(item.parentInventory);
                 }
@@ -333,6 +355,14 @@ namespace WhiteDragon.Ledger
             if (staged == null)
             {
                 int id = (int)rows[index]["item_id"];
+                HashSet<GameItem> exclude = null;
+                if ((onTable || buying) && itemsById.TryGetValue(id, out var preItem) && preItem.parentInventory == table)
+                    exclude = new HashSet<GameItem> { preItem };
+                if (ClearNonOrderBackTable(exclude, orderClearedItems) > 0)
+                {
+                    FlushChanges();
+                    orderRevision = sequence;
+                }
                 line = (JObject)spec.DeepClone();
                 if (!itemsById.TryGetValue(id, out var item) || GeneralHelper.IsItemOwned(item) == buying ||
                     item.parentInventory == null || !areas.TryGetValue(item.parentInventory, out var area) ||
@@ -354,7 +384,15 @@ namespace WhiteDragon.Ledger
                 }
                 bool placed = item.parentInventory == table;
                 if (placed ? table.childItems.Count != 1 : table.childItems.Count != 0 || table.IsInsertLocked() || !item.MayRemove())
-                { StopLine("counter_unavailable"); return; }
+                {
+                    if (!placed && table.childItems.Count == 0)
+                    {
+                        blockedSourceItem = item;
+                        blockedOrderReason = table.IsInsertLocked() ? "table_insert_locked" : "source_item_locked";
+                    }
+                    StopLine("counter_unavailable");
+                    return;
+                }
                 original = item.parentInventory;
                 staged = item;
                 stagedQuantity = item.unitCount;
@@ -447,6 +485,9 @@ namespace WhiteDragon.Ledger
                 line = null;
                 index = 0;
                 blockedKinds.Clear();
+                orderClearedItems.Clear();
+                blockedSourceItem = null;
+                blockedOrderReason = null;
                 saleStage = null;
                 advancedSalePage = null;
                 saleSceneRevision = sceneRevision;
