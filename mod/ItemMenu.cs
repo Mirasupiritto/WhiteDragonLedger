@@ -76,6 +76,7 @@ namespace WhiteDragon.Ledger
             var options = ItemOptions(item);
             if (ItemSelectHandler.current?.IsEquipped == true && ItemSelectHandler.current.GetEquippedItem() == item)
                 ((JArray)options["enabled"]).Add("unequip");
+            if (ModuleRemoval(item,id) is JObject removal) options["removal"]=removal;
             var view = new JObject { ["item_id"]=id, ["location"]=location, ["generation"]=generation,
                 ["revision"]=sequence, ["phase"]=phase, ["visit"]=visitId, ["options"]=options };
             string token = (string)request["menu_token"];
@@ -85,6 +86,9 @@ namespace WhiteDragon.Ledger
             if ((string)request["mode"] == "read")
             {
                 if (!seen || !same) DescribeFilter(item,receipt);
+                var priorRemoval = seen ? previousItemMenu["options"]["removal"] : null;
+                if (!JToken.DeepEquals(priorRemoval,options["removal"]))
+                    receipt["removal"] = options["removal"]?.DeepClone() ?? JValue.CreateNull();
                 if (!seen) receipt["base_actions"] = BaseItemMenu();
                 if (seen && same && !itemMenuUsed) { receipt["menu_token"]=token; return "unchanged"; }
                 if (seen)
@@ -182,7 +186,17 @@ namespace WhiteDragon.Ledger
                     return ItemSelectHandler.current.GetEquippedItem() == item ? "equipped" : "equip_unconfirmed";
                 case "unequip": ItemSelectHandler.current.EndSelect(); return "unequipped";
                 case "use":
+                    bool wasStuck = target.IsTag("MODULE_STUCK_TAG");
                     UseOnItem(item,target);
+                    if (wasStuck)
+                    {
+                        receipt["module_stuck"]=target.IsTag("MODULE_STUCK_TAG");
+                        if (!(bool)receipt["module_stuck"] && target.parentInventory?.GetParentItem() is GameItem machine)
+                        {
+                            receipt["owner_id"]=LocalId(machine);
+                            receipt["next_tool"]="inspect_item_window";
+                        }
+                    }
                     changed.Add(target);
                     receipt["target_id"]=targetId;
                     break;

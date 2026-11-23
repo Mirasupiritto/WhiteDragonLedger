@@ -28,6 +28,17 @@ namespace WhiteDragon.Ledger
             return null;
         }
 
+        private static JObject ModuleRemoval(GameItem item, int id)
+        {
+            if (!item.IsTag("MODULE_STUCK_TAG")) return null;
+            return new JObject {
+                ["reason"]="module_stuck", ["message"]=LocHelper.GetLocalizedMechanic("mech_module_stuck"),
+                ["tool_kinds"]=new JArray("module_extractor","module_extractor_advanced"),
+                ["next_tool"]="item_menu", ["verb"]="use", ["target_id"]=id,
+                ["hint"]="Use an owned extractor on this card, then take the loosened card out of the slot."
+            };
+        }
+
         private void AddMachinePower(GameItem machine, GameSlotInventory slot, JObject row)
         {
             var battery = slot.childItem;

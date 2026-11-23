@@ -71,6 +71,7 @@ namespace WhiteDragon.Ledger
                     var entry = new JObject { ["id"]=LocalId(child), ["save_id"]=child.GetUniqueID(), ["name"]=child.GetDisplayName(true),
                         ["kind"]=child.identifier, ["quantity"]=child.unitCount };
                     AddGeometryFields(child, entry);
+                    if (ModuleRemoval(child,(int)entry["id"]) is JObject removal) entry["removal"]=removal;
                     if (BottleLabel(child) is string bottleLabel) entry["bottle_label"] = bottleLabel;
                     items.Add(entry);
                 }
@@ -451,6 +452,12 @@ namespace WhiteDragon.Ledger
             GameInventory target = retrieve ? (GameInventory)shop.invElement : storage;
             if (item.parentInventory != origin) return "source_changed";
             if (!retrieve && (bool)row["insert_allowed"] == false) return "insert_blocked";
+            if (retrieve && ModuleRemoval(item,id) is JObject removal)
+            {
+                receipt["reason"]="module_stuck";
+                receipt["removal"]=removal;
+                return "transfer_blocked";
+            }
             if (origin.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove())
                 return "transfer_blocked";
             if (!GraphUtils.CanAccept(target, item))

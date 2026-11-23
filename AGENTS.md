@@ -42,6 +42,7 @@
 
 ## 搬貨、文件與機台
 
+- 卡槽或物品右鍵回執若有 `removal.reason="module_stuck"`，保持機台視窗開在該槽。找到自有的普通或進階模組拆卸器，用拆卸器自己的編號讀 `item_menu`，再用它的 `menu_token` 選 `use`，以 `removal.target_id` 指定卡片。普通型要有剩餘次數。回執的 `module_stuck=false` 表示卡已鬆開；重讀機台槽位，用新的 `window_token` 取回庫存。
 - 查貨時若有 `container_path`，按列出的順序從外包找到內包，`parent_id` 是直接裝著該件貨的包。包內貨的 `area` 跟隨整包；`unpack_first` 要先取出，`container_locked` 先核對容器狀態，直接出貨以前再看實際位置。
 - 用 `move_items` 同批處理相同 `source`、`destination` 的貨，逐件核對 `status`、`actual_area` 和堆疊的 `observed_quantity`。例如空櫃檯時把一批後櫃自有貨由 `back` 搬到 `inventory`。若回 `already_in_destination`，該件已在目標位置；若遇換客停下，先查當前狀態，再處理 `not_attempted` 的貨。遇 `no_space` 或 `showcase_full`，比對物品尺寸、可旋轉性與 `largest_free`。必要時用 `sort_inventory` 整理主庫存，比對前後連續空間；若回 `external_sorter_active`，用已啟用的整理模組處理。
 - 用 `item_menu(mode="read")` 看物品的原生右鍵選項。帶上一個 `menu_token` 可看變動；實際選擇用當前物品的 token 和啟用的 `verb`。工具能作用於多件候選貨時，用 `mode="targets"` 和 `target_ids` 先試配，這一步只預覽。選定後用 `mode="choose"`、`verb="use"` 與 `target_id`，或依回執改走指定流程。

@@ -61,6 +61,10 @@ namespace WhiteDragon.Ledger
             waterClicks++;
             switch (identifier)
             {
+                case "module_extractor":
+                    target.waterTags.Remove("MODULE_STUCK_TAG");
+                    target.mayRemove=true;
+                    break;
                 case "water_test_strip":
                     waterTags.Add(WaterTestHelper.IS_SPENT);
                     associatedId = target.uniqueId;

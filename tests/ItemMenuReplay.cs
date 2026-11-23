@@ -88,6 +88,40 @@ namespace WhiteDragon.Ledger
             Expect((string)redirect["status"]=="wrong_operation" && (int)redirect["arguments"]["source_id"]==LocalId(portable) &&
                 (int)redirect["arguments"]["target_id"]==LocalId(bottle) && bottle.parentInventory==EmporiumEntry.Instance.invElement,
                 "portable purifier redirects without moving or using the bottle");
+            var slot=(GameInventory)kit.contentWindow.childElement;
+            slot.owner=kit;
+            var card=Item(7506,"system_module_ruined",1);
+            card.To(slot);
+            card.waterTags.Add("MODULE_STUCK_TAG");
+            card.mayRemove=false;
+            var extractor=Item(7507,"module_extractor",1);
+            var inspect=new JObject { ["action"]="inspect_window", ["owner_id"]=LocalId(kit) };
+            var window=new JObject();
+            WorkstationAction(inspect,window);
+            var slotRows=(JArray)window["window"]["controls"][0]["items"];
+            Expect(slotRows[0]["removal"]==null && (string)slotRows[1]["removal"]["reason"]=="module_stuck",
+                "only stuck items report removal instructions");
+            var take=new JObject { ["action"]="transfer_slot", ["owner_id"]=LocalId(kit), ["item_id"]=LocalId(card),
+                ["source"]="slot", ["control"]="content", ["window_token"]=window["window_token"] };
+            var blocked=new JObject();
+            Expect(WorkstationAction(take,blocked)=="transfer_blocked" && (string)blocked["reason"]=="module_stuck" &&
+                (int)blocked["removal"]["target_id"]==LocalId(card),"failed removal identifies the card and extractor route");
+            receipt=new JObject();
+            Expect(ActAtCounter(Request(card),receipt)=="observed" && (string)receipt["removal"]["next_tool"]=="item_menu",
+                "right click on installed card explains the native tool");
+            receipt=new JObject();
+            ActAtCounter(Request(extractor),receipt);
+            var use=Request(extractor,"choose",(string)receipt["menu_token"],"use");
+            use["target_id"]=LocalId(card);
+            receipt=new JObject();
+            Expect(ActAtCounter(use,receipt)=="invoked" && (bool?)receipt["module_stuck"]==false &&
+                (int)receipt["owner_id"]==LocalId(kit) && card.parentInventory==slot,"extractor loosens card in place");
+            window=new JObject();
+            WorkstationAction(inspect,window);
+            take["window_token"]=window["window_token"];
+            Expect(WorkstationAction(take,new JObject())=="moved" && card.parentInventory==EmporiumEntry.Instance.invElement,
+                "loosened card can be taken normally");
+            card.To(null); extractor.To(null);
             smoke.To(null); kit.To(null); portable.To(null); bottle.To(null);
         }
     }
