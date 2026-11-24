@@ -300,6 +300,7 @@ namespace WhiteDragon.Ledger
             row["estimated_value"] = SafeEstimatedValue(item);
             AddPortablePurifierFields(item, row);
             AddWaterContainerFields(item, row);
+            AddChemicalPurityFields(item, row);
             int id = (int)row["id"];
             observedIdentities[id] = ((string)row["name"] ?? "", (string)row["kind"] ?? "");
         }

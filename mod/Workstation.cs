@@ -74,6 +74,7 @@ namespace WhiteDragon.Ledger
                     AddGeometryFields(child, entry);
                     if (ModuleRemoval(child,(int)entry["id"]) is JObject removal) entry["removal"]=removal;
                     if (BottleLabel(child) is string bottleLabel) entry["bottle_label"] = bottleLabel;
+                    AddChemicalPurityFields(child, entry);
                     items.Add(entry);
                 }
                 row["items"] = items;

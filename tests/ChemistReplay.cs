@@ -5,6 +5,11 @@ namespace WhiteDragon.Ledger
 {
     public static class MachineBlender { public static int GetUpgradeCount(GameItem item)=>item.associatedId; }
     public static class MachineChemFinisher { public static bool CanOutput(GameItem machine,GameSlotInventory slot)=>slot.childItem!=null && slot.childItem.volume>=2000; }
+    public static class ChemicalProductHelper {
+        public static bool HasChemicalPurity(GameItem item)=>item.waterTags.Contains("CHEMICAL_PRODUCT_PURITY_TAG");
+        public static double GetPurity(GameItem item)=>item.GetTagReadonly("CHEMICAL_PRODUCT_PURITY_TAG").GetDouble()/100.0;
+        public static string GetCurrentChemicalConditionId(GameItem item)=>item.bookTagValue;
+    }
     public class Liquid {
         public string identifier, displayName;
         public string currentPart => GetCurrentPartFromId(identifier);
@@ -31,10 +36,17 @@ namespace WhiteDragon.Ledger
             machine.waterTags.Add("SELECTED_CHEM_ID_TAG");
             machine.bookTagValue="test_product";
             var button=new MachineryButton { text=LocHelper.GetLocalizedMechanic("mech_chem_finisher_btn_output") };
-            button.onPress=()=>{source.volume-=2000;new GameItem{identifier="test_product"}.To(output);};
+            button.onPress=()=>{
+                source.volume-=2000;
+                var product=new GameItem{identifier="test_product", associatedId=61, bookTagValue="street_standard"};
+                product.waterTags.Add("CHEMICAL_PRODUCT_PURITY_TAG");
+                product.To(output);
+            };
             var receipt=new JObject();
             Expect(ProduceBatch(machine,button,3,receipt)=="batch_incomplete" && (int)receipt["produced"]==2 &&
-                source.volume==500 && (string)receipt["reason"]=="recipe_not_ready","production stops at the real input limit");
+                source.volume==500 && (string)receipt["reason"]=="recipe_not_ready" &&
+                (double)receipt["purity"]==61.0 && (string)receipt["grade"]=="street_standard",
+                "production stops at the real input limit and reports purity/grade");
             machine.To(EmporiumEntry.Instance.invElement);
             machine.contentWindow=new PixelWindow { visible=true, childElement=slot };
             var finisherPanel=new ItemPanelView { Key="chemical_finisher", Identity="finisher/1" };

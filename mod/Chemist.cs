@@ -92,6 +92,15 @@ namespace WhiteDragon.Ledger
                 ["hint"]="Open a compatible receiving vessel (e.g. water_pitcher), insert this filter in its slot, then pour the source liquid into the receiver using water_use preview/apply." };
         }
 
+        private static void AddChemicalPurityFields(GameItem item, JObject row)
+        {
+            if (item==null || row==null || !ChemicalProductHelper.HasChemicalPurity(item)) return;
+            double raw=ChemicalProductHelper.GetPurity(item);
+            row["purity"]=Math.Round(raw<=1.0 ? raw*100.0 : raw, 2);
+            string grade=ChemicalProductHelper.GetCurrentChemicalConditionId(item);
+            if (!string.IsNullOrEmpty(grade)) row["grade"]=grade;
+        }
+
         private string ProduceBatch(GameItem machine, MachineryButton button, int quantity, JObject receipt)
         {
             if (quantity<1 || quantity>64 || machine.identifier!="chem_finisher" ||
@@ -121,6 +130,8 @@ namespace WhiteDragon.Ledger
                 if (count!=1) { receipt["reason"]="output_unconfirmed"; break; }
                 receipt["produced"]=i+1;
             }
+            if ((int)receipt["produced"]>0 && output.childItems.FirstOrDefault(x=>x.identifier==kind) is GameItem producedSample)
+                AddChemicalPurityFields(producedSample,receipt);
             return (int)receipt["produced"]==quantity ? "produced" : "batch_incomplete";
         }
 
