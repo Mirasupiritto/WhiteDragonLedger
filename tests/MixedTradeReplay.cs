@@ -44,7 +44,17 @@ namespace WhiteDragon.Ledger
             ask["action"]="tablet"; ask["revision"]=sequence;
             NegociationUIManager.Instance.IsOpen=false;
             NativeItemPanels.panel=new ItemPanelView {Key="chemical_scanner",Identity="scan"};
-            Expect(ActAtCounter(ask,new JObject())=="item_panel_open" && !NegociationUIManager.Instance.IsOpen,"scanner blocks tablet");
+            var panelBlocked=new JObject();
+            Expect(ActAtCounter(ask,panelBlocked)=="item_panel_open" && !NegociationUIManager.Instance.IsOpen &&
+                (string)panelBlocked["visit"]==visitId && (string)panelBlocked["after_close_next_tool"]=="reopen_trade_tablet",
+                "player-opened scanner blocks tablet and returns current visit");
+            toolOpenedPanels.Add("chemical_scanner");
+            NativeItemPanels.panel.Close=()=>{ NativeItemPanels.panel=null; };
+            var autoClosed=new JObject();
+            Expect(ActAtCounter(ask,autoClosed)=="tablet_requested" && (bool)autoClosed["tablet_open"] &&
+                autoClosed["closed_panels"]!=null && NativeItemPanels.panel==null,
+                "tool-opened scanner closes automatically before opening tablet");
+            NegociationUIManager.Instance.IsOpen=false;
             NativeItemPanels.panel=null;
             var reopened=new JObject();
             Expect(ActAtCounter(ask,reopened)=="tablet_requested" && (bool)reopened["tablet_open"] && (string)reopened["visit"]==visitId,"same visit reopens tablet");

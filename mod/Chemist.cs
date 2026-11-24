@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 
@@ -19,6 +20,53 @@ namespace WhiteDragon.Ledger
                     "Fixed target at this upgrade level. Target buttons unlock at upgrade 2." };
         }
 
+        private static JObject LiquidSummary(GameItem item)
+        {
+            if (item==null) return null;
+            var parts=LiquidParts.Read(item);
+            long total=parts.Sum(p=>(long)p.Value);
+            var summary=new JObject { ["total_ul"]=total, ["total_ml"]=Math.Round(total/1000.0,3) };
+            if (parts.Count>0)
+            {
+                var main=parts[0];
+                summary["primary_id"]=main.Key.identifier;
+                summary["primary_name"]=main.Key.displayName;
+                summary["primary_ul"]=main.Value;
+                summary["primary_ml"]=Math.Round(main.Value/1000.0,3);
+                summary["primary_percent"]=total==0 ? 0 : Math.Round(main.Value*100.0/total,2);
+            }
+            return summary;
+        }
+
+        private void DescribeEvaporator(GameItem owner, WindowRead read, JArray rows)
+        {
+            var batterySlot=MachineHelper.GetBodyStorage(owner,0) as GameSlotInventory;
+            var containerSlot=MachineHelper.GetBodyStorage(owner,2) as GameSlotInventory;
+            var distillateSlot=MachineHelper.GetBodyStorage(owner,3) as GameSlotInventory;
+            foreach (JObject row in rows)
+            {
+                var element=read.Controls[(string)row["control"]];
+                if (batterySlot!=null && ReferenceEquals(element,batterySlot) && row["energy_kj"]==null)
+                    AddMachinePower(owner,batterySlot,row);
+                if (containerSlot!=null && ReferenceEquals(element,containerSlot) && containerSlot.childItem!=null &&
+                    row["items"] is JArray items && items.Count>0 && items[0] is JObject entry)
+                    entry["liquid"]=LiquidSummary(containerSlot.childItem);
+            }
+            int qualityBonus=MachineryHelper.GetCurrentQualityBonus(owner);
+            read.View["quality_bonus"]=qualityBonus;
+            if (qualityBonus<=0)
+            {
+                read.View["distillate_capture"]=false;
+                read.View["distillate_reason"]="no_quality_bonus";
+            }
+            else if (distillateSlot?.childItem==null)
+            {
+                read.View["distillate_capture"]=false;
+                read.View["distillate_reason"]="no_receiving_container";
+            }
+            else read.View["distillate_capture"]=true;
+        }
+
         private JObject FilterView(GameItem vessel)
         {
             var filter=WaterHelper.GetFilterItem(vessel);
@@ -36,6 +84,35 @@ namespace WhiteDragon.Ledger
                         choices.Add(new JObject { ["id"]=LocalId(vessel), ["name"]=vessel.GetDisplayName(true), ["area"]=area.Value });
             receipt["filter_route"]=new JObject { ["receivers"]=choices, ["receiver_tag"]="FILTER_CONTAINER_TAG",
                 ["hint"]="Open a compatible receiving vessel (e.g. water_pitcher), insert this filter in its slot, then pour the source liquid into the receiver using water_use preview/apply." };
+        }
+
+        private static void AddChemicalPurityFields(GameItem item, JObject row)
+        {
+            if (item==null || row==null || !ChemicalProductHelper.HasChemicalPurity(item)) return;
+            row["purity"]=Math.Round(ChemicalProductHelper.GetPurity(item), 2);
+            string grade=ChemicalProductHelper.GetCurrentChemicalConditionId(item);
+            if (!string.IsNullOrEmpty(grade)) row["grade"]=grade;
+        }
+
+        private static void DescribeChemFinisher(WindowRead read, JArray rows)
+        {
+            string outputText=LocHelper.GetLocalizedMechanic("mech_chem_finisher_btn_output");
+            foreach (JObject row in rows)
+            {
+                if (!read.Controls.TryGetValue((string)row["control"], out var element) || !(element is MachineryButton button)) continue;
+                row["action"]=button.text==outputText ? "output" : "configure";
+            }
+        }
+
+        private JArray SmugglerBayRows()
+        {
+            var result=new JArray();
+            foreach (var area in areas)
+                foreach (var item in area.Key.childItems)
+                    if (ContrabandHelper.IsSmugglerBay(item) && GeneralHelper.IsItemEffectivelyOwned(item))
+                        result.Add(new JObject { ["id"]=LocalId(item), ["name"]=item.GetDisplayName(true),
+                            ["kind"]=item.identifier, ["area"]=area.Value });
+            return result;
         }
 
         private string ProduceBatch(GameItem machine, MachineryButton button, int quantity, JObject receipt)
@@ -67,6 +144,8 @@ namespace WhiteDragon.Ledger
                 if (count!=1) { receipt["reason"]="output_unconfirmed"; break; }
                 receipt["produced"]=i+1;
             }
+            if ((int)receipt["produced"]>0 && output.childItems.FirstOrDefault(x=>x.identifier==kind) is GameItem producedSample)
+                AddChemicalPurityFields(producedSample,receipt);
             return (int)receipt["produced"]==quantity ? "produced" : "batch_incomplete";
         }
 

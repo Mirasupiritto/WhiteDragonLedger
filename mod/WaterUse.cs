@@ -41,6 +41,37 @@ namespace WhiteDragon.Ledger
             return source.IsTag("LIQUID_CONTAINER_TAG") ? "pour" : null;
         }
 
+        private JObject PreviewFilter(GameItem source, GameItem target, GameItem filter)
+        {
+            int amount = Math.Max(0, Math.Min(WaterHelper.GetFreeCapacity(target), WaterHelper.GetCurrentCapacityUL(source)));
+            var shares = WaterHelper.SplitProportionally(WaterHelper.GetLiquidParts(source), amount);
+            int charge = DurabilityHelper.GetRealDurability(filter);
+            int size = filter.GetTagReadonly("FILTER_SIZE_TAG").GetInt();
+            int received = 0;
+            var removed = new JArray();
+            for (int i = 0; i < shares.Length; i++)
+            {
+                var liquid = Liquid.Liquids[i];
+                int part = shares[i], remaining = part;
+                if (filter.identifier == "uv_filter")
+                    remaining = liquid.identifier == "microbe" ? 0 : part;
+                else if (liquid.identifier != "microbe" && size <= liquid.particleSize && liquid.filterVolumeRemoved > 0)
+                {
+                    int minimum = (int)(part * liquid.filterMinimumPurity);
+                    for (int step = 0; step < 10000 && charge > 0 && remaining > minimum; step++)
+                    {
+                        remaining = Math.Max(minimum, remaining - liquid.filterVolumeRemoved);
+                        charge -= liquid.filterDurabilityUsage;
+                    }
+                }
+                received += remaining;
+                if (part > remaining)
+                    removed.Add(new JObject { ["id"]=liquid.identifier, ["name"]=liquid.displayName, ["ml"]=(part-remaining)/1000.0 });
+            }
+            return new JObject { ["id"]=LocalId(filter), ["name"]=filter.GetDisplayName(true), ["removed"]=removed,
+                ["target_ml_after"]=(WaterHelper.GetCurrentCapacityUL(target)+received)/1000.0 };
+        }
+
         private string WaterUseAction(JObject request, JObject receipt)
         {
             string mode = (string)request["mode"];
@@ -108,6 +139,11 @@ namespace WhiteDragon.Ledger
             if (offered && (operation != "test" || !source.IsTag("CAN_USE_ON_NON_OWNED_TAG") ||
                 CounterStage() != "ready" || !((area == "front" && shop.frontInvWindow.IsVisible()) ||
                     (area == "back" && shop.backInvWindow.IsVisible())))) return "offered_water_unavailable";
+            if (operation=="pour" && area!="faucet" && WaterHelper.GetCurrentCapacityUL(source)==0)
+            {
+                receipt["reason"]="source_empty";
+                return "source_unavailable";
+            }
             var notice = GenericConfirmationUIManager.Instance;
             if (Interactable.isPaused || (notice?.panel != null && notice.panel.activeInHierarchy) || !CanUseOnItem(source,target))
             {
@@ -121,6 +157,8 @@ namespace WhiteDragon.Ledger
                 ["target_id"]=destination, ["target_item_id"]=LocalId(target), ["to"]=area, ["offered"]=offered,
                 ["source_units"]=source.unitCount, ["phase"]=phase, ["visit"]=visitId };
             if (operation == "pour") plan["source_ul"] = WaterHelper.GetCurrentCapacityUL(source);
+            if (operation == "pour" && !fixture && WaterHelper.GetFilterItem(target) is GameItem filter)
+                plan["filter"] = PreviewFilter(source, target, filter);
             if (!fixture) plan["target_ul"] = WaterHelper.GetCurrentCapacityUL(target);
             if (operation == "test") plan["available_strips"] = AvailableStrips();
             bool lowRisk = (operation == "pour" && area == "faucet") || operation == "purify" || operation == "test";

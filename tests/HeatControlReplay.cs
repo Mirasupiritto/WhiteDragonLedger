@@ -49,7 +49,38 @@ namespace WhiteDragon.Ledger
             Expect(heatRun==null && (string)lastHeat["status"]=="finished" && modeTag.associatedId==0 &&
                 sequence==invRevision,"timeout shuts down without inventory revision");
             plate.contentWindow.visible=true;
+            Expect((bool)lastHeat["reached_range"] && (double)lastHeat["in_range_seconds"]>0 && lastHeat["warning"]==null,
+                "finished run reports time in range");
+            var hot=(JObject)request.DeepClone();
+            hot["command_id"]=Guid.NewGuid().ToString("N"); hot["min_c"]=82; hot["max_c"]=99; hot["seconds"]=5;
+            bottle.associatedId=54;
+            receipt=new JObject();
+            Expect(ActAtCounter(hot,receipt)=="started" && (string)receipt["heat"]["strategy"]=="native_target" &&
+                modeTag.associatedId==2,"fixed plate below range uses native high");
+            Tick(85);
+            Expect(modeTag.associatedId==1,"inside range drops to low and lets the native target cap");
+            Time.realtimeSinceStartup+=6;
+            Tick(90);
+            Expect((string)lastHeat["status"]=="finished" && (bool)lastHeat["reached_range"] && (double)lastHeat["peak_c"]==85,
+                "native run records peak");
+            hot["command_id"]=Guid.NewGuid().ToString("N");
+            bottle.associatedId=60;
+            ActAtCounter(hot,new JObject());
+            Tick(70);
+            Time.realtimeSinceStartup+=6;
+            Tick(75);
+            Expect((string)lastHeat["status"]=="finished" && !(bool)lastHeat["reached_range"] &&
+                (string)lastHeat["warning"]=="range_not_reached","timeout below range is flagged");
+            var cold=(JObject)request.DeepClone();
+            cold["command_id"]=Guid.NewGuid().ToString("N");
+            bottle.associatedId=26;
+            Expect(ActAtCounter(cold,new JObject())=="started" && modeTag.associatedId==2,"far below a low/off range starts on high");
+            Tick(40);
+            Expect(modeTag.associatedId==1,"near the range eases to low to avoid overshoot");
+            var halt=(JObject)cold.DeepClone(); halt["mode"]="stop"; halt["run_id"]=cold["command_id"];
+            ActAtCounter(halt,new JObject());
             plate.associatedId=2;
+            bottle.associatedId=46;
             request["command_id"]=Guid.NewGuid().ToString("N");
             receipt=new JObject();
             Expect(ActAtCounter(request,receipt)=="started" && targetTag.associatedId==49 && minus.presses==10 &&

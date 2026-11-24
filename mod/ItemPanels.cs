@@ -11,8 +11,15 @@ namespace WhiteDragon.Ledger
         public readonly JObject Controls = new JObject();
         public readonly JArray Text = new JArray();
         public readonly Dictionary<string, Func<JToken,string>> Actions = new Dictionary<string, Func<JToken,string>>();
+        // Structured reading of the scanned item (chemical scanner only), taken from the item itself.
+        public JObject Scan;
 
-        public JObject Data() => new JObject { ["panel"]=Key, ["can_close"]=Close!=null, ["can_focus"]=Focus!=null, ["text"]=Text.DeepClone(), ["controls"]=Controls.DeepClone() };
+        public JObject Data()
+        {
+            var data = new JObject { ["panel"]=Key, ["can_close"]=Close!=null, ["can_focus"]=Focus!=null, ["text"]=Text.DeepClone(), ["controls"]=Controls.DeepClone() };
+            if (Scan != null) data["scan"] = Scan.DeepClone();
+            return data;
+        }
     }
 
     public sealed partial class InventoryObserver
@@ -62,6 +69,7 @@ namespace WhiteDragon.Ledger
                 foreach (var field in lastItemPanel.Controls.Properties())
                     if (panel.Controls[field.Name]==null) changes[field.Name]=JValue.CreateNull();
                 if (changes.HasValues) receipt["controls"]=changes;
+                if (!JToken.DeepEquals(lastItemPanel.Scan,panel.Scan)) receipt["scan"]=panel.Scan?.DeepClone() ?? JValue.CreateNull();
             }
             lastItemPanel=panel;
             return delta && identical ? "unchanged" : "observed";

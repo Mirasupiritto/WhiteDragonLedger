@@ -33,6 +33,14 @@ class LedgerReplay(unittest.TestCase):
     def read(self, **filters):
         return lookup(self.folder, self.db, **filters)
 
+    def test_showcase_meat_categories(self):
+        # Slot 13 stock journal, item 141 from the chemist playtest.
+        meat = dict(id=141, kind="processed_meat", name="“泥炭”合成肉", area="showcase",
+                    categories=["FOOD", "PROCESSED_FOOD"], quantity=1, owned=True)
+        self.event(1, op="baseline", items=[meat])
+        self.head(1)
+        self.assertEqual(self.read(area="showcase")["items"][0]["categories"], meat["categories"])
+
     def test_queries_and_move(self):
         self.assertEqual(self.read()["status"], "waiting_for_load")
         self.event(1, op="baseline", items=[self.bottle, dict(self.bottle, id=8, owned=False)])
@@ -143,7 +151,7 @@ class LedgerReplay(unittest.TestCase):
         self.assertEqual(ids(exclude_categories=["日用品"]), [1,4])
         self.assertEqual(ids(categories=["ALL_TYPE_EXCEPT_CONTRABAND"]), [1,2,3])
         self.assertEqual(ids(categories=["food"], exclude_categories=["food"]), [])
-        self.assertNotIn("categories",self.read()["items"][0])
+        self.assertEqual(self.read()["items"][0]["categories"], ["FOOD"])
         with closing(sqlite3.connect(self.db)) as old_client, old_client:
             old_client.execute("UPDATE stock SET categories=NULL WHERE id=2")
         self.assertEqual(ids(categories=["材料"]), [2])
@@ -215,7 +223,9 @@ class LedgerReplay(unittest.TestCase):
         )
         caps = {"inventory": {"w": 24, "h": 10, "free_cells": 235, "largest_free": {"w": 20, "h": 10}},
                 "showcase": {"w": 7, "h": 5, "free_cells": 35, "largest_free": {"w": 7, "h": 5}}}
-        self.event(1, op="baseline", items=[empty_bottle, soap, purifier], capacities=caps)
+        alcohol = dict(empty_bottle, id=34, name="小瓶酒精", empty=False, water_ml=75, liquid_ml=250,
+                       liquid_main={"id":"alcohol","name":"酒精","percent":70})
+        self.event(1, op="baseline", items=[empty_bottle, soap, purifier, alcohol], capacities=caps)
         self.put("head.json", dict(
             status="observed", slot=3, phase="CLOSED", generation=self.generation, revision=1,
             full_scans=1, load_scans=1, item_details_protocol=1, stock_categories_protocol=1, trade_panel_protocol=1,
@@ -232,8 +242,48 @@ class LedgerReplay(unittest.TestCase):
         water_matches = self.read(stock_query=dict(categories=["WATER"], owned=True))["items"]
         self.assertEqual([i["id"] for i in water_matches], [31])
         self.assertFalse(water_matches[0]["contains_water"])
+        mixture = self.read(name="小瓶酒精")["items"][0]
+        self.assertEqual((mixture["water_ml"], mixture["liquid_ml"], mixture["liquid_main"]),
+                         (75, 250, alcohol["liquid_main"]))
         by_id = self.read(stock_query=dict(item_ids=[33], generation=self.generation))["items"][0]
         self.assertEqual((by_id["charge_remaining"], by_id["liters_remaining"]), (25, 2.5))
+
+    def test_slim_shop_update_cursor_reset_dedup_and_offer_summary(self):
+        import scene_server
+
+        last_emitted = {}
+        reset_update = {
+            "status": "observed", "mode": "baseline", "reason": "cursor_reset",
+            "slot": 3, "generation": self.generation, "revision": 5, "cursor": "c5",
+            "fields": {"cash": 120, "day": 4, "phase": "OPEN"},
+            "items": [{"id": 1, "name": "Soap"}, {"id": 2, "name": "Water"}],
+        }
+        summary = scene_server._slim_shop_update("item_menu", {"status": "observed"}, reset_update, {}, last_emitted)
+        self.assertEqual(summary["mode"], "baseline_summary")
+        self.assertEqual(summary["item_count"], 2)
+        self.assertEqual(summary["next_tool"], "get_shop_updates")
+        self.assertNotIn("items", summary)
+
+        row_a = {"id": 10, "name": "Bottle", "area": "inventory"}
+        delta_1 = {"status": "observed", "mode": "delta", "revision": 6, "cursor": "c6", "upsert": [row_a], "remove": [], "fields": {}}
+        first = scene_server._slim_shop_update("move_items", {"status": "moved"}, delta_1, {}, last_emitted)
+        self.assertEqual(len(first["upsert"]), 1)
+
+        delta_2 = {"status": "observed", "mode": "delta", "revision": 7, "cursor": "c7", "upsert": [dict(row_a)], "remove": [], "fields": {}}
+        second = scene_server._slim_shop_update("open_shop", {"status": "opened"}, delta_2, {}, last_emitted)
+        self.assertEqual(second["status"], "unchanged")
+
+        offer_rows = [{"id": 20 + i, "name": f"Item {i}"} for i in range(6)]
+        delta_3 = {"status": "observed", "mode": "delta", "revision": 8, "cursor": "c8", "upsert": offer_rows, "remove": [], "fields": {}}
+        third = scene_server._slim_shop_update(
+            "next_customer",
+            {"status": "called", "offer": {"summary_only": True, "count": 6}},
+            delta_3,
+            {"verbose": False},
+            last_emitted,
+        )
+        self.assertNotIn("upsert", third)
+        self.assertEqual(third["upsert_summary"], {"count": 6})
 
 
 if __name__ == "__main__":

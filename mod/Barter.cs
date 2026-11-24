@@ -11,15 +11,16 @@ namespace WhiteDragon.Ledger
         private JObject lastBarterView;
         private string barterToken, submittedBarterVisit;
 
-        // These are the two native clients that use CreateBarterFoodMultiOffer.
-        private bool IsFoodBarter() => merchant.clientIntent == StoreClient.ClientIntent.BARTER &&
-            (merchant.identifier == "storyFoodBarter" || merchant.identifier == "normalFoodBarter");
+        // StoreClientListBarter.CreateBasicFoodBarterTutorial, CreateNormalFoodBarter, CreateAddictGeneral and CreateAddict.
+        private bool IsPagedBarter() => merchant.clientIntent == StoreClient.ClientIntent.BARTER &&
+            (merchant.identifier == "storyFoodBarter" || merchant.identifier == "normalFoodBarter" ||
+             merchant.identifier == "addictGeneralBarter" || merchant.identifier == "addictBarter");
 
         private static JArray BarterGoods() => new JArray(EmporiumEntry.Instance.GetAllNonOwnedItem()
             .GroupBy(item => new { kind=item.identifier, name=item.GetDisplayName(true) })
             .OrderBy(group => group.Key.kind).ThenBy(group => group.Key.name)
             .Select(group => new JObject { ["kind"]=group.Key.kind, ["name"]=group.Key.name,
-                ["quantity"]=group.Sum(item => item.unitCount) }));
+                ["estimated_value"]=group.Sum(i=>SafeEstimatedValue(i)), ["quantity"]=group.Sum(item => item.unitCount) }));
 
         private static JObject CurrentBundle(BarterOffer offer)
         {
@@ -80,7 +81,7 @@ namespace WhiteDragon.Ledger
         {
             var back = EmporiumEntry.Instance.backInvinvElement.childItems;
             var payment = new JArray(back.Select(i => new JObject { ["id"]=LocalId(i), ["kind"]=i.identifier,
-                ["name"]=i.GetDisplayName(true), ["quantity"]=i.unitCount }));
+                ["name"]=i.GetDisplayName(true), ["estimated_value"]=SafeEstimatedValue(i), ["quantity"]=i.unitCount }));
             // AcceptBarter processes the whole counter. The scavenger asks for one food item.
             bool exactPayment = back.Count == 1 && back[0].unitCount == 1 && GeneralHelper.IsItemOwned(back[0]) &&
                 offer.IsBarterAcceptable();

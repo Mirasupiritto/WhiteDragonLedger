@@ -1,11 +1,18 @@
 """Local trade plans and confirmed receipts. Reading and dismissing never post game commands."""
 import json
 import book_history
-import re
 from contextlib import contextmanager
 
-from receipt_store import read_optional_json, read_command_receipt, replayed
-from database import transaction
+from pathlib import Path
+
+from command_transport import is_hex32, read_optional_json, read_command_receipt, replayed
+from database import (
+    ensure_trade_tickets_schema,
+    is_trade_tickets_initialized,
+    mark_trade_tickets_initialized,
+    transaction,
+)
+from ledger import lookup
 
 
 TOOLS = {"buy": "buy_merchant_batch", "pay_info": "pay_info_receipt"}
@@ -14,13 +21,14 @@ SUCCESS = {"finished", "purchased", "information_purchased"}
 
 @contextmanager
 def ticket_transaction(database):
-    with transaction(database) as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS trade_tickets (
-            id TEXT PRIMARY KEY, slot INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL,
-            customer TEXT, state TEXT NOT NULL, version INTEGER NOT NULL, receipt TEXT, evidence INTEGER NOT NULL DEFAULT 0
-        )""")
-        db.execute("CREATE INDEX IF NOT EXISTS trade_tickets_slot ON trade_tickets(slot,state)")
+    db_path = Path(database)
+    needs_schema = not is_trade_tickets_initialized(db_path)
+    with transaction(db_path) as db:
+        if needs_schema:
+            ensure_trade_tickets_schema(db)
         yield db
+    if needs_schema:
+        mark_trade_tickets_initialized(db_path)
 
 
 def insert(db, tool, request, slot, customer, observation=None):
@@ -108,8 +116,45 @@ def describe(row, detail=False):
     return result
 
 
+def finished_sale(db, folder, request, slot):
+    rows = db.execute("""SELECT * FROM trade_tickets WHERE slot=? AND tool='sell_order'
+                         AND state IN ('complete','open') AND json_extract(args,'$.visit')=?
+                         AND json_extract(args,'$.generation')=? ORDER BY rowid DESC""",
+                      (slot, request["visit"], request["generation"]))
+    for row in rows:
+        args = json.loads(row["args"])
+        if (args["lines"] != request["lines"] or
+                any(bool(args.get(k)) != bool(request.get(k)) for k in ("bundle", "stop_same_kind_on_budget"))):
+            continue
+        row = refresh(db, folder, row)
+        if not row["receipt"]:
+            continue
+        receipt = json.loads(row["receipt"])
+        if receipt["status"] == "sale_pending":
+            return replayed(receipt)
+        if receipt["status"] != "finished":
+            continue
+        sold = {item["item_id"] for item in receipt.get("items", []) if item.get("status") == "sold"}
+        unsold = [line["item_id"] for line in request["lines"] if line["item_id"] not in sold]
+        if unsold:
+            # Use the same SQLite transaction for the stock observation and ticket decision.
+            head = lookup(folder, db, sync_only=True)
+            if (head.get("status") != "observed" or head["slot"] != slot or head["generation"] != args["generation"]
+                    or head["revision"] < max(request["revision"], receipt.get("revision", args["revision"]))):
+                return None
+            if db.execute("""SELECT 1 FROM stock WHERE owned=1
+                             AND id IN (SELECT value FROM json_each(?)) LIMIT 1""", (json.dumps(unsold),)).fetchone():
+                return None
+        return replayed(receipt)
+    return None
+
+
 def dispatch(database, folder, tool, request, slot, customer, send, *, observation=None):
     with ticket_transaction(database) as db:
+        if tool == "sell_order":
+            prior = finished_sale(db, folder, request, slot)
+            if prior is not None:
+                return prior
         row = insert(db, tool, request, slot, customer, observation)
         row = refresh(db, folder, row)
         if row["state"] == "complete" or (row["state"] == "open" and row["evidence"] == 3):
@@ -127,7 +172,7 @@ def dispatch(database, folder, tool, request, slot, customer, send, *, observati
 def import_inflight(db, folder, slot):
     head = read_optional_json(folder / "head.json") or {}
     gen = head.get("generation", "")
-    if head.get("slot") != slot or not re.fullmatch("[0-9a-f]{32}", gen):
+    if head.get("slot") != slot or not is_hex32(gen):
         return
     # A trade submitted before the journal upgrade can still have a live inbox.
     for prefix in ("sale", "counter"):
@@ -135,7 +180,7 @@ def import_inflight(db, folder, slot):
         if not plan or plan.get("generation") != gen or not plan.get("visit"):
             continue
         tool = plan.get("tool", "sell_order") if prefix == "sale" else TOOLS.get(plan.get("action"))
-        if tool and re.fullmatch("[0-9a-f]{32}", plan.get("command_id", "")):
+        if tool and is_hex32(plan.get("command_id", "")):
             insert(db, tool, plan, slot, None)
 
 
@@ -151,7 +196,6 @@ def ledger(folder, database, slot, ticket_id=None, *, inventory=False, name=None
         updated = [refresh(db, folder, row) for row in rows]
         result = {"status":"observed", "slot":slot, "open_tickets":[describe(row) for row in updated if row["state"]=="open"]}
         if inventory or any(value is not None for value in (name, area, owned)):
-            book_history.schema(db)
             saved = db.execute("SELECT gen,rev FROM book_events WHERE slot=? ORDER BY rowid DESC LIMIT 1", (slot,)).fetchone()
             if saved is None:
                 result["inventory_status"] = "never_observed"

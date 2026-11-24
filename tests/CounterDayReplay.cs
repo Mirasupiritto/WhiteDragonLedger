@@ -39,6 +39,19 @@ namespace WhiteDragon.Ledger
             option.TMP.text="Trade";
             talk.dialogChoiceBubbles.Add(option);
             var view = CounterView();
+            Expect(view["wanted_name_match"]==null && view["consequence"]==null && view["story_branch"]==null,"ordinary choice omits story hints");
+            option.TMP.text="[接受盘查。]";
+            var exposure=CounterView()["inspection_exposure"];
+            Expect(exposure["on_counter"]!=null && JToken.DeepEquals(exposure["inventory"],SecurityView()["contraband"]["inventory"]),
+                "visible inspection choice shows current stock exposure");
+            option.TMP.text="Trade";
+            merchant.identifier="cartelHandlerWeekly";
+            Expect((string)CounterView()["consequence"]=="unknown","unresolved cartel choice marked for player");
+            merchant.displayName="name_odin"; merchant.identifier="cartelSec";
+            view=CounterView();
+            Expect((bool)view["story_branch"] && (string)view["consequence"]=="unknown" && (string)view["next_action"]=="player_visual_check" &&
+                ((JObject)view["wanted_name_match"]).Count==2,"cartel branch and exact poster name without appearance");
+            merchant.displayName="unmatched"; merchant.identifier="regular";
             var request = new JObject { ["generation"]=generation,["revision"]=sequence,["visit"]=visitId,
                 ["action"]="choose_dialogue",["choice_id"]=2,["page"]=view["page"],
                 ["expires_ms"]=DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds() };
@@ -72,6 +85,21 @@ namespace WhiteDragon.Ledger
             request["choice_id"]=responses["response_choices"][0]["id"];
             store.currentClientInstance=new StoreClientInstance();
             Expect(ActAtCounter(request,reply)=="customer_replaced" && paper.responseClicks==0,"changed visit reports customer_replaced");
+            Expect((string)CounterView()["client_role"]=="buyer_seller","water buyer also offers stock");
+            merchant.isClientBuying=false;
+            Expect((string)CounterView()["client_role"]=="seller","selling client reports client_role seller");
+            merchant.isClientBuying=true;
+            merchant.isClientSelling=false;
+            Expect((string)CounterView()["client_role"]=="buyer","buying client reports client_role buyer");
+            merchant.isClientBuying=false;
+            Expect((string)CounterView()["client_role"]=="dialogue","non-trading client reports client_role dialogue");
+            merchant.clientIntent=StoreClient.ClientIntent.BARTER;
+            Expect((string)CounterView()["client_role"]=="barter","barter client reports client_role barter");
+            merchant.clientIntent=StoreClient.ClientIntent.GUNSMITH;
+            Expect((string)CounterView()["client_role"]=="service","service client reports client_role service");
+            merchant.clientIntent=StoreClient.ClientIntent.MERCHANT;
+            merchant.isClientSelling=true;
+            merchant.isClientBuying=true;
             request["visit"]=visitId;
             request["page"]=CounterView()["page"];
             shop.responseWindow.visible=false;
@@ -133,6 +161,24 @@ namespace WhiteDragon.Ledger
             Expect(ActAtCounter(request,reply)=="bill_changed" && summary.submissions==submissions,"equal total and stale bill");
             request["bill_token"]=NightBill()["bill_token"];
             Expect(ActAtCounter(request,reply)=="sleep_submitted" && summary.submissions==submissions+1,"explicit confirmation only");
+            store.storeState=PlayerStore.StoreState.OPEN;
+            phase="OPEN";
+            store.currentClientInstance=new StoreClientInstance();
+            ObserveVisit();
+            lastDemand=new JObject { ["status"]="observed", ["interests"]=new JArray("MATERIAL") };
+            lastDemandVisit=visitId;
+            barterSource=new BarterOffer();
+            merchant.barterOffer=barterSource;
+            lastBarterView=new JObject { ["selected_option"]=1, ["can_accept"]=false };
+            barterToken="bt_speech";
+            DialogUIManager.Instance=new DialogUIManager { current=new object() };
+            var speechView=CounterView();
+            Expect((string)speechView["stage"]=="speaking" && (bool)speechView["stale_during_speech"] &&
+                speechView["demand"]!=null && (string)speechView["barter"]["barter_token"]=="bt_speech",
+                "speaking stage retains last demand and barter with stale_during_speech");
+            DialogUIManager.Instance=new DialogUIManager();
+            store.currentClientInstance=null;
+            ObserveVisit();
             Console.WriteLine("Counter and night bill replay passed: page identity, choices, response items, service changes without sleep.");
         }
     }

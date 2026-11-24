@@ -10,6 +10,7 @@ namespace WhiteDragon.Ledger
         private string itemMenuToken;
         private JObject previousItemMenu;
         private bool itemMenuUsed;
+        private readonly System.Collections.Generic.HashSet<string> toolOpenedPanels = new System.Collections.Generic.HashSet<string>();
         private static readonly string[] MenuVerbs = { "open", "use", "equip", "activate", "configure", "toggle", "unload", "pin" };
 
         private static JObject BaseItemMenu()
@@ -65,6 +66,25 @@ namespace WhiteDragon.Ledger
             return CanUseOnItem(source,target) ? "available" : "target_blocked";
         }
 
+        private string RefreshMenuToken(bool seen, bool same, JObject view, JObject options, JObject receipt)
+        {
+            if (seen && same && !itemMenuUsed) return null;
+            bool optionsChanged = seen && !itemMenuUsed && previousItemMenu != null &&
+                !JToken.DeepEquals(previousItemMenu["options"], options);
+            string reason = optionsChanged ? "options_changed"
+                : !seen ? "token_expired"
+                : itemMenuUsed ? "token_already_used"
+                : "state_changed";
+            itemMenuToken = Guid.NewGuid().ToString("N");
+            itemMenuUsed = false;
+            previousItemMenu = view;
+            receipt["menu_token"] = itemMenuToken;
+            receipt["enabled"] = options["enabled"];
+            receipt["labels"] = options["labels"];
+            receipt["reason"] = reason;
+            return optionsChanged ? "menu_changed" : "stale_menu_token";
+        }
+
         private string ItemMenuAction(JObject request, JObject receipt)
         {
             int id = (int)request["item_id"];
@@ -111,7 +131,7 @@ namespace WhiteDragon.Ledger
             }
             if ((string)request["mode"] == "targets")
             {
-                if (!seen || !same || itemMenuUsed) return "menu_changed";
+                if (RefreshMenuToken(seen, same, view, options, receipt) is string staleStatus) return staleStatus;
                 if (!options["enabled"].Values<string>().Contains("use")) return "option_unavailable";
                 if (!(request["target_ids"] is JArray candidates) || candidates.Count==0 || candidates.Count>64 ||
                     candidates.Any(n=>n.Type!=JTokenType.Integer || (long)n<=0 || (long)n>int.MaxValue)) return "invalid_targets";
@@ -128,7 +148,7 @@ namespace WhiteDragon.Ledger
                 return "observed";
             }
             if ((string)request["mode"] != "choose") return "invalid_action";
-            if (!seen || !same || itemMenuUsed) return "menu_changed";
+            if (RefreshMenuToken(seen, same, view, options, receipt) is string chooseStale) return chooseStale;
             string verb = (string)request["verb"];
             if (!options["enabled"].Values<string>().Contains(verb)) return "option_unavailable";
             if (Interactable.isPaused || GeneralHelper.IsItemLocked(item) || PlayerStore.Instance.lockAllInventoryFlag != 0 ||
@@ -173,6 +193,7 @@ namespace WhiteDragon.Ledger
             if (verb=="open")
                 return WorkstationAction(new JObject {["action"]="inspect_window", ["owner_id"]=id, ["open_if_closed"]=true},receipt);
             bool confirmationWasOpen=NativeItemPanels.ConfirmationOpen;
+            string panelsBefore=NativeItemPanels.ActiveKey();
             switch (verb)
             {
                 case "activate": item.ActivateSlotItem(); break;
@@ -204,11 +225,34 @@ namespace WhiteDragon.Ledger
             changed.Add(item);
             receipt["remaining_units"] = item.parentInventory == null ? 0 : item.unitCount;
             NativeItemPanels.CaptureConfirmation(confirmationWasOpen);
+            var beforeSet = new System.Collections.Generic.HashSet<string>(
+                (panelsBefore ?? "").Split(new[]{','}, StringSplitOptions.RemoveEmptyEntries));
             string panel=NativeItemPanels.ActiveKey();
             if (panel!=null)
             {
-                receipt["panel"]=panel;
-                receipt["next_tool"]="item_panel";
+                foreach (var key in panel.Split(new[]{','}, StringSplitOptions.RemoveEmptyEntries))
+                    if (!beforeSet.Contains(key)) toolOpenedPanels.Add(key);
+                // A scan is complete as soon as the native scanner opens; return it without another read.
+                if (panel.Split(new[]{','}).Contains("chemical_scanner") && NativeItemPanels.ScannerReading() is JObject scan)
+                {
+                    receipt["scan"]=scan;
+                    if (!beforeSet.Contains("chemical_scanner"))
+                    {
+                        var scannerView = NativeItemPanels.Current("chemical_scanner");
+                        if (scannerView?.Close != null)
+                        {
+                            scannerView.Close();
+                            toolOpenedPanels.Remove("chemical_scanner");
+                            receipt["panel_closed"]=true;
+                            panel=NativeItemPanels.ActiveKey();
+                        }
+                    }
+                }
+                if (panel!=null)
+                {
+                    receipt["panel"]=panel;
+                    receipt["next_tool"]="item_panel";
+                }
             }
             return "invoked";
         }

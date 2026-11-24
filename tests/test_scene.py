@@ -12,6 +12,23 @@ from mcp.client.stdio import stdio_client
 
 
 class SceneRouting(unittest.IsolatedAsyncioTestCase):
+    def test_scene_version_and_delivery_interval(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
+        from scene import scene_version
+        from scene_server import attach_arrivals
+        scene = {"dll_commit":"22baa43"}
+        self.assertNotIn("version_mismatch",scene_version(scene,"22baa43"))
+        self.assertEqual(scene_version(scene,"277a165")["version_mismatch"],{"dll":"22baa43","mcp":"277a165"})
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            delivery = {"source":"phone_delivery","contact":"阿希什","ids":[103,104]}
+            (folder/"load-2.json").write_text(json.dumps({"arrivals":[delivery],"contraband_outside_bay":2}))
+            (folder/"load-3.json").write_text("{}")
+            delta = {"mode":"delta","revision":3}
+            self.assertEqual(attach_arrivals(folder,"load:1:cursor",dict(delta)),
+                             dict(delta,arrivals=[delivery],contraband_outside_bay=2))
+            self.assertEqual(attach_arrivals(folder,"load:2:cursor",dict(delta)),delta)
+
     async def test_loader_refusal_explains_stale_waiting_receipt(self):
         with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
             root = Path(temp)
@@ -154,6 +171,14 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                     session="reloaded_sess", status="ready", location="pawnshop", revision=2)), encoding="utf-8")
                 settled = json.loads((await load_waiter).content[0].text)
                 self.assertEqual((settled["wait_result"], settled["session"]), ("new_session", "reloaded_sess"))
+                publish(10, "game_over", "pawnshop", reason="Native ending")
+                self.assertEqual((await read("get_shop_ledger", slot=4))["status"], "observed")
+                self.assertEqual((await read("dismiss_trade_ticket", slot=4, ticket_id="a"*32, version=1))["status"], "ticket_not_found")
+                self.assertEqual((await read("get_scene"))["reason"], "Native ending")
+                for name, args in (("get_shop_status", {}), ("travel_menu", {"mode":"read"}),
+                                   ("wait_for_scene", {"session":"test","after_revision":9})):
+                    self.assertEqual((await read(name, **args))["tool_status"], "game_over")
+                self.assertFalse((folder / "journey-test.json").exists())
                 self.assertTrue(changes.empty())
 
     async def test_explore_abandon_ground_and_scratch_card_close(self):

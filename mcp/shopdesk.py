@@ -1,14 +1,20 @@
 """Views of the current save's confirmed purchases and visible purifier panel."""
 import json
-import re
 import time
-from uuid import NAMESPACE_URL, uuid5
 
-from search_text import search_text
+from stock_query import search_text
 from scene import interrupted_shop_call
 from ledger import lookup, same_observation, read_head
-from command_transport import exchange
-from receipt_store import replayed, read_command_receipt, read_optional_json
+from server_state import snapshot_cache
+from command_transport import (
+    deterministic_id,
+    exchange,
+    is_hex32,
+    read_command_receipt,
+    read_optional_json,
+    replayed,
+    submit_command,
+)
 import trade_journal
 
 
@@ -37,10 +43,10 @@ def published(folder, stream="desk"):
         if head.get("desk_protocol") != 1:
             return {"status": "reload_updated_mod"}
         generation = head["generation"]
-        if not re.fullmatch("[a-f0-9]{32}", generation):
+        if not is_hex32(generation):
             raise ValueError("Invalid game load identifier")
         try:
-            data = json.loads((folder / f"{stream}-{generation}.json").read_text(encoding="utf-8-sig"))
+            data = snapshot_cache.read_json(folder / f"{stream}-{generation}.json")
         except (FileNotFoundError, PermissionError, json.JSONDecodeError):
             if attempt < 2:
                 time.sleep(.05)
@@ -156,7 +162,7 @@ def buyer(folder):
 
 
 def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_budget=False, *, database=None, tool="sell_order", on_table=False, bundle=False):
-    if not all(re.fullmatch("[a-f0-9]{32}", token) for token in (generation, visit)) or revision < 1:
+    if not all(is_hex32(token) for token in (generation, visit)) or revision < 1:
         raise ValueError("Use the generation, revision and visit from the buyer context")
     ids = [line["item_id"] for line in lines]
     if not lines or len(ids) != len(set(ids)) or any(i<1 for i in ids) or any(l.get("min_price", l.get("max_price", -1))<0 for l in lines):
@@ -167,7 +173,7 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
         plan["bundle"] = True
     if tool != "sell_order":
         plan.update(tool=tool, on_table=on_table)
-    command = uuid5(NAMESPACE_URL, "white-dragon/sell-order/"+json.dumps(plan,sort_keys=True)).hex
+    command = deterministic_id("white-dragon/sell-order/", plan)
     def receipt():
         return read_command_receipt(folder, command, generation, "sale")
 
@@ -186,6 +192,12 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
         return context
     if tool != "sell_order" and context.get("trade_tools_protocol") != 1:
         return {"status":"reload_updated_mod"}
+    if (tool == "sell_order" and database is not None and context["generation"] == generation and
+            (context["phase"] != "OPEN" or context["revision"] != revision or (context["customer"] or {}).get("visit") != visit)):
+        with trade_journal.ticket_transaction(database) as db:
+            prior = trade_journal.finished_sale(db, folder, plan, context["slot"])
+            if prior is not None:
+                return prior
     if context["phase"] != "OPEN":
         return {"status":"shop_closed"}
     if (context["generation"], (context["customer"] or {}).get("visit")) == (generation, visit):
@@ -219,7 +231,7 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
         return stale
     request = dict(plan, command_id=command)
     def send():
-        return exchange(folder, folder/f"sale-{generation}.json", request, receipt)
+        return submit_command(folder, "sale", generation, request, read_receipt=receipt, transport=exchange)
     result = send() if database is None else trade_journal.dispatch(
         database, folder, tool, request, context["slot"], context["customer"].get("name"), send)
     if result["status"] == "unconfirmed":

@@ -63,7 +63,8 @@ namespace WhiteDragon.Ledger
                 row["type"] = "slot";
                 row["insert_allowed"] = role != "output" && !storage.IsInsertLocked() && !read.Window.isLocked;
                 row["remove_allowed"] = !storage.IsRemoveLocked() && !read.Window.isLocked;
-                if (InventoryCapacity(storage) is JObject cap) row["capacity"] = cap;
+                if (storage is GameSlotInventory) row["accepts"] = "one_item";
+                else if (InventoryCapacity(storage) is JObject cap) row["capacity"] = cap;
                 var items = new JArray();
                 foreach (var child in storage.childItems)
                 {
@@ -73,6 +74,7 @@ namespace WhiteDragon.Ledger
                     AddGeometryFields(child, entry);
                     if (ModuleRemoval(child,(int)entry["id"]) is JObject removal) entry["removal"]=removal;
                     if (BottleLabel(child) is string bottleLabel) entry["bottle_label"] = bottleLabel;
+                    AddChemicalPurityFields(child, entry);
                     items.Add(entry);
                 }
                 row["items"] = items;
@@ -134,8 +136,13 @@ namespace WhiteDragon.Ledger
             DescribeMachine(owner,read,rows);
             read.View = new JObject { ["owner_id"]=LocalId(owner), ["save_id"]=owner.GetUniqueID(), ["name"]=owner.GetDisplayName(true),
                 ["title"]=read.Window.titleString, ["locked"]=read.Window.isLocked, ["controls"]=rows };
-            if (owner.identifier=="chem_finisher" && owner.IsTag("SELECTED_CHEM_ID_TAG"))
-                read.View["recipe_id"]=owner.GetTagReadonly("SELECTED_CHEM_ID_TAG").GetString();
+            if (owner.identifier=="chem_finisher")
+            {
+                if (owner.IsTag("SELECTED_CHEM_ID_TAG"))
+                    read.View["recipe_id"]=owner.GetTagReadonly("SELECTED_CHEM_ID_TAG").GetString();
+                DescribeChemFinisher(read,rows);
+            }
+            if (owner.identifier=="evaporator") DescribeEvaporator(owner,read,rows);
             if (owner.identifier=="heating_plate") read.View["heating"]=HeatingView(owner);
             if (owner.IsTag("FILTER_CONTAINER_TAG")) read.View["pour_filter"]=FilterView(owner);
             return read;
@@ -317,6 +324,7 @@ namespace WhiteDragon.Ledger
             workstations.Remove(id);
             string status;
             bool confirmationWasOpen=NativeItemPanels.ConfirmationOpen;
+            string panelsBefore=NativeItemPanels.ActiveKey();
             if (action=="adjust_control")
             {
                 if ((string)row["type"]=="text")
@@ -376,7 +384,8 @@ namespace WhiteDragon.Ledger
                     status = TransferOne(owner, storage, row, location, (string)request["source"], (int)request["item_id"], receipt);
             }
             NativeItemPanels.CaptureConfirmation(confirmationWasOpen);
-            if ((action=="press_control" || action=="adjust_control") && NativeItemPanels.ActiveKey() is string activePanel)
+            if ((action=="press_control" || action=="adjust_control") && NativeItemPanels.ActiveKey() is string activePanel &&
+                activePanel != panelsBefore)
             {
                 receipt["next_tool"]="item_panel";
                 receipt["panel"]=activePanel;

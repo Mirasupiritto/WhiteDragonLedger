@@ -5,6 +5,7 @@ from scene import register_scene_tools
 from scene_server import SceneServer
 from journey import register as register_journey_tools
 from pawnshop_tools import register_pawnshop_tools
+from chem_workflow import register as register_chem_tools
 
 
 def main():
@@ -18,6 +19,7 @@ def main():
     register_scene_tools(server, args.journal)
     register_journey_tools(server, args.journal)
     register_pawnshop_tools(server, args.journal, database)
+    register_chem_tools(server, args.journal, database)
     server.run()
 
 

@@ -13,6 +13,16 @@ namespace WhiteDragon.Ledger
             phase="OPEN";
             store.storeState=PlayerStore.StoreState.OPEN;
             store.currentClientInstance=new StoreClientInstance();
+            var sample=new GameItem {identifier="dream_dust",owned=true,unitCount=1};
+            sample.waterTags.Add(TypeHelper.CONTRABAND);
+            store.currentClientInstance.client.identifier="courrierChemFree";
+            ObservePhoneArrival(sample,shop.frontInvinvElement,null);
+            store.currentClientInstance=new StoreClientInstance();
+            var delivery=new JObject();
+            AttachPhoneArrivals(delivery,new JArray(new JObject { ["id"]=LocalId(sample), ["owned"]=true }));
+            Expect((string)delivery["arrivals"][0]["source"]=="phone_delivery" &&
+                (int)delivery["arrivals"][0]["ids"][0]==LocalId(sample) && (int)delivery["contraband_outside_bay"]==1,
+                "courier receipt survives departure and counts the owned sample");
             store.isClientArrived=true;
             ObserveVisit();
             DialogUIManager.Instance=new DialogUIManager();
@@ -153,7 +163,12 @@ namespace WhiteDragon.Ledger
                 (int)showcaseFull["item_size"]["w"] == 1 && (int)showcaseFull["target_capacity"]["w"] == 7,
                 "showcase capacity refusal includes item_size and target_capacity");
             shop.showcaseElement.replayFull = false;
-            card.To(shop.showcaseElement);
+            phase="OPEN";
+            shelve["visit"]=visitId;
+            Expect((string)ExecuteMove(shelve)["status"]=="moved" && card.parentInventory==shop.showcaseElement,
+                "open shop allows owned inventory onto a visible showcase");
+            shelve.Remove("visit");
+            phase="MORNING";
             var returnToInv = (JObject)shelve.DeepClone();
             returnToInv["source"] = "showcase"; returnToInv["destination"] = "inventory"; returnToInv["revision"] = sequence;
             shop.invElement.replayFull = true;

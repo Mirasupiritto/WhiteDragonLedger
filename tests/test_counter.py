@@ -92,6 +92,22 @@ class CounterFlow(unittest.TestCase):
         exchange.return_value = {"status": "unchanged"}
         self.assertEqual(counter.command(self.folder, "item_panel", self.generation, 2, mode="read"), exchange.return_value)
 
+    def test_finished_heat_shown_once_in_counter_receipts(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "ledger.sqlite3"
+            self.check_heat_receipts(database)
+
+    def check_heat_receipts(self, database):
+        running = {"generation": self.generation, "heat": {"run_id": "r1", "status": "running"}}
+        self.assertIn("heat", counter.filter_finished_heat(database, running))
+        self.assertIn("heat", counter.filter_finished_heat(database, running))
+        finished = {"generation": self.generation, "heat": {"run_id": "r1", "status": "finished"}}
+        first = counter.filter_finished_heat(database, finished)
+        second = counter.filter_finished_heat(database, finished)
+        self.assertEqual(first["heat"]["status"], "finished")
+        self.assertNotIn("heat", second)
+
     def setUp(self):
         self.generation = "b" * 32
         self.visit = "a" * 32
@@ -444,7 +460,7 @@ class CounterFlow(unittest.TestCase):
 
             with patch("counter.command", return_value={"status": "dismissed", "waiting": 1, "reception_token": "rt3"}):
                 fin = call("finish_customer", generation=self.generation, revision=6, visit=self.visit)
-            self.assertEqual((fin["status"], fin["reception_token"]), ("dismissed", "rt3"))
+            self.assertEqual((fin["status"], fin["reception_token"], fin["next_tool"]), ("dismissed", "rt3", "next_customer"))
 
             transient = {"status": "dismiss_unavailable", "reason": "client_not_dismissable"}
             ready = dict(self.view, status="observed", generation=self.generation, visit=self.visit, reception={"can_dismiss": True})
@@ -459,8 +475,20 @@ class CounterFlow(unittest.TestCase):
 
             leaving = dict(self.view, stage="customer_departing", visit=None, next_action="上一位客人正在離場，等候即可。")
             with patch("counter.context", return_value=leaving), patch("counter.ring") as ring:
-                self.assertEqual(call("next_customer")["status"], "customer_departing")
+                self.assertEqual(call("next_customer",timeout=0)["status"], "customer_departing")
                 ring.assert_not_called()
+            with (patch("counter.context", side_effect=[leaving, dict(leaving, stage="idle", waiting=1)]),
+                  patch("counter.ring", return_value={"status":"called","visit":self.visit}) as ring):
+                self.assertEqual(call("next_customer")["status"], "called")
+                ring.assert_called_once()
+            heated = dict(leaving, heat={"run_id":"344261ba","status":"stopped"})
+            with patch("counter.context",return_value=heated), patch("counter.ring",return_value=heated):
+                self.assertIn("heat", call("next_customer", timeout=0))
+                self.assertNotIn("heat", call("ring_customer", generation=self.generation, revision=6, waiting=1))
+                server = FastMCP("reconnected")
+                register_pawnshop_tools(server, folder, folder / "ledger.sqlite")
+                with patch("shopdesk.published",return_value={"status":"waiting_for_load"}):
+                    self.assertNotIn("heat", call("get_counter"))
             incoming = dict(self.view, visit="new", customer="新客", stage="arriving")
             with patch("counter.context", return_value=incoming), patch("counter.command", return_value={"status": "dismissed", "visit": self.visit}):
                 handoff = call("finish_customer", generation=self.generation, revision=6, visit=self.visit)
@@ -470,6 +498,24 @@ class CounterFlow(unittest.TestCase):
                   patch("counter.wait_opening", return_value=dict(incoming, stage="ready"))):
                 self.assertEqual(call("next_customer")["visit"], "new")
                 ring.assert_called_once()
+
+            closed_buyer = dict(self.view, stage="not_selling", client_role="buyer", demand={"status": "panel_closed", "interests": []})
+            open_buyer = dict(self.view, stage="not_selling", client_role="buyer", demand={"status": "observed", "interests": ["MATERIAL"]})
+            with (patch("counter.context", side_effect=[closed_buyer, closed_buyer, closed_buyer, open_buyer]),
+                  patch("counter.command", return_value={"status": "tablet_requested"}) as cmd,
+                  patch("counter.time.monotonic", side_effect=[0.0, 0.0, 0.2, 2.1, 2.3]),
+                  patch("counter.time.sleep")):
+                opened = counter.wait_opening(self.folder, self.generation, self.visit, timeout=5)
+            self.assertEqual(opened["demand"]["status"], "observed")
+            self.assertEqual(opened["tablet_attempts"], 2)
+            self.assertEqual(cmd.call_count, 2)
+            self.assertEqual(cmd.call_args.args[1], "tablet")
+            self.assertIn("read_id", cmd.call_args.kwargs)
+
+            with (patch("counter.context", return_value=dict(self.view, stage="speaking")),
+                  patch("counter.time.sleep")):
+                timed_out = counter.wait_opening(self.folder, self.generation, self.visit, timeout=0)
+            self.assertEqual(timed_out["status"], "opening_timeout")
 
             services = [{"id": f"svc_{i}", "title": f"Svc {i}", "tab": "water" if i < 5 else "security",
                          "cost": 10, "unlocked": False, "ready": i % 2 == 0} for i in range(10)]

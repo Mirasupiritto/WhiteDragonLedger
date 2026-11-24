@@ -13,8 +13,10 @@ namespace WhiteDragon.Ledger
             public GameSlotInventory Slot;
             public MachineryRadioList Modes;
             public int Low, High, Target, ExpectedMode;
-            public float Started;
+            public float Started, LastTick;
             public int Seconds;
+            public double Peak = double.MinValue, InRange;
+            public bool Reached;
             public bool NativeTarget;
             public JObject Summary;
             public double Temperature => Bottle.GetTagReadonly("CONTAINER_TEMP_TAG").GetDouble();
@@ -64,6 +66,14 @@ namespace WhiteDragon.Ledger
         private JObject lastHeat;
         private float nextHeatCheck;
 
+        // Let a caller see whether the vessel ever reached the requested range, not just that time ran out.
+        private static void HeatStats(HeatRun run)
+        {
+            if (run.Peak > double.MinValue) run.Summary["peak_c"] = Math.Round(run.Peak, 1);
+            run.Summary["reached_range"] = run.Reached;
+            run.Summary["in_range_seconds"] = Math.Round(run.InRange, 1);
+        }
+
         private void EndHeat(string reason)
         {
             var run = heatRun;
@@ -75,6 +85,8 @@ namespace WhiteDragon.Ledger
             run.Summary["mode_index"] = run.Mode;
             run.Summary["elapsed_seconds"] = (int)(Time.realtimeSinceStartup-run.Started);
             if (run.Slot.childItem == run.Bottle) run.Summary["current_c"] = run.Temperature;
+            HeatStats(run);
+            if (!run.Reached && reason == "finished") run.Summary["warning"] = "range_not_reached";
             lastHeat = run.Summary;
             heatRun = null;
             nextView = 0;
@@ -93,9 +105,19 @@ namespace WhiteDragon.Ledger
             if (run.Slot.childItem != run.Bottle || WaterHelper.IsEmpty(run.Bottle)) { EndHeat("vessel_changed"); return; }
             if (Time.realtimeSinceStartup-run.Started >= run.Seconds) { EndHeat("finished"); return; }
             double temp = run.Temperature;
-            int mode = run.ExpectedMode == 1 ? 1 : 0;
-            if (run.NativeTarget || temp < run.Low) mode = 1;
+            float now = Time.realtimeSinceStartup;
+            bool inRange = temp >= run.Low && temp <= run.High;
+            if (inRange && run.LastTick > 0) run.InRange += now - run.LastTick;
+            run.LastTick = now;
+            run.Reached |= inRange;
+            run.Peak = Math.Max(run.Peak, temp);
+            // Native modes: 0 off, 1 low, 2 high. High closes a large gap; the plate's own target caps it.
+            int mode;
+            if (run.NativeTarget) mode = temp < run.Low ? 2 : 1;
+            else if (temp < run.Low - 10) mode = 2;
+            else if (temp < run.Low) mode = 1;
             else if (temp >= (run.Low + run.High) / 2.0) mode = 0;
+            else mode = run.ExpectedMode == 0 ? 0 : 1;
             if (!run.SetMode(mode)) EndHeat("control_unavailable");
         }
 
@@ -110,8 +132,12 @@ namespace WhiteDragon.Ledger
                 if (summary == null) return "no_heat_run";
                 if (mode == "stop" && (string)summary["run_id"] != (string)request["run_id"]) return "run_changed";
                 receipt["heat"] = summary.DeepClone();
-                if (heatRun != null && heatRun.Slot.childItem == heatRun.Bottle)
-                    receipt["heat"]["current_c"] = heatRun.Temperature;
+                if (heatRun != null)
+                {
+                    HeatStats(heatRun);
+                    receipt["heat"] = heatRun.Summary.DeepClone();
+                    if (heatRun.Slot.childItem == heatRun.Bottle) receipt["heat"]["current_c"] = heatRun.Temperature;
+                }
                 return "observed";
             }
             if (mode != "start") return "invalid_action";

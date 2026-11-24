@@ -36,6 +36,7 @@ namespace WhiteDragon.Ledger
                 ["reception_token"] = ReceptionView()["token"],
                 ["remaining_budget"] = merchant != null && visitId == (string)order["visit"] && merchant.useClientBudget
                     ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
+            if (status == "buyer_or_ui_changed") completedOrder["reason"] = visitId != (string)order["visit"] ? "visit_changed" : CounterStage(true);
             AttachReceiptIdentityChanges(completedOrder);
             if (orderClearedItems.Count > 0) completedOrder["cleared_items"] = orderClearedItems.DeepClone();
             if (status == "counter_unavailable")

@@ -1,8 +1,27 @@
 """Read a compact allocation receipt from the current stock transaction."""
+import ctypes
 import json
 from functools import lru_cache
+import os
 
-from search_text import chinese_form, search_text
+
+def chinese_form(text, traditional=False):
+    if not text or os.name != "nt":
+        return text
+    convert = ctypes.windll.kernel32.LCMapStringEx
+    flags = 0x04000000 if traditional else 0x02000000
+    length = len(text.encode("utf-16-le")) // 2
+    size = convert("zh-CN", flags, text, length, None, 0, None, None, 0)
+    if not size:
+        raise ctypes.WinError()
+    output = ctypes.create_unicode_buffer(size + 1)
+    if not convert("zh-CN", flags, text, length, output, size, None, None, 0):
+        raise ctypes.WinError()
+    return output.value
+
+
+def search_text(text):
+    return chinese_form(text.casefold())
 
 
 # Input aliases only. Item membership always comes from the game's GetGameItemType().
@@ -21,17 +40,19 @@ SELECT value FROM keys WHERE value IS NOT NULL
 
 STOCK_DETAIL_COLUMNS = (
     "size_w,size_h,slot_x,slot_y,rotatable,"
-    "water_ml,liquid_ml,capacity_ml,empty,water_container,contains_water,"
+    "water_ml,liquid_ml,capacity_ml,empty,water_container,contains_water,liquid_main,"
     "charge_remaining,charge_max,liters_remaining,estimated_value,parent_id,container_path,access"
 )
 
 
-def row_to_item(row, *, include_categories=False):
+def row_to_item(row):
     raw = dict(row)
     item = {}
     for key in ("id", "name", "kind", "area", "owned", "quantity", "bottle_label", "machine_id", "can_take_now", "save_id"):
         if raw.get(key) is not None:
             item[key] = raw[key]
+    if raw.get("liquid_main"):
+        item["liquid_main"] = json.loads(raw["liquid_main"])
     if raw.get("parent_id") is not None:
         item.update(parent_id=raw["parent_id"], container_path=json.loads(raw["container_path"]), access=raw["access"])
     item["owned"] = bool(item["owned"])
@@ -39,7 +60,7 @@ def row_to_item(row, *, include_categories=False):
         item["can_take_now"] = bool(item["can_take_now"])
     if "save_id" in item and not item["save_id"]:
         del item["save_id"]
-    if include_categories and raw.get("categories") is not None:
+    if raw.get("categories") is not None:
         item["categories"] = json.loads(raw["categories"])
     if raw.get("size_w") is not None and raw.get("size_h") is not None:
         item["size"] = {"w": raw["size_w"], "h": raw["size_h"]}
@@ -153,7 +174,7 @@ def select_stock(folder, db, head, query):
             filters.append(within("categories", allowed))
         if include:
             if "WATER" in include:
-                choices.append("(water_container = 1 OR " + within("categories", matching) + ")")
+                choices.append("((water_container = 1 AND (empty = 1 OR contains_water = 1)) OR " + within("categories", matching) + ")")
             else:
                 choices.append(within("categories", matching))
     if kinds:
@@ -176,7 +197,7 @@ def select_stock(folder, db, head, query):
     columns = "id,name,kind,area,owned,quantity,bottle_label,categories,machine_id,can_take_now," + STOCK_DETAIL_COLUMNS
     if ids is not None:
         columns += ",save_id"
-    items = [row_to_item(row, include_categories=True) for row in db.execute("SELECT " + columns + " FROM stock" + where + " ORDER BY id", params)]
+    items = [row_to_item(row) for row in db.execute("SELECT " + columns + " FROM stock" + where + " ORDER BY id", params)]
     if ids is not None:
         by_id = {item["id"]: item for item in items}
         ordered = dict.fromkeys(ids)

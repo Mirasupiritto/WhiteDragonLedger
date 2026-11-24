@@ -67,18 +67,25 @@ namespace WhiteDragon.Ledger
             receipt=new JObject();
             Expect(ActAtCounter(Request(kit,"read",token),receipt)=="observed" && receipt["base_actions"]==null &&
                 receipt["added"].ToString().Contains("open") && receipt["label_changes"]["activate"].Type==JTokenType.Null,"cross-item delta resets consume label");
-            Expect(ActAtCounter(Request(smoke,"choose",token,"activate"),new JObject())=="menu_changed","stale read cannot consume");
             string kitToken=(string)receipt["menu_token"];
             receipt=new JObject();
             Expect(ActAtCounter(Request(kit,"choose",kitToken,"open"),receipt)=="observed" &&
                 (int)receipt["window"]["controls"][0]["items"][0]["id"]==LocalId(strip),"open kit returns selectable strip");
+            var staleReply=new JObject();
+            Expect(ActAtCounter(Request(smoke,"choose",token,"activate"),staleReply)=="stale_menu_token" &&
+                (string)staleReply["reason"]=="token_expired" &&
+                staleReply["menu_token"]!=null && staleReply["enabled"]!=null,"stale read returns stale_menu_token with fresh token");
             receipt=new JObject();
             ActAtCounter(Request(smoke),receipt);
             token=(string)receipt["menu_token"];
             Expect(ActAtCounter(Request(smoke,"choose",token,"activate"),new JObject())=="invoked" &&
                 smoke.responseClicks==1,"activate calls native action once");
-            Expect(ActAtCounter(Request(smoke,"choose",token,"activate"),new JObject())=="menu_changed" &&
-                smoke.responseClicks==1,"spent menu cannot consume twice");
+            var spentReply=new JObject();
+            Expect(ActAtCounter(Request(smoke,"choose",token,"activate"),spentReply)=="stale_menu_token" &&
+                (string)spentReply["reason"]=="token_already_used" &&
+                spentReply["menu_token"]!=null && smoke.responseClicks==1,"spent menu cannot consume twice and returns fresh token");
+            Expect(ActAtCounter(Request(smoke,"choose",(string)spentReply["menu_token"],"activate"),new JObject())=="invoked" &&
+                smoke.responseClicks==2,"retry with returned fresh menu_token succeeds in one step");
             var portable=Item(7504,"portable_water_purifier",1);
             var bottle=Item(7505,"bottle",1);
             var move=new JObject { ["command_id"]=System.Guid.NewGuid().ToString("N"), ["generation"]=generation,

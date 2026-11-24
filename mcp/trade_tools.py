@@ -9,10 +9,12 @@ from pydantic import BaseModel, Field
 
 import book_history
 import counter
+from flow import present_counter
 import shopdesk
 import shop_day
 from ledger import lookup, same_observation
 from database import transaction
+from server_state import ServerState
 
 
 class BatchLine(BaseModel):
@@ -38,21 +40,36 @@ def context(view):
                   demand=demand, remaining_budget=remaining, quote=desk.get("quote"),
                   customer_line=f"{desk.get('customer') or '空櫃檯'}｜{summary}｜剩餘 {remaining if remaining is not None else '未顯示'}",
                   next_action="可以報價" if desk.get("quote_ready", desk["stage"] == "ready") else desk["stage"])
+    if desk.get("stage") == "barter_unsupported":
+        result["reason"] = desk["reason"]
     if desk.get("next_action"):
         result["next_action"] = desk["next_action"]
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
-    for key in ("offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
-                "forced_choice", "forced_choice_reason", "table_items"):
+    for key in ("client_role", "offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
+                "forced_choice", "forced_choice_reason", "wanted_name_match", "poster_match", "story_branch", "consequence_hint", "consequence", "counter_request", "inspection_exposure", "heat", "barter", "stale_during_speech", "table_items"):
         if key in desk:
             result[key] = desk[key]
     if isinstance(desk.get("reception"), dict) and "token" in desk["reception"]:
         result["reception_token"] = desk["reception"]["token"]
     if bottles:
-        result["seller_water"] = {"count":len(bottles), "bottles":bottles}
-        if any("capacity_ml" not in row for row in bottles):
-            result["seller_water"]["capacity_status"] = "reload_updated_mod"
+        result["seller_water"] = {"count":len(bottles), "ids":[row["id"] for row in bottles]}
     return result
+
+
+def group_bargain_options(options):
+    groups = {}
+    for opt in options:
+        group = groups.setdefault(opt["type"], {k:opt[k] for k in ("type","uses_roll","crime","reputation_faction")})
+        for key, value in (("percents", opt["percent"]), ("leave_chance", opt["leave_chance"]),
+                           ("success_chance", opt["success_chance"]), ("buy_factor", opt["offer_price_factors"]["buy"]),
+                           ("sell_factor", opt["offer_price_factors"]["sell"]), ("reputation_buy", opt["reputation_multipliers"]["buy"]),
+                           ("reputation_sell", opt["reputation_multipliers"]["sell"])):
+            group.setdefault(key, []).append(value)
+        for key in ("budget_cut_percent","budget_increase_percent"):
+            if key in opt:
+                group.setdefault(key, []).append(opt[key])
+    return list(groups.values())
 
 
 def summarize_offer(payload, *, verbose=False):
@@ -87,8 +104,6 @@ def summarize_offer(payload, *, verbose=False):
         "categories": list(grouped.values()),
         "summary_only": True,
     }
-    if isinstance(out.get("seller_water"), dict):
-        out["seller_water"] = {"count": out["seller_water"].get("count", 0), "summary_only": True}
     return out
 
 
@@ -141,12 +156,17 @@ def wait_event(folder, event, timeout):
 
 
 class Updates:
-    def __init__(self, folder, database):
+    def __init__(self, folder, database, state=None):
         self.folder = folder
         self.database = database
         self.cursor = None
+        self.state = state if state is not None else ServerState()
 
     def report(self, since=None, full=False):
+        with self.state.lock:
+            return self._report_locked(since=since, full=full)
+
+    def _report_locked(self, since=None, full=False):
         view = shopdesk.published(self.folder)
         if view["status"] != "observed":
             return view
@@ -163,7 +183,9 @@ class Updates:
                       latest_line=(desk.get("lines") or [None])[-1], can_ring=desk["reception"].get("can_ring"),
                       can_dismiss=desk["reception"].get("can_dismiss"), can_open_shop=desk.get("can_open_shop"))
         if "heat" in desk:
-            fields["heat"] = desk["heat"]
+            notified = counter.filter_finished_heat(self.database, {"generation": gen, "heat": desk["heat"]})
+            if "heat" in notified:
+                fields["heat"] = notified["heat"]
         fields["page"] = desk.get("page")
         encoded = json.dumps(fields, sort_keys=True, ensure_ascii=False)
         token = f"{gen}:{rev}:{hashlib.sha256(encoded.encode()).hexdigest()[:24]}"
@@ -181,8 +203,15 @@ class Updates:
                     result["reason"] = "cursor_reset"
             else:
                 old = json.loads(row[0])
-                upsert, remove = book_history.delta(db, gen, base, rev)
-                id_changes = book_history.identity_changes(db, gen, base, rev)
+                item_rows = book_history.changes_between(db, gen, base, rev)
+                upsert, remove = [], []
+                for item, old_p, new_p in item_rows:
+                    if old_p != new_p:
+                        if new_p is None:
+                            remove.append(item)
+                        else:
+                            upsert.append(json.loads(new_p))
+                id_changes = book_history.identity_changes(db, gen, base, rev, item_rows=item_rows)
                 changed = {k:v for k,v in fields.items() if old.get(k)!=v}
                 checkpoints = []
                 last = old["phase"]
@@ -207,8 +236,46 @@ class Updates:
 
 
 def register(server, folder, database):
-    tracker = Updates(folder, database)
+    state = getattr(server, "state", None)
+    tracker = Updates(folder, database, state=state)
+    heat_state = state if state is not None else counter.default_state
     server.updates = tracker
+    if state is not None:
+        state.updates = tracker
+
+    @server.tool()
+    def report_client(mode: Literal["read","report"] = "read", visit: str | None = None,
+                      report_token: str | None = None, generation: str | None = None,
+                      revision: int | None = None) -> dict:
+        """Read the visible alarm or press it with the current visit, token, generation and revision.
+        Read again with the reported visit until arrest_finished. On report_intercepted, follow get_trade_context.
+        Compare feedback_box before and after an arrest."""
+        if mode == "read":
+            view = counter.context(folder)
+            if view["status"] != "observed":
+                return view
+            return counter.command(folder, "report_client", generation or view["generation"], view["revision"],
+                                   mode=mode, visit=visit or view.get("visit"), read_id=uuid4().hex)
+        if not (generation and revision and visit and report_token):
+            raise ValueError("Report requires generation, revision, visit and report_token from read")
+        return counter.command(folder, "report_client", generation, revision, mode=mode, visit=visit, report_token=report_token)
+
+    @server.tool()
+    def bargain(mode: Literal["read","offer"], generation: str, revision: int, visit: str,
+                type: str | None = None, percent: int | None = None, bargain_token: str | None = None, verbose: bool = False) -> dict:
+        """Read options grouped by type (verbose=True for individual buttons), chances, budget effects, trade reputation multipliers and the actual table quote. Offer one listed type/percent
+        with its bargain_token. After bargain_pending, read with the same visit and current revision until the dialogue settles."""
+        args = dict(visit=visit, mode=mode)
+        if mode == "read":
+            args["read_id"] = uuid4().hex
+        else:
+            if not type or percent is None or not bargain_token:
+                raise ValueError("Offer needs a listed type, percent and bargain_token")
+            args.update(type=type, percent=percent, bargain_token=bargain_token)
+        result = counter.command(folder,"bargain",generation,revision,**args)
+        if mode == "read" and not verbose and "options" in result:
+            result = {**result, "options": group_bargain_options(result["options"])}
+        return result
 
     @server.tool()
     def get_shop_updates(since: str | None = None, full: bool = False) -> dict:
@@ -218,13 +285,15 @@ def register(server, folder, database):
 
     @server.tool()
     def get_trade_context(verbose: bool = False) -> dict:
-        """Read the customer, budget, tablet requirements, quote, offered water, mandatory forced_choice warnings, and any page awaiting a choice.
+        """Read the customer, budget, tablet requirements, quote, offered water, wanted name matches, story consequences, forced_choice warnings, counter_request (from dialogue lines and owned table items), and any page awaiting a choice.
+        During stage=speaking, retains the last observed demand/barter with stale_during_speech=True until speech settles.
         Supplier offers with >5 items return a category/count/total summary unless verbose=True."""
         ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
         if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
             counter.wait_choices_ready(folder, ctx)
             ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
-        return summarize_offer(ctx, verbose=verbose)
+        return present_counter(ctx, folder=folder, database=database, heat_state=heat_state,
+                               summarize_offer=summarize_offer, verbose=verbose)
 
     @server.tool()
     def wait_for_shop_event(event: Literal["goods_offered","next_customer_available","opening_finished"],

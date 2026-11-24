@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using TMPro;
@@ -33,7 +34,10 @@ namespace WhiteDragon.Ledger
         public static int GetMaxDurability(GameItem item) => item.maxCharge;
     }
     public static class WaterHelper {
-        public static GameItem GetFilterItem(GameItem item)=>null;
+        public static GameItem GetFilterItem(GameItem item)=>item.filter;
+        public static int GetFreeCapacity(GameItem item)=>500000-item.volume;
+        public static int[] GetLiquidParts(GameItem item)=>new[]{item.volume-item.alcoholUl, item.alcoholUl};
+        public static int[] SplitProportionally(int[] parts,int amount)=>parts; // Replay vessels have room for the full pour.
         public static int GetTotalCapacityML(GameItem item) => 500;
         public static int GetCurrentCapacityUL(GameItem item) => item.volume;
         public static bool IsEmpty(GameItem item) => item == null || !item.IsTag("LIQUID_CONTAINER_TAG") || item.volume <= 0;
@@ -50,6 +54,8 @@ namespace WhiteDragon.Ledger
     }
     public partial class GameItem
     {
+        public GameItem filter;
+        public int alcoholUl;
         public int volume, charge, maxCharge = 300, associatedId, waterClicks;
         public readonly HashSet<string> waterTags = new HashSet<string>();
         public bool MaySelectSlotItem() => true;
@@ -126,6 +132,17 @@ namespace WhiteDragon.Ledger
             }
 
             Expect(Preview(source, LocalId(dest))=="preview" && source.volume==100 && dest.volume==0, "preview cannot pour");
+            source.volume=250000;
+            source.alcoholUl=175000;
+            var mixture=StockRow(source,"inventory");
+            Expect(!(bool)mixture["contains_water"] && mixture["bottle_label"]==null && (double)mixture["water_ml"]==75 &&
+                (string)mixture["liquid_main"]["id"]=="alcohol" && !mixture["categories"].ToObject<string[]>().Contains("WATER"),
+                "alcohol mixture is not water stock");
+            dest.filter=new GameItem {identifier="cloth", charge=2};
+            Expect(Preview(source,LocalId(dest))=="preview" && (double)receipt["plan"]["filter"]["removed"][0]["ml"]==1 &&
+                (double)receipt["plan"]["filter"]["target_ml_after"]==249 && dest.filter.charge==2,"filter preview leaves durability intact");
+            dest.filter=null;
+            source.alcoholUl=0;
             source.volume = 90;
             Expect(Apply()=="water_plan_changed" && dest.volume==0, "stale volumes");
             Preview(source,LocalId(dest));
@@ -138,6 +155,10 @@ namespace WhiteDragon.Ledger
             shop.drainInvWindow.visible=true;
             Preview(source,"drain");
             Expect(Apply()=="transferred" && source.volume==0,"drain");
+
+            foreach (var target in new JToken[]{ "drain", LocalId(dest) })
+                Expect(Preview(source,target)=="source_unavailable" && (string)receipt["reason"]=="source_empty" &&
+                    receipt["use_token"]==null,"empty source cannot authorize a drain or pour");
 
             var ration = Item(974,"water_ration",1);
             Preview(ration,LocalId(dest));

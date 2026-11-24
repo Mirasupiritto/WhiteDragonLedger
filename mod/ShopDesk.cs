@@ -156,7 +156,8 @@ namespace WhiteDragon.Ledger
         }
 
         private static bool HasWater(GameItem item) => item.IsTag("LIQUID_CONTAINER_TAG") &&
-            !WaterHelper.IsEmpty(item) && item.GetTagReadonly(Liquid.GetCurrentPartFromId("water")).GetInt()>0;
+            !WaterHelper.IsEmpty(item) && item.GetTagReadonly(Liquid.GetCurrentPartFromId("water")).GetInt() >=
+            WaterHelper.GetCurrentCapacityUL(item) * LiquidParts.WaterFraction;
 
         private static string BottleLabel(GameItem item)
         {
@@ -233,7 +234,7 @@ namespace WhiteDragon.Ledger
                 ["name"] = merchant.displayName, ["remaining"] = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull() };
             var doc = new JObject { ["generation"] = generation, ["slot"] = slot, ["revision"] = sequence,
                 ["phase"] = phase, ["day"] = StoreStation.Instance.dayCounter, ["customer"] = customer,
-                ["day_info"] = DayView(), ["phone"] = PhoneView(), ["counter_protocol"] = 2, ["counter"] = counter, ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["portable_purifiers"] = PortablePurifierRows(), ["last_night"] = night.DeepClone() };
+                ["day_info"] = DayView(), ["phone"] = PhoneView(), ["counter_protocol"] = 2, ["counter"] = counter, ["available_strips"] = AvailableStrips(), ["machines"] = machines, ["portable_purifiers"] = PortablePurifierRows(), ["smuggler_bays"] = SmugglerBayRows(), ["last_night"] = night.DeepClone() };
             var text = doc.ToString(Formatting.None);
             if (text == previousView) return;
             ModHelper.WriteModDataFileText(ModId, deskFile, text);

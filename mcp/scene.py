@@ -2,11 +2,14 @@
 import asyncio
 import json
 import re
+import subprocess
 from functools import lru_cache
 from pathlib import Path
 from contextvars import ContextVar
 from typing import Annotated
 from pydantic import Field
+
+from server_state import snapshot_cache
 
 
 shop_visit = ContextVar("shop_visit", default=None)
@@ -42,7 +45,7 @@ def _last_loader_audit(path, modified, size):
 
 def read_scene(folder: Path, *, include_options=False):
     try:
-        scene = json.loads((folder / "scene.json").read_text(encoding="utf-8-sig"))
+        scene = snapshot_cache.read_json(folder / "scene.json")
         if not include_options:
             scene.pop("travel_options", None)
     except FileNotFoundError:
@@ -85,11 +88,28 @@ def tool_region(scene):
     return "scene_only"
 
 
+def repository_commit():
+    try:
+        result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).resolve().parent,
+                                capture_output=True, text=True, check=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip()
+
+
+def scene_version(scene, commit):
+    dll = scene.get("dll_commit")
+    if dll and commit and dll != commit:
+        return {**scene, "version_mismatch":{"dll":dll,"mcp":commit}}
+    return scene
+
+
 def register_scene_tools(server, folder):
+    commit = repository_commit()
     @server.tool()
     def get_scene() -> dict:
-        """Read the current location, transition destination, and most recent journey."""
-        return read_scene(folder)
+        """Read the current location, transition destination, most recent journey, or the game_over reason shown by the game."""
+        return scene_version(read_scene(folder), commit)
 
     @server.tool()
     def get_travel_options() -> dict:
@@ -114,6 +134,8 @@ def register_scene_tools(server, folder):
         while True:
             scene = read_scene(folder)
             status = scene.get("status")
+            if status == "game_over":
+                return {**scene, "tool_status":"game_over"}
             if status == "mod_not_loaded":
                 return {**scene, "wait_result": "mod_not_loaded"}
             if status not in {"waiting_for_load", "transitioning", "reading_scene", "waiting_for_scene_observer"}:

@@ -121,7 +121,7 @@ class TrashLedger(unittest.TestCase):
             tr = {"status": "unavailable", "stacks": 0}
             sl = {"service_cost": 0, "available": False}
             sample = dict(status="observed", slot=4, generation=gen, revision=2, phase="OPEN", day=10,
-                          cash=120, calendar=cal, trash=tr, sleep=sl, night_report={"status": "ready", "day": 10})
+                          cash=120, calendar=cal, trash=tr, sleep=sl, security={"evidence_level":32}, wanted=[{"name":"Odin"}], night_report={"status": "ready", "day": 10})
             with patch("shop_day.shop_status", return_value=sample), patch("shop_day.trash_contents", return_value=tr):
                 first = json.loads(asyncio.run(server.call_tool("get_shop_status", {}))[0].text)
                 second = json.loads(asyncio.run(server.call_tool("get_shop_status", {}))[0].text)
@@ -132,11 +132,25 @@ class TrashLedger(unittest.TestCase):
             self.assertNotIn("calendar", second)
             self.assertNotIn("trash", second)
             self.assertNotIn("sleep", second)
-            self.assertEqual(second["unchanged_sections"], ["calendar", "trash", "sleep"])
+            self.assertEqual(second["unchanged_sections"], ["calendar", "trash", "sleep", "security"])
+            self.assertNotIn("security", second)
+            self.assertNotIn("wanted", first)
+            self.assertEqual(full["wanted"], sample["wanted"])
+            self.assertEqual(full["security"], sample["security"])
             self.assertEqual((full["calendar"], full["trash"], full["sleep"]), (cal, tr, sl))
             updated_tr = {"status": "unavailable", "stacks": 1}
             with patch("shop_day.shop_status", return_value=sample), patch("shop_day.trash_contents", return_value=updated_tr):
                 third = json.loads(asyncio.run(server.call_tool("get_shop_status", {}))[0].text)
             self.assertEqual(third["trash"], updated_tr)
             self.assertNotIn("calendar", third)
-            self.assertEqual(third["unchanged_sections"], ["calendar", "sleep"])
+            self.assertEqual(third["unchanged_sections"], ["calendar", "sleep", "security"])
+
+    def test_health_warnings_remain_visible(self):
+        from shop_day import SectionCache
+        cache = SectionCache()
+        view = dict(status="observed", health={"luck":0})
+        cache.filter("g", view)
+        self.assertNotIn("health", cache.filter("g", view))
+        warning = dict(view, alerts=[{"type":"addiction_withdrawal"}])
+        self.assertIn("health", cache.filter("g", warning))
+        self.assertIn("alerts", cache.filter("g", warning))

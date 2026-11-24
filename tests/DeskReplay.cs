@@ -22,7 +22,7 @@ namespace WhiteDragon.Ledger {
     }
     public class Window : UnityEngine.GameObject { }
     public class NegotiationTabletFrame { public PanelNode infoHost; public Window confirmRoot; }
-    public class ReplayClientAvatar { public Window gameObject = new Window(); }
+    public partial class ReplayClientAvatar { public Window gameObject = new Window(); }
     public partial class StoreUIManager {
         public ReplayClientAvatar clientGameObject = new ReplayClientAvatar();
         public static StoreUIManager Instance = new StoreUIManager();
@@ -32,7 +32,7 @@ namespace WhiteDragon.Ledger {
         public StoreCalendar storeCalendar = new StoreCalendar();
         public bool isAboutToStartMainDialog;
     }
-    public class DialogUIManager {
+    public partial class DialogUIManager {
         public List<DialogChoiceBubble> dialogChoiceBubbles=new List<DialogChoiceBubble>();
         public static DialogUIManager Instance;
         public Label clientNameTMP;
@@ -105,8 +105,8 @@ namespace WhiteDragon.Ledger {
         }
         public GameItem trashcan;
     }
-    public class ItemCondition { public string display; }
-    public class ItemFeature {
+    public class ItemCondition { public string identifier, display; }
+    public partial class ItemFeature {
         public ItemCondition label;
         public ItemCondition GetCurrentItemCondition() => label;
     }
@@ -132,9 +132,9 @@ namespace WhiteDragon.Ledger {
         public long GetNegociatedValue() => price;
         public long GetCurrentValue(bool useRetailMarkup = false, bool withChild = true, bool includeEvents = true, bool forceMarkup = false, long extraMarketMod = 0L) => price;
         public long GetBaseValue() => price;
-        public List<string> GetGameItemType() => new List<string> { identifier ?? "misc" };
+        public List<string> GetGameItemType() => new List<string> { identifier=="bottle" ? "WATER" : identifier ?? "misc" };
         public bool IsTag(string key) => (key=="LIQUID_CONTAINER_TAG" && identifier=="bottle") || waterTags.Contains(key);
-        public GameItem GetTagReadonly(string key) => key=="water_part" ? new GameItem {associatedId=waterTags.Contains("replay_solvent") ? 0 : volume} : scratchTagReader == null ? this : scratchTagReader(key);
+        public GameItem GetTagReadonly(string key) => key=="water_part" ? new GameItem {associatedId=waterTags.Contains("replay_solvent") ? 0 : volume - alcoholUl} : key=="alcohol_part" ? new GameItem {associatedId=alcoholUl} : scratchTagReader == null ? this : scratchTagReader(key);
         public int GetInt() => associatedId;
         public List<GameItem> FindAllChildItems()
         {
@@ -158,8 +158,8 @@ namespace WhiteDragon.Ledger {
             if (target is GameSlotInventory newSlot) newSlot.childItem = this;
         }
     }
-    public class StoreClient {
-        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER }
+    public partial class StoreClient {
+        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER, DIALOGUE, APPRAISAL_SERVICE, EXPEDITION, GUNSMITH, INSPECTION, LOAN_SHARK, PROCUREMENT_COLLECT, PROCUREMENT_OFFER, RENT }
         public ClientIntent clientIntent;
         public BarterOffer barterOffer;
         public bool isIntroduced;
@@ -174,14 +174,16 @@ namespace WhiteDragon.Ledger {
         public int GetBudget() => budget;
         public object mainDialogue;
         public bool isMainDialogueStarted, isRegularSellDisable, isMultiBuyDisabled;
-        public bool IsClientSelling() => true;
-        public bool IsClientBuying() => true;
+        public bool isClientSelling = true;
+        public bool isClientBuying = true;
+        public bool IsClientSelling() => isClientSelling;
+        public bool IsClientBuying() => isClientBuying;
     }
     public class StoreClientInstance {
         public StoreClient client=new StoreClient();
         public StoreClient GetClientBlueprint() => client;
     }
-    public class HealthData {
+    public partial class HealthData {
         public const int SERIOUS_WOUND_THRESHOLD = 5;
         public int woundState;
         public bool isWoundStable = true, isWoundedFresh;
@@ -293,13 +295,16 @@ namespace WhiteDragon.Ledger {
         public static bool IsHazardousWaste(GameItem item) =>
             item != null && (item.identifier == "nuclear_waste" || item.IsTag("HAZARDOUS_WASTE_TAG"));
     }
-    public static class MachineryHelper { public static int GetMachinePowerUsage(GameItem machine) => 4; }
+    public static class MachineryHelper {
+        public static int GetMachinePowerUsage(GameItem machine) => 4;
+        public static int GetCurrentQualityBonus(GameItem machine) => machine.associatedId;
+    }
     public static class MachineHelper {
         public const string STANDARD_MACHINE_TAG="standard_machine";
         public static GameSlotInventory container=new GameSlotInventory(), battery=new GameSlotInventory();
         public static object[] furnaceSlots, chemistrySlots;
         public static object GetBodyStorage(GameItem item,int index) =>
-            (item.identifier=="chem_finisher" || item.identifier=="heating_plate") && chemistrySlots!=null ? chemistrySlots[index] : item.identifier=="furnace" && furnaceSlots!=null ? furnaceSlots[index] : index==2 ? container : null;
+            (item.identifier=="chem_finisher" || item.identifier=="heating_plate" || item.identifier=="evaporator") && chemistrySlots!=null ? chemistrySlots[index] : item.identifier=="furnace" && furnaceSlots!=null ? furnaceSlots[index] : index==2 ? container : null;
         public static GameSlotInventory GetBatterySlot(GameItem item) => battery;
         public static bool CanPower(GameItem item,GameSlotInventory power) => power.childItem!=null;
     }
@@ -519,7 +524,11 @@ namespace WhiteDragon.Ledger {
             new InventoryObserver().ReplayBagStock();
             ReplayInformation();
             ReplayBarter();
+            ReplayBarter(true);
+            ReplayBargain();
             ReplayPhone();
+            ReplayHealth();
+            ReplayReport();
             ReplayScenes();
             ReplayScratchCard();
             ReplayJourney();
@@ -536,6 +545,7 @@ namespace WhiteDragon.Ledger {
             ReplayNetwork();
             ReplayDismiss();
             ReplayCounterDay();
+            ReplayDialogueStage();
             ReplayStockSection();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");

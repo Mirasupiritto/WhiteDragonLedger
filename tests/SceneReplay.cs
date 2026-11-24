@@ -27,6 +27,14 @@ namespace WhiteDragon.Ledger
             ResetScene();
             Expect(CanObserveStore(), "initial loaded store may prepare baseline");
             MarkSceneReady(ShopScene,"當鋪");
+            var ending=GameOverUIManager.Instance=new GameOverUIManager();
+            ending.reason.text="原生結局";
+            ending.uiPanel.activeInHierarchy=true;
+            Expect(!CanObserveStore() && sceneStatus=="game_over" &&
+                (string)JObject.Parse(ModHelper.ReadModDataFileText(ModId,"scene.json"))["reason"]=="原生結局","game-over reason");
+            ending.uiPanel.activeInHierarchy=false;
+            Expect(CanObserveStore(),"can continue after native ending panel closes");
+            MarkSceneReady(ShopScene,"當鋪");
             int before = sequence;
             ReplaySpecializations();
             ReplayFeedback();

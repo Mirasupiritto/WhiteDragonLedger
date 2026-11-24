@@ -1,33 +1,13 @@
-"""One read-only threshold watch on an open machine window."""
+"""Compatibility shim; wait_for_machine now lives in workstation_tools."""
 import asyncio
-import math
 from typing import Literal
-from uuid import uuid4
 
-import counter
 from command_transport import exchange
-from receipt_store import read_command_receipt
-from scene import interrupted_shop_call
+from workstation_tools import wait_machine
 
 
 def wait(folder, owner_id, generation, revision, control, direction, threshold, timeout):
-    if owner_id < 1 or not control or not math.isfinite(threshold) or not 0 <= timeout <= 60:
-        raise ValueError("Use a positive owner_id, a visible reading, a finite threshold and a timeout of 0..60 seconds")
-    view = counter.context(folder)
-    if view.get("status") != "observed":
-        return view
-    if view["generation"] != generation or view["revision"] != revision:
-        return {"status": "stale_observation"}
-    if view.get("machine_wait_protocol") != 1:
-        return {"status": "reload_updated_mod", "need": "mod", "required_protocol": "machine_wait_protocol"}
-    command = uuid4().hex
-    request = dict(command_id=command, generation=generation, revision=revision, owner_id=owner_id,
-                   control=control, direction=direction, threshold=threshold, timeout=timeout)
-
-    def receipt():
-        return read_command_receipt(folder, command, generation, "watch") or interrupted_shop_call(folder)
-
-    return exchange(folder, folder / f"watch-{generation}.json", request, receipt, wait_seconds=timeout+8)
+    return wait_machine(folder, owner_id, generation, revision, control, direction, threshold, timeout, transport=exchange)
 
 
 def register(server, folder):

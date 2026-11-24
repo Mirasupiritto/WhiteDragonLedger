@@ -1,11 +1,8 @@
 """On-demand game actions scoped to the current scene; uses no shop journal."""
-import json
-import re
 from typing import Literal
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import uuid4
 
-from command_transport import exchange
-from receipt_store import replayed, read_command_receipt
+from command_transport import deterministic_id, is_hex32, read_command_receipt, replayed, submit_command
 from scene import read_scene, tool_region
 
 ACTION_REGIONS = {"scratch_card": "pawnshop", "shop_activity": "pawnshop", "travel_menu": "destination_selection", "explore": "afterhours"}
@@ -21,25 +18,25 @@ def command(folder, tool, mode, session, revision, view_token, **args):
         if tool_region(scene) != REGIONS[tool]:
             return {**scene, "tool_status": "unavailable_in_scene"}
         session, revision = scene.get("session", ""), scene.get("revision", 0)
-    if not re.fullmatch("[0-9a-f]{32}", session) or revision < 1 or (not reading and not view_token):
+    if not is_hex32(session) or revision < 1 or (not reading and not view_token):
         return {"status": "observation_required"}
     native_tool = "specializations" if tool in {"get_specializations", "choose_specialization"} else tool
     plan = dict(tool=native_tool, action=mode, generation=session, revision=revision, view_token=view_token, **args)
-    command_id = (uuid4() if reading else uuid5(NAMESPACE_URL, "ledger/journey/" + json.dumps(plan, sort_keys=True))).hex
+    command_id = uuid4().hex if reading else deterministic_id("ledger/journey/", plan)
 
     def receipt():
         return read_command_receipt(folder, command_id, session, "journey")
 
-    if re.fullmatch("[0-9a-f]{32}", session) and revision >= 1 and (reading or view_token):
+    if is_hex32(session) and revision >= 1 and (reading or view_token):
         previous = receipt()
         if previous is not None:
             return replayed(previous)
     if tool_region(scene) != REGIONS[tool]:
-        if (not reading and re.fullmatch("[0-9a-f]{32}", session)
+        if (not reading and is_hex32(session)
                 and scene.get("session") == session and scene.get("revision") != revision):
             return {"status": "scene_changed", "scene": scene}
         return {**scene, "tool_status": "unavailable_in_scene"}
-    if not re.fullmatch("[0-9a-f]{32}", session) or revision < 1 or (not reading and not view_token):
+    if not is_hex32(session) or revision < 1 or (not reading and not view_token):
         return {"status": "observation_required"}
     if scene.get("session") != session or scene.get("revision") != revision:
         return {"status": "scene_changed", "scene": scene}
@@ -47,7 +44,7 @@ def command(folder, tool, mode, session, revision, view_token, **args):
         return {"status": "reload_updated_mod"}
     if tool == "scratch_card" and scene.get("scratch_card_protocol") != 2:
         return {"status": "reload_updated_mod"}
-    return exchange(folder, folder / f"journey-{session}.json", {**plan, "command_id": command_id}, receipt)
+    return submit_command(folder, "journey", session, {**plan, "command_id": command_id}, read_receipt=receipt)
 
 
 def _compact_feedback(result):
