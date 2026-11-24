@@ -7,6 +7,7 @@ from mcp.server.lowlevel.server import NotificationOptions
 from mcp.server.stdio import stdio_server
 
 from journey import ACTION_REGIONS, REGIONS
+from receipt_store import read_optional_json
 from scene import read_scene, shop_visit, tool_region
 
 
@@ -33,7 +34,7 @@ def attach_arrivals(folder, previous, update):
     arrivals = []
     outside = 0
     for number in range(int(rev)+1, update["revision"]+1):
-        record = json.loads((folder / f"{generation}-{number}.json").read_text(encoding="utf-8-sig"))
+        record = read_optional_json(folder / f"{generation}-{number}.json") or {}
         arrivals.extend(record.get("arrivals", []))
         outside += record.get("contraband_outside_bay", 0)
     if arrivals:

@@ -108,7 +108,7 @@ namespace WhiteDragon.Ledger
             foreach (string name in new[] { "dialog_choices", "response_choices" })
                 if (decision[name] != null) view[name] = decision[name].DeepClone();
             // SecurityDialogInspectionLastLine binds this localized label to the inspection choice.
-            if (stage=="choice_required" && decision["dialog_choices"].Any(choice =>
+            if (stage=="choice_required" && decision["dialog_choices"]!=null && decision["dialog_choices"].Any(choice =>
                 (string)choice["text"]==LocHelper.GetLocalizedOrDefault("Dialogue","dialog_sec_inspect_choice_accept","[接受盘查。]")))
                 view["inspection_exposure"]=ContrabandCounts(true);
             // StoreClientListCartel builds faction choices for these clients with Dialogue.AddChoice.
