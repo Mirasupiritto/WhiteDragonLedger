@@ -10,6 +10,21 @@ from journey import ACTION_REGIONS, REGIONS
 from scene import read_scene, shop_visit, tool_region
 
 
+# Tools that can change shop state; their replies carry the shop_update delta.
+MUTATING_TOOLS = frozenset({
+    "move_item", "move_items", "sell_order", "trade_batch", "confirm_trade", "buy_merchant_batch",
+    "barter_offer", "pay_info_receipt", "open_shop", "close_shop", "ring_customer", "dismiss_customer",
+    "control_heat", "next_customer", "finish_customer", "fill_and_purify_bottles", "sort_inventory",
+    "item_menu", "item_panel", "reopen_trade_tablet", "request_supplier_quote",
+    "advance_dialogue", "choose_dialogue", "response_choice", "prepare_sleep", "night_service",
+    "set_auto_receive", "sleep", "transfer_slot_item", "transfer_slot_items", "press_machine_button",
+    "adjust_machine_control", "put_purifier_bottle", "take_purifier_bottle", "water_use", "water_panel",
+    "dial_contact", "phone_keypad", "choose_phone_service", "advance_phone_dialogue",
+    "inspect_archive", "inspect_item_window", "wait_for_opening", "chem_finish",
+})
+MODE_MUTATING_TOOLS = frozenset({"wild_network", "bargain"})
+
+
 def _slim_shop_update(tool_name, result, update, arguments=None, last_emitted=None):
     if not isinstance(update, dict):
         return update
@@ -128,14 +143,8 @@ class SceneServer(FastMCP):
                 return await super().call_tool(name, arguments)
             token = shop_visit.set((scene["session"], scene["revision"]))
             try:
-                mutations = {"move_item","move_items","sell_order","trade_batch","confirm_trade","buy_merchant_batch",
-                             "barter_offer","pay_info_receipt","open_shop","close_shop","ring_customer","dismiss_customer",
-                             "control_heat","next_customer","finish_customer","fill_and_purify_bottles","sort_inventory","item_menu","item_panel","reopen_trade_tablet","request_supplier_quote",
-                             "advance_dialogue","choose_dialogue","response_choice","prepare_sleep","night_service",
-                             "set_auto_receive","sleep","transfer_slot_item","transfer_slot_items","press_machine_button","adjust_machine_control","put_purifier_bottle",
-                             "take_purifier_bottle","water_use","water_panel","dial_contact","phone_keypad","choose_phone_service",
-                             "advance_phone_dialogue","inspect_archive","inspect_item_window","wait_for_opening"}
-                if (name in mutations or (name in {"wild_network", "bargain"} and arguments.get("mode", "read") != "read")) and self.updates.cursor is not None:
+                mutating = name in MUTATING_TOOLS or (name in MODE_MUTATING_TOOLS and arguments.get("mode", "read") != "read")
+                if mutating and self.updates.cursor is not None:
                     tool = self._tool_manager.get_tool(name)
                     result = await tool.run(arguments, context=self.get_context())
                     try:

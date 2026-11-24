@@ -253,5 +253,27 @@ class ChemWorkflowTests(unittest.TestCase):
         self.assertEqual(res["remaining_liquids"][0]["id"], "alcohol")
 
 
+    def test_next_rev_uses_receipt_revision_without_rereading_desk(self):
+        receipt = {"status": "moved", "generation": self.gen, "revision": 15}
+        with patch.object(chem_workflow.counter, "context", side_effect=AssertionError("desk reread")):
+            self.assertEqual(chem_workflow._next_rev(receipt, self.folder, self.gen, 10), 15)
+        other = {"status": "moved", "generation": "f" * 32, "revision": 99}
+        with patch.object(chem_workflow.counter, "context", return_value={"status": "observed", "generation": self.gen, "revision": 12}):
+            self.assertEqual(chem_workflow._next_rev(other, self.folder, self.gen, 10), 12)
+
+    def test_chem_finish_reports_shop_update(self):
+        import scene_server
+        self.assertIn("chem_finish", scene_server.MUTATING_TOOLS)
+        registered = set()
+        class Server:
+            def tool(self):
+                def wrap(fn):
+                    registered.add(fn.__name__)
+                    return fn
+                return wrap
+        chem_workflow.register(Server(), self.folder, self.db)
+        self.assertTrue(registered <= scene_server.MUTATING_TOOLS)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -10,6 +10,9 @@ LIQUID_RAW_IDS = {"water", "alcohol"}
 
 
 def _next_rev(receipt, folder, generation, fallback):
+    # Unity stamps every counter receipt with the revision it published after the action.
+    if isinstance(receipt.get("revision"), int) and receipt.get("generation") in (None, generation):
+        return receipt["revision"]
     update = receipt.get("shop_update") or {}
     if isinstance(update.get("revision"), int):
         return update["revision"]
