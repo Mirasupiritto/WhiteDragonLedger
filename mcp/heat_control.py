@@ -13,7 +13,9 @@ def register(server, folder):
         """Start one background heating run from an open plate window. Pass plate/bottle IDs, range (26..160 C),
         duration in real seconds from start, generation and revision. The start receipt returns immediately.
         Use status for a live sample, stop with the returned run_id. To repeat an identical finished run pass
-        its run_id on the new start. Shop deltas report completion. Native heat steps may overshoot in low/off mode."""
+        its run_id on the new start. Shop deltas report completion. Native heat steps may overshoot in low/off mode.
+        The plate uses high heat to close large gaps. Summaries report peak_c, reached_range and in_range_seconds;
+        a finished run that never entered the range adds warning="range_not_reached"."""
         if mode == "start":
             if None in (owner_id,vessel_id,min_c,max_c,seconds,generation,revision):
                 raise ValueError("Start requires owner_id, vessel_id, min_c, max_c, seconds, generation and revision")
