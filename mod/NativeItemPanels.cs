@@ -104,6 +104,7 @@ namespace WhiteDragon.Ledger
                 case "plant_analyser": view.Close=PlantAnalyserUIManager.Instance.HideUI; break;
                 case "water_scanner": view.Close=WaterScannerUIManager.Instance.Close; break;
             }
+            if (root.Key=="chemical_scanner") view.Scan=ScannerReading();
             if (root.Key!="confirmation") view.Focus=()=>PaperPanelFocusStamp.BumpPanel(root.Panel);
             foreach (var label in root.Panel.GetComponentsInChildren<TMP_Text>())
                 if (label.isActiveAndEnabled && !string.IsNullOrWhiteSpace(label.text)) view.Text.Add(label.text.Trim());
@@ -112,6 +113,56 @@ namespace WhiteDragon.Ledger
             foreach (var control in root.Panel.GetComponentsInChildren<Selectable>())
                 if (control.isActiveAndEnabled) Add(view,control);
             return view;
+        }
+
+        private static readonly System.Text.RegularExpressions.Regex Percent =
+            new System.Text.RegularExpressions.Regex(@"(\d+(?:\.\d+)?)\s*%");
+
+        // The scanner's last text line (after the bracketed heading and any percentage) is its grade wording.
+        private static JObject ScannerLine(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            var lines=text.Split(new[]{'\n'}).Select(l=>l.Trim()).Where(l=>l.Length>0 && !l.StartsWith("[")).ToList();
+            var row=new JObject();
+            var match=Percent.Match(text);
+            if (match.Success) row["percent"]=double.Parse(match.Groups[1].Value,System.Globalization.CultureInfo.InvariantCulture);
+            var words=lines.LastOrDefault(l=>!Percent.IsMatch(l));
+            if (words!=null) row["display"]=words;
+            return row.HasValues ? row : null;
+        }
+
+        // Same components the native scanner lists: every known liquid part with a positive amount on the item.
+        internal static JObject ScannerReading()
+        {
+            var ui=ChemScannerUIManager.Instance;
+            var item=ui?.currentScannedItem;
+            if (item==null) return null;
+            var parts=new List<KeyValuePair<Liquid,int>>();
+            foreach (var liquid in Liquid.Liquids)
+            {
+                if (string.IsNullOrEmpty(liquid?.currentPart)) continue;
+                int amount=item.GetTagReadonly(liquid.currentPart).GetInt();
+                if (amount>0) parts.Add(new KeyValuePair<Liquid,int>(liquid,amount));
+            }
+            long total=parts.Sum(p=>(long)p.Value);
+            var rows=new JArray();
+            foreach (var part in parts.OrderByDescending(p=>p.Value))
+            {
+                int ul=part.Value;
+                rows.Add(new JObject { ["id"]=part.Key.identifier, ["name"]=part.Key.displayName, ["ul"]=ul,
+                    ["ml"]=Math.Round(ul/1000.0,3), ["percent"]=total==0 ? 0 : Math.Round(ul*100.0/total,2) });
+            }
+            var scan=new JObject { ["item_name"]=item.GetDisplayName(true), ["kind"]=item.identifier,
+                ["total_ml"]=Math.Round(total/1000.0,3), ["components"]=rows };
+            if (ScannerLine(ui.testedTMP?.text) is JObject tested) scan["tested"]=tested;
+            if (ScannerLine(ui.labelTMP?.text) is JObject label) scan["label"]=label;
+            var effects=new JObject { ["narcotic"]=ChemicalFeedbackHelper.IsNarcotic(item),
+                ["euphoria_level"]=ChemicalFeedbackHelper.GetEuphoriaLevel(item),
+                ["toxic"]=ChemicalFeedbackHelper.IsToxic(item), ["lethal"]=ChemicalFeedbackHelper.IsLethal(item),
+                ["synaprest"]=ChemicalFeedbackHelper.IsSynaprest(item), ["birth_control"]=ChemicalFeedbackHelper.IsBirthControl(item) };
+            if ((bool)effects["lethal"]) effects["lethal_dose"]=ChemicalFeedbackHelper.GetLethalDose(item);
+            scan["effects"]=effects;
+            return scan;
         }
 
         private static bool Reachable(Selectable control)

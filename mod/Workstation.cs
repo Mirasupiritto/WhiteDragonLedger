@@ -317,6 +317,7 @@ namespace WhiteDragon.Ledger
             workstations.Remove(id);
             string status;
             bool confirmationWasOpen=NativeItemPanels.ConfirmationOpen;
+            string panelsBefore=NativeItemPanels.ActiveKey();
             if (action=="adjust_control")
             {
                 if ((string)row["type"]=="text")
@@ -376,7 +377,8 @@ namespace WhiteDragon.Ledger
                     status = TransferOne(owner, storage, row, location, (string)request["source"], (int)request["item_id"], receipt);
             }
             NativeItemPanels.CaptureConfirmation(confirmationWasOpen);
-            if ((action=="press_control" || action=="adjust_control") && NativeItemPanels.ActiveKey() is string activePanel)
+            if ((action=="press_control" || action=="adjust_control") && NativeItemPanels.ActiveKey() is string activePanel &&
+                activePanel != panelsBefore)
             {
                 receipt["next_tool"]="item_panel";
                 receipt["panel"]=activePanel;

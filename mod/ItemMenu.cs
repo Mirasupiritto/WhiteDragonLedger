@@ -209,6 +209,9 @@ namespace WhiteDragon.Ledger
             {
                 receipt["panel"]=panel;
                 receipt["next_tool"]="item_panel";
+                // A scan is complete as soon as the native scanner opens; return it without another read.
+                if (panel.Split(new[]{','}).Contains("chemical_scanner") && NativeItemPanels.ScannerReading() is JObject scan)
+                    receipt["scan"]=scan;
             }
             return "invoked";
         }

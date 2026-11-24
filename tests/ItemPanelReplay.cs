@@ -38,6 +38,8 @@ namespace WhiteDragon.Ledger
             return keys.Any() ? new ItemPanelView {Key=string.Join(",",keys),DelegateTo="select_panel"} : null;
         }
         internal static string ActiveKey() => panel?.Key;
+        internal static JObject scan;
+        internal static JObject ScannerReading() => scan;
         internal static bool ConfirmationOpen => false;
         internal static void CaptureConfirmation(bool previouslyOpen) {}
     }
@@ -93,6 +95,19 @@ namespace WhiteDragon.Ledger
             var close=Request("close",reply["after"]["panel_token"]);
             reply=new JObject();
             Expect(ActAtCounter(close,reply)=="closed" && (string)reply["after"]["view"]["panel"]==finisher.Key,"close only scanner");
+            JObject Reading(int extract)=>new JObject { ["total_ml"]=2.0, ["components"]=new JArray(
+                new JObject { ["id"]="dream_cap_extract", ["ul"]=extract, ["percent"]=extract/20.0 },
+                new JObject { ["id"]="physical_contaminant", ["ul"]=2000-extract, ["percent"]=(2000-extract)/20.0 }) };
+            var scanned=new ItemPanelView {Key="chemical_scanner",Identity="scanner/2",Scan=Reading(1229)};
+            NativeItemPanels.panel=scanned; NativeItemPanels.second=null;
+            reply=new JObject();
+            Expect(ActAtCounter(Request("read"),reply)=="observed" &&
+                (string)reply["view"]["scan"]["components"][0]["id"]=="dream_cap_extract","scan reading is structured");
+            var scanToken=reply["panel_token"];
+            NativeItemPanels.panel=new ItemPanelView {Key="chemical_scanner",Identity="scanner/2",Scan=Reading(1300)};
+            reply=new JObject();
+            Expect(ActAtCounter(Request("read",scanToken),reply)=="observed" && reply["view"]==null &&
+                (int)reply["scan"]["components"][0]["ul"]==1300,"live scan change arrives as delta");
             NativeItemPanels.panel=null;
             var machine=Item(7520,"cabinet",1);
             var tabs=new MachineryTabs();
@@ -129,7 +144,11 @@ namespace WhiteDragon.Ledger
             WorkstationAction(inspect,reply);
             change=new JObject { ["action"]="press_control", ["owner_id"]=LocalId(machine), ["control"]="content",
                 ["label"]=radio.text, ["window_token"]=reply["window_token"] };
-            Expect(WorkstationAction(change,new JObject())=="pressed" && radio.isOn,"native radio option");
+            NativeItemPanels.panel=scanned;
+            reply=new JObject();
+            Expect(WorkstationAction(change,reply)=="pressed" && radio.isOn && reply["next_tool"]==null,
+                "panel already open before the press is not re-announced");
+            NativeItemPanels.panel=null;
             machine.To(null);
         }
     }

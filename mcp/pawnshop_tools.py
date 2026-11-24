@@ -201,7 +201,7 @@ def register_pawnshop_tools(server, folder, database):
         """Inspect or choose an owned item's native right-click actions. First read returns the shared verb legend and enabled verbs.
         On subsequent reads pass the last menu_token, even across items, for added/removed verbs and changed labels (null resets to base).
         Choose a displayed enabled verb with its matching item and token. activate is also read/consume depending on the native label.
-        For use, mode=targets checks up to 64 candidate target_ids via native predicates without using the item. Choose with the matching target_id. Water operations return the water_use route. invoked confirms the native action, not an overnight effect."""
+        For use, mode=targets checks up to 64 candidate target_ids via native predicates without using the item. Choose with the matching target_id. Water operations return the water_use route. Using a chemical scanner returns scan{components[id,name,ul,ml,percent], total_ml, tested, label, effects}. invoked confirms the native action, not an overnight effect."""
         args = dict(item_id=item_id, mode=mode, menu_token=menu_token)
         if mode == "targets":
             if not menu_token or not target_ids or len(target_ids)>64 or any(i<=0 for i in target_ids):
@@ -221,7 +221,8 @@ def register_pawnshop_tools(server, folder, database):
                    value: str | bool | int | float | None=None, panel: str | None=None) -> dict:
         """Read the current item's native panel. Reuse panel_token for changes. Choose a visible enabled control by ID
         using the last token. For select_panel read the desired panel by name, then focus or close with its token. Buttons take no value, choices take a zero-based index, scroll takes 0..1, rename takes text.
-        Applied actions return the updated panel under after. Dedicated panels specify the next tool or player action."""
+        Applied actions return the updated panel under after. Dedicated panels specify the next tool or player action.
+        A chemical_scanner view adds a live scan (components by volume, tested/label purity, effects); token rereads return scan only when it changes."""
         if mode=="read":
             return counter.command(folder, "item_panel", generation, revision, mode=mode,
                                    panel_token=panel_token, read_id=uuid4().hex, **({"panel":panel} if panel else {}))
