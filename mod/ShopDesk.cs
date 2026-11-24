@@ -156,7 +156,8 @@ namespace WhiteDragon.Ledger
         }
 
         private static bool HasWater(GameItem item) => item.IsTag("LIQUID_CONTAINER_TAG") &&
-            !WaterHelper.IsEmpty(item) && item.GetTagReadonly(Liquid.GetCurrentPartFromId("water")).GetInt()>0;
+            !WaterHelper.IsEmpty(item) && item.GetTagReadonly(Liquid.GetCurrentPartFromId("water")).GetInt() >=
+            WaterHelper.GetCurrentCapacityUL(item) * LiquidParts.WaterFraction;
 
         private static string BottleLabel(GameItem item)
         {

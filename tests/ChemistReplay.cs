@@ -4,7 +4,17 @@ namespace WhiteDragon.Ledger
 {
     public static class MachineBlender { public static int GetUpgradeCount(GameItem item)=>item.associatedId; }
     public static class MachineChemFinisher { public static bool CanOutput(GameItem machine,GameSlotInventory slot)=>slot.childItem!=null && slot.childItem.volume>=2000; }
-    public static class Liquid { public static string GetCurrentPartFromId(string id)=>id+"_part"; }
+    public class Liquid {
+        public string identifier, displayName;
+        public string currentPart => GetCurrentPartFromId(identifier);
+        public int particleSize, filterVolumeRemoved, filterDurabilityUsage;
+        public double filterMinimumPurity;
+        public static Liquid[] Liquids = {
+            new Liquid { identifier="water", displayName="水" },
+            new Liquid { identifier="alcohol", displayName="酒精", particleSize=3, filterVolumeRemoved=500, filterDurabilityUsage=1 }
+        };
+        public static string GetCurrentPartFromId(string id)=>id+"_part";
+    }
     public partial class GameItem { public double GetDouble()=>associatedId; }
     public sealed partial class InventoryObserver
     {

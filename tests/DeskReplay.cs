@@ -132,9 +132,9 @@ namespace WhiteDragon.Ledger {
         public long GetNegociatedValue() => price;
         public long GetCurrentValue(bool useRetailMarkup = false, bool withChild = true, bool includeEvents = true, bool forceMarkup = false, long extraMarketMod = 0L) => price;
         public long GetBaseValue() => price;
-        public List<string> GetGameItemType() => new List<string> { identifier ?? "misc" };
+        public List<string> GetGameItemType() => new List<string> { identifier=="bottle" ? "WATER" : identifier ?? "misc" };
         public bool IsTag(string key) => (key=="LIQUID_CONTAINER_TAG" && identifier=="bottle") || waterTags.Contains(key);
-        public GameItem GetTagReadonly(string key) => key=="water_part" ? new GameItem {associatedId=waterTags.Contains("replay_solvent") ? 0 : volume} : scratchTagReader == null ? this : scratchTagReader(key);
+        public GameItem GetTagReadonly(string key) => key=="water_part" ? new GameItem {associatedId=waterTags.Contains("replay_solvent") ? 0 : volume - alcoholUl} : key=="alcohol_part" ? new GameItem {associatedId=alcoholUl} : scratchTagReader == null ? this : scratchTagReader(key);
         public int GetInt() => associatedId;
         public List<GameItem> FindAllChildItems()
         {

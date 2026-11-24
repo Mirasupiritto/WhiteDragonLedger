@@ -122,7 +122,7 @@ def register_pawnshop_tools(server, folder, database):
                         verbose: bool = False) -> dict:
         """Query the most recently published inventory by literal name substring, area or owner.
         Items include size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate, before haggling/markup),
-        water_ml/empty/contains_water on water containers, and charge_remaining/liters_remaining on portable_water_purifier.
+        actual water_ml, liquid_main and water-majority contains_water on water containers, and charge_remaining/liters_remaining on portable_water_purifier.
         Includes area capacity{w,h,free_cells,largest_free{w,h}} for inventory/showcase. IDs are scoped to generation.
         Unchanged calendar/trash sections are omitted after the first read unless verbose=True."""
         account = lookup(folder, database, name, area, owned)
@@ -149,7 +149,7 @@ def register_pawnshop_tools(server, folder, database):
                    area: Literal["inventory", "showcase", "front", "back", "purifier"] | None = None,
                    exclude_contraband: bool = False, kinds: list[str] | None = None, exclude_kinds: list[str] | None = None) -> dict:
         """Pick stock by exact visible label, area, ownership and native item categories.
-        Match any requested category or kind, then apply all exclusions. Searching category WATER also matches empty water containers categorized as HOUSEHOLD_GOOD (check water_ml/empty/contains_water).
+        Match any requested category or kind, then apply all exclusions. Searching category WATER also matches empty water containers categorized as HOUSEHOLD_GOOD and filled water containers with at least 50% water.
         Each item includes size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate), and purifier charge_remaining/liters_remaining when applicable.
         Visible variety restrictions group sellable matches by kind, one per kind for this visit.
         Bag contents include parent_id, outer-to-inner container_path and access (unpack_first/container_locked). Unpack before sale.
@@ -291,6 +291,7 @@ def register_pawnshop_tools(server, folder, database):
     def water_use(source_id: int, target_id: int | Literal["faucet", "drain"], generation: str, revision: int,
                   mode: Literal["preview", "apply", "apply_now"] = "preview", use_token: str | None = None) -> dict:
         """Preview or apply a water interaction. Sources include bottles, rations, tablets, portable purifiers and fresh strips.
+        A receiving filter adds component losses and final vessel volume to plan.filter.
         Low-risk operations (filling from target_id="faucet", purifying with portable_water_purifier, or testing with water_test_strip) support mode="apply_now" in a single call without preview. High-risk operations (drain, bottle-to-bottle pour, tablet, ration) reject apply_now with preview_required and must use preview + apply.
         To fill a container from the tap, pass the water container as source_id and target_id="faucet"; pass target_id="drain" to empty it.
         Use a single water_test_strip or water_tablet as source_id and the bottle as target_id. For boxed supplies, inspect_item_window(owner_id=box id, open_if_closed=True) then transfer_slot_item(source="slot").

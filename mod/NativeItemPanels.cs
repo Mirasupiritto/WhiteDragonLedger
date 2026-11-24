@@ -137,16 +137,10 @@ namespace WhiteDragon.Ledger
             var ui=ChemScannerUIManager.Instance;
             var item=ui?.currentScannedItem;
             if (item==null) return null;
-            var parts=new List<KeyValuePair<Liquid,int>>();
-            foreach (var liquid in Liquid.Liquids)
-            {
-                if (string.IsNullOrEmpty(liquid?.currentPart)) continue;
-                int amount=item.GetTagReadonly(liquid.currentPart).GetInt();
-                if (amount>0) parts.Add(new KeyValuePair<Liquid,int>(liquid,amount));
-            }
+            var parts=LiquidParts.Read(item);
             long total=parts.Sum(p=>(long)p.Value);
             var rows=new JArray();
-            foreach (var part in parts.OrderByDescending(p=>p.Value))
+            foreach (var part in parts)
             {
                 int ul=part.Value;
                 rows.Add(new JObject { ["id"]=part.Key.identifier, ["name"]=part.Key.displayName, ["ul"]=ul,

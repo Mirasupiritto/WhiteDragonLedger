@@ -21,7 +21,7 @@ SELECT value FROM keys WHERE value IS NOT NULL
 
 STOCK_DETAIL_COLUMNS = (
     "size_w,size_h,slot_x,slot_y,rotatable,"
-    "water_ml,liquid_ml,capacity_ml,empty,water_container,contains_water,"
+    "water_ml,liquid_ml,capacity_ml,empty,water_container,contains_water,liquid_main,"
     "charge_remaining,charge_max,liters_remaining,estimated_value,parent_id,container_path,access"
 )
 
@@ -32,6 +32,8 @@ def row_to_item(row, *, include_categories=False):
     for key in ("id", "name", "kind", "area", "owned", "quantity", "bottle_label", "machine_id", "can_take_now", "save_id"):
         if raw.get(key) is not None:
             item[key] = raw[key]
+    if raw.get("liquid_main"):
+        item["liquid_main"] = json.loads(raw["liquid_main"])
     if raw.get("parent_id") is not None:
         item.update(parent_id=raw["parent_id"], container_path=json.loads(raw["container_path"]), access=raw["access"])
     item["owned"] = bool(item["owned"])
@@ -153,7 +155,7 @@ def select_stock(folder, db, head, query):
             filters.append(within("categories", allowed))
         if include:
             if "WATER" in include:
-                choices.append("(water_container = 1 OR " + within("categories", matching) + ")")
+                choices.append("((water_container = 1 AND (empty = 1 OR contains_water = 1)) OR " + within("categories", matching) + ")")
             else:
                 choices.append(within("categories", matching))
     if kinds:

@@ -12,7 +12,7 @@ from stock_query import STOCK_DETAIL_COLUMNS, row_to_item, select_stock
 _EXTRA_STOCK_COLUMNS = (
     ("size_w", "INTEGER"), ("size_h", "INTEGER"), ("slot_x", "INTEGER"), ("slot_y", "INTEGER"),
     ("rotatable", "INTEGER"), ("water_ml", "INTEGER"), ("liquid_ml", "INTEGER"), ("capacity_ml", "INTEGER"),
-    ("empty", "INTEGER"), ("water_container", "INTEGER"), ("contains_water", "INTEGER"),
+    ("empty", "INTEGER"), ("water_container", "INTEGER"), ("contains_water", "INTEGER"), ("liquid_main", "TEXT"),
     ("charge_remaining", "INTEGER"), ("charge_max", "INTEGER"), ("liters_remaining", "REAL"),
     ("estimated_value", "INTEGER"), ("parent_id", "INTEGER"), ("container_path", "TEXT"), ("access", "TEXT"),
 )
@@ -31,6 +31,7 @@ def _db_stock_row(row):
         "size_w": size.get("w"), "size_h": size.get("h"),
         "slot_x": slot.get("x"), "slot_y": slot.get("y"),
         "rotatable": None if "rotatable" not in row else int(bool(row["rotatable"])),
+        "liquid_main": json.dumps(row["liquid_main"], ensure_ascii=False) if row.get("liquid_main") else None,
         "water_ml": row.get("water_ml"), "liquid_ml": row.get("liquid_ml"), "capacity_ml": row.get("capacity_ml"),
         "empty": None if "empty" not in row else int(bool(row["empty"])),
         "water_container": None if "water_container" not in row else int(bool(row["water_container"])),
@@ -93,6 +94,8 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
         db.execute("CREATE INDEX IF NOT EXISTS stock_kind ON stock(kind)")
         previous = db.execute("SELECT generation, revision FROM checkpoint WHERE id=1").fetchone()
         cursor = previous["revision"] if previous and previous["generation"] == generation else 0
+        if "liquid_main" not in columns:
+            cursor = 0  # Import composition from records already seen by older readers.
         if cursor > revision:
             raise ValueError("Game journal revision moved backwards in the same load")
         # An older MCP process can import this load while omitting its new columns.
@@ -138,7 +141,7 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
                 "VALUES(:id,:name,:kind,:area,:owned,:quantity,:save_id,:bottle_label,:categories,"
                 ":contraband,:trade_contraband,:machine_id,:can_take_now,"
                 ":size_w,:size_h,:slot_x,:slot_y,:rotatable,"
-                ":water_ml,:liquid_ml,:capacity_ml,:empty,:water_container,:contains_water,"
+                ":water_ml,:liquid_ml,:capacity_ml,:empty,:water_container,:contains_water,:liquid_main,"
                 ":charge_remaining,:charge_max,:liters_remaining,:estimated_value,:parent_id,:container_path,:access)",
                 (_db_stock_row(row) for row in rows),
             )
