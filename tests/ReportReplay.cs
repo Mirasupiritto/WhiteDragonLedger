@@ -17,7 +17,13 @@ namespace WhiteDragon.Ledger
         public bool IsClientArrestable()=>true;
         public bool ShouldRequireHold()=>true;
         public string GetTooltip()=>string.Empty;
-        public void OnClick()=>PlayerStore.Instance.currentClientInstance.client.reported=true;
+        public void OnClick()
+        {
+            var client=PlayerStore.Instance.currentClientInstance.client;
+            var intercept=client.tryInterceptReport;
+            client.tryInterceptReport=null;
+            if (intercept?.Invoke()!=true) client.reported=true;
+        }
     }
 
     public sealed partial class InventoryObserver
@@ -55,6 +61,16 @@ namespace WhiteDragon.Ledger
             var receipt=new JObject();
             Expect(ReportAction(req,receipt)=="observed","read alarm");
             req["report_token"]=receipt["report_token"];
+            req["mode"]="report";
+            merchant.tryInterceptReport=()=>true;
+            receipt=new JObject();
+            Expect(ReportAction(req,receipt)=="report_intercepted" && (string)receipt["next_tool"]=="get_trade_context",
+                "intercept ends report polling");
+            ObserveReport();
+            req["mode"]="read";
+            receipt=new JObject();
+            Expect(ReportAction(req,receipt)=="report_intercepted" && (string)receipt["next_tool"]=="get_trade_context",
+                "same visit retains the terminal interception");
             req["mode"]="report";
             Expect(ReportAction(req,new JObject())=="reported","native alarm submission");
             var guard=StoreUIManager.Instance.secGameObject.gameObject;
