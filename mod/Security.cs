@@ -7,7 +7,8 @@ namespace WhiteDragon.Ledger
 {
     public sealed partial class InventoryObserver
     {
-        // Poster IDs, localized names and base bounties from StoreClientListWanted.CreateWanted1..9.
+        // Assembly-CSharp: StoreClientListWanted.POSTER_IDS and each CreateWanted1..9 SetWanted(reward, localizedName).
+        // These are the base poster amounts. For example, CreateWanted4Normal has a different encounter reward.
         // Creating the client just to read these values can consume the game RNG.
         private static readonly Dictionary<string,(string name,int bounty)> PosterData =
             new Dictionary<string,(string,int)> {
@@ -75,6 +76,7 @@ namespace WhiteDragon.Ledger
             {
                 result["evidence_level"]=sec.evidenceLevel;
                 result["evidence_display"]=sec.GetEvidenceLevelDisplay();
+                // SecData.OnNewDay clamps evidenceLevel at 100 and calls SendOfficer() at that threshold.
                 result["officer_dispatch_threshold"]=100;
             }
             return result;
@@ -82,6 +84,8 @@ namespace WhiteDragon.Ledger
 
         private static JObject LastSave(int slot)
         {
+            // SavePreviewData has no phase. PlayerStore.InitialSave and EndOfDayUIManager after BeginDay
+            // are the native SaveGame callers; both capture the morning. Day and time come from the slot preview.
             var saved=SaveUIManager.GetPreview(slot);
             return saved==null ? new JObject { ["status"]="unavailable", ["slot"]=slot } :
                 new JObject { ["slot"]=slot, ["day"]=saved.dayCount, ["phase"]="MORNING",

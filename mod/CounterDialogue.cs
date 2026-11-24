@@ -68,14 +68,15 @@ namespace WhiteDragon.Ledger
             view["page"] = pageToken;
             foreach (string name in new[] { "dialog_choices", "response_choices" })
                 if (decision[name] != null) view[name] = decision[name].DeepClone();
-            if (stage == "choice_required")
+            // StoreClientListCartel builds faction choices for these clients with Dialogue.AddChoice.
+            // Faction membership alone is shared by ordinary paying and trading customers.
+            if (stage == "choice_required" && (merchant?.identifier == "cartelSec" ||
+                merchant?.identifier == "cartelHandlerCheckin" || merchant?.identifier == "cartelHandlerWeekly"))
             {
-                if (merchant?.identifier == "cartelSec")
-                {
-                    view["story_branch"]=true;
-                    view["consequence_hint"]="舉報會排入卡特爾接頭人的後續來訪；不舉報則讓警官離開。請玩家決定。";
-                }
-                else view["consequence"]="unknown";
+                view["story_branch"]=true;
+                view["consequence"]="unknown";
+                view["consequence_hint"]=merchant.identifier=="cartelSec" ?
+                    "警官詢問是否舉報卡特爾，請玩家決定。" : "這是卡特爾的對話選擇，請玩家決定。";
             }
             if (stage == "choice_required" && merchant?.identifier == "radioactiveWasteCustomer")
             {

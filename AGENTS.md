@@ -24,7 +24,7 @@
 
 ## 一位客人從進門到離店
 
-1. 到約定的營業時間，用 `open_shop` 開門，`next_customer` 叫鈴、等開場並取得來客狀態。客人已在場時，沿用回執的 `visit` 和 `stage`。若回 `wanted_name_match`，請玩家比對通緝照；`story_branch` 請玩家看過後果後決定。需要細讀開場、選項或平板時，用 `get_trade_context`；大貨單帶 `verbose=True` 取逐項明細。對話用目前的 `page` 和回執提供的選項 ID；若標示 `forced_choice: true`，先看後果，再按本局安排處理。
+1. 到約定的營業時間，用 `open_shop` 開門，`next_customer` 叫鈴、等開場並取得來客狀態。客人已在場時，沿用回執的 `visit` 和 `stage`。若回 `wanted_name_match`，請玩家比對通緝照；遇 `story_branch` 請玩家依選項決定，`consequence="unknown"` 表示後果未確認。需要細讀開場、選項或平板時，用 `get_trade_context`；大貨單帶 `verbose=True` 取逐項明細。對話用目前的 `page` 和回執提供的選項 ID；若標示 `forced_choice: true`，先看後果，再按本局安排處理。
 2. 按平板顯示的需求、限制及剩餘預算配貨。買家沒有顯示標籤時仍要看限制，例如 `exclude_contraband`。用 `find_stock(owned=True, ...)` 找合條件的貨。遇「種類多樣」，按 `kind_groups` **每個原生 `kind` 只放一件**，同一位客人買過的種類先收起來。查 `WATER` 會含空容器，配已裝水的貨要看 `water_ml`、`contains_water` 或瓶貼。
 3. 按當次交易類型下單，並以實際回執核算成本與庫存。
 
