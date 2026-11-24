@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 import book_history
 import counter
+from flow import present_counter
 import shopdesk
 import shop_day
 from ledger import lookup, same_observation
@@ -237,6 +238,7 @@ class Updates:
 def register(server, folder, database):
     state = getattr(server, "state", None)
     tracker = Updates(folder, database, state=state)
+    heat_state = state if state is not None else counter.default_state
     server.updates = tracker
     if state is not None:
         state.updates = tracker
@@ -290,7 +292,8 @@ def register(server, folder, database):
         if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
             counter.wait_choices_ready(folder, ctx)
             ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
-        return counter.filter_finished_heat(database, summarize_offer(ctx, verbose=verbose))
+        return present_counter(ctx, folder=folder, heat_state=heat_state,
+                               summarize_offer=summarize_offer, verbose=verbose)
 
     @server.tool()
     def wait_for_shop_event(event: Literal["goods_offered","next_customer_available","opening_finished"],
