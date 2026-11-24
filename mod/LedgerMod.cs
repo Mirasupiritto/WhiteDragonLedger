@@ -111,6 +111,7 @@ namespace WhiteDragon.Ledger
             order = completedOrder = line = null;
             staged = null;
             DetachAreas();
+            phoneArrivals.Clear();
             ids.Clear();
             itemsById.Clear();
             changed.Clear();
@@ -135,6 +136,7 @@ namespace WhiteDragon.Ledger
             DetachBagGrids();
             foreach (var area in areas.Keys)
             {
+                area.onSlotAddItemLateFunc -= ObservePhoneArrival;
                 area.onSlotAddItemLateFunc -= QueueFrontPaper;
                 area.onSlotAddItemLateFunc -= Changed;
                 area.onSlotRemoveItemLateFunc -= Changed;
@@ -152,7 +154,11 @@ namespace WhiteDragon.Ledger
         private void Track(GameInventory area, string name)
         {
             areas.Add(area, name);
-            if (name == "front") area.onSlotAddItemLateFunc += QueueFrontPaper;
+            if (name == "front")
+            {
+                area.onSlotAddItemLateFunc += ObservePhoneArrival;
+                area.onSlotAddItemLateFunc += QueueFrontPaper;
+            }
             area.onSlotAddItemLateFunc += Changed;
             area.onSlotRemoveItemLateFunc += Changed;
             area.onSlotChangeAmountItemFunc += Changed;
@@ -289,6 +295,7 @@ namespace WhiteDragon.Ledger
                 record["identity_changed"] = CloneChanges(journalIdentityChanges);
                 journalIdentityChanges.Clear();
             }
+            AttachPhoneArrivals(record,upserts);
             Publish(record);
         }
 

@@ -13,6 +13,16 @@ namespace WhiteDragon.Ledger
             phase="OPEN";
             store.storeState=PlayerStore.StoreState.OPEN;
             store.currentClientInstance=new StoreClientInstance();
+            var sample=new GameItem {identifier="dream_dust",owned=true,unitCount=1};
+            sample.waterTags.Add(TypeHelper.CONTRABAND);
+            store.currentClientInstance.client.identifier="courrierChemFree";
+            ObservePhoneArrival(sample,shop.frontInvinvElement,null);
+            store.currentClientInstance=new StoreClientInstance();
+            var delivery=new JObject();
+            AttachPhoneArrivals(delivery,new JArray(new JObject { ["id"]=LocalId(sample), ["owned"]=true }));
+            Expect((string)delivery["arrivals"][0]["source"]=="phone_delivery" &&
+                (int)delivery["arrivals"][0]["ids"][0]==LocalId(sample) && (int)delivery["contraband_outside_bay"]==1,
+                "courier receipt survives departure and counts the owned sample");
             store.isClientArrived=true;
             ObserveVisit();
             DialogUIManager.Instance=new DialogUIManager();

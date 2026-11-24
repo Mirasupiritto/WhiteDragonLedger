@@ -2,6 +2,7 @@
 import asyncio
 import json
 import re
+import subprocess
 from functools import lru_cache
 from pathlib import Path
 from contextvars import ContextVar
@@ -85,11 +86,28 @@ def tool_region(scene):
     return "scene_only"
 
 
+def repository_commit():
+    try:
+        result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).resolve().parent,
+                                capture_output=True, text=True, check=True, timeout=3)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip()
+
+
+def scene_version(scene, commit):
+    dll = scene.get("dll_commit")
+    if dll and commit and dll != commit:
+        return {**scene, "version_mismatch":{"dll":dll,"mcp":commit}}
+    return scene
+
+
 def register_scene_tools(server, folder):
+    commit = repository_commit()
     @server.tool()
     def get_scene() -> dict:
         """Read the current location, transition destination, most recent journey, or the game_over reason shown by the game."""
-        return read_scene(folder)
+        return scene_version(read_scene(folder), commit)
 
     @server.tool()
     def get_travel_options() -> dict:

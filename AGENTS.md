@@ -45,7 +45,7 @@
 
 - 卡槽或物品右鍵回執若有 `removal.reason="module_stuck"`，保持機台視窗開在該槽。找到自有的普通或進階模組拆卸器，用拆卸器自己的編號讀 `item_menu`，再用它的 `menu_token` 選 `use`，以 `removal.target_id` 指定卡片。普通型要有剩餘次數。回執的 `module_stuck=false` 表示卡已鬆開；重讀機台槽位，用新的 `window_token` 取回庫存。
 - 查貨時若有 `container_path`，按列出的順序從外包找到內包，`parent_id` 是直接裝著該件貨的包。包內貨的 `area` 跟隨整包；`unpack_first` 要先取出，`container_locked` 先核對容器狀態，直接出貨以前再看實際位置。
-- 用 `move_items` 同批處理相同 `source`、`destination` 的貨，逐件核對 `status`、`actual_area` 和堆疊的 `observed_quantity`。例如空櫃檯時把一批後櫃自有貨由 `back` 搬到 `inventory`。若回 `already_in_destination`，該件已在目標位置；若遇換客停下，先查當前狀態，再處理 `not_attempted` 的貨。遇 `no_space` 或 `showcase_full`，比對物品尺寸、可旋轉性與 `largest_free`。必要時用 `sort_inventory` 整理主庫存，比對前後連續空間；若回 `external_sorter_active`，用已啟用的整理模組處理。
+- 用 `move_items` 同批處理相同 `source`、`destination` 的貨，逐件核對 `status`、`actual_area` 和堆疊的 `observed_quantity`。單件空間不足時會列入 `skipped_ids`，並繼續試後面的貨。其他阻礙仍會停下。例如空櫃檯時把一批後櫃自有貨由 `back` 搬到 `inventory`。若回 `already_in_destination`，該件已在目標位置；若遇換客停下，先查當前狀態，再處理 `not_attempted` 的貨。遇 `no_space` 或 `showcase_full`，比對物品尺寸、可旋轉性與 `largest_free`。必要時用 `sort_inventory` 整理主庫存，比對前後連續空間；若回 `external_sorter_active`，用已啟用的整理模組處理。
 - 用 `item_menu(mode="read")` 看物品的原生右鍵選項。帶上一個 `menu_token` 可看變動；實際選擇用當前物品的 token 和啟用的 `verb`。工具能作用於多件候選貨時，用 `mode="targets"` 和 `target_ids` 先試配，這一步只預覽。選定後用 `mode="choose"`、`verb="use"` 與 `target_id`，或依回執改走指定流程。
 - 用物品**自己的當局編號**作為 `inspect_item_window` 的 `owner_id`，需開窗時帶 `open_if_closed=True`。讀 `window.document`、槽位容量、可見控制項及 `window_token`。例如先讀化學手冊的可讀頁，按實驗設備當頁標明的配方放料，先核對容器是否到位，再操作。從同一槽批次存取用 `transfer_slot_items`，指定回執的 `control` 和 `window_token`。從槽取出帶 `source="slot"`，放入帶實際來源 `inventory` 或 `showcase`，逐件檢查實到數量。
 - 按鈕、單選與分頁用 `press_machine_button`，換頁帶當頁給出的標題與從 0 起算的 `tab_index`。滑桿用 `adjust_machine_control` 傳 `values=[數值]`，範圍滑桿傳 `[下限, 上限]`，再讀遊戲實際套用的值。化學成型機的輸出按鈕支援 `quantity` 1 至 64，對照 `produced` 和停止原因取貨。
@@ -81,6 +81,7 @@
 
 ## 人脈、聲望與服務
 
+- 電話到貨時，從 `shop_update.arrivals` 核對本次物品編號和聯絡人。`contraband_outside_bay` 是到貨當下暗格外的自有違禁品件數。
 - 用 `get_phone_contacts` 看聯絡人和業務。歇業後讀電話，用 `dial_contact` 帶目前的 `phone_token`、聯絡人號碼及店況版本撥號；用 `advance_phone_dialogue` 或 `choose_phone_service` 接續通話，每步使用最新 token。若回 `phone_unavailable`、`reason="shop_open"`，等打烊後再撥。
 - 喬的人脈面板開啟時，用 `wild_network` 讀目錄，大清單加 `verbose=True` 看明細。用 `mode="select", target=服務ID` 看 `selected`、`favor_to_spend`、`cash_to_pay` 和餘額；確定購買時帶新 `panel_token`、`generation`、`revision`，以 `mode="buy"`、`target=選中的服務ID` 和原報價 `cost` 購買。核對 `favor_spent` 和 `cash_paid`。
 - 用 `feedback_box` 看派系聲望、啟用效果及最近的正負門檻。預設續查回差異；想查完整門檻及未啟用項目時用 `full=True, verbose=True`。
