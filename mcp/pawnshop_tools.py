@@ -201,6 +201,7 @@ def register_pawnshop_tools(server, folder, database):
         """Inspect or choose an owned item's native right-click actions. First read returns the shared verb legend and enabled verbs.
         On subsequent reads pass the last menu_token, even across items, for added/removed verbs and changed labels (null resets to base).
         Choose a displayed enabled verb with its matching item and token. activate is also read/consume depending on the native label.
+        An expired or already-used token returns status="stale_menu_token" with the item's fresh menu_token and enabled verbs so you can retry in one step; menu_changed means the item's available options changed.
         For use, mode=targets checks up to 64 candidate target_ids via native predicates without using the item. Choose with the matching target_id. Water operations return the water_use route. Using a chemical scanner returns scan{components[id,name,ul,ml,percent], total_ml, tested, label, effects}. invoked confirms the native action, not an overnight effect."""
         args = dict(item_id=item_id, mode=mode, menu_token=menu_token)
         if mode == "targets":
