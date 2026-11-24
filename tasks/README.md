@@ -16,7 +16,7 @@ C 和 E 都會動到 `mod/Counter.cs`，不要同時做這兩包。
 
 ## 共同規則
 
-1. **起點**：從 `chem-workflow` 分支（`99b3807`）開自己的分支，不要直接改 `main` 或 `chem-workflow`。
+1. **起點**：從 `chem-workflow` 分支的最新 commit（含本說明，`19b9244` 或之後）開自己的分支，不要直接改 `main` 或 `chem-workflow`。
 2. **只改自己包裡列出的檔案**。需要碰清單外的檔案時，先在回報裡說明原因。
 3. **共用登記檔**：`scripts/build.ps1` 的 `$testSources` 清單，以及 `tests/DeskReplay.cs` 的 `Run()` 呼叫清單。新增測試檔時各加一行就好，不要重排或改動別人的行，合併衝突由審閱者處理。
 4. **查遊戲原生 API**：用 `white-dragon-native-api` MCP（見 [docs/native-api.md](../docs/native-api.md)）。本包說明裡的原生名稱都已查證存在，但呼叫方式和效果要自己用 `find_native_references` 確認。
