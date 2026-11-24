@@ -4,6 +4,7 @@ from typing import Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
+from command_transport import poll
 import trade_journal
 import trade_tools
 import shopdesk
@@ -21,15 +22,13 @@ class SaleLine(BaseModel):
 
 
 def _sync_revision(folder, generation, target_revision):
-    view = counter.context(folder)
-    if view.get("status") != "observed" or view.get("generation") != generation or view.get("revision", 0) >= target_revision:
-        return
-    deadline = time.monotonic() + 1.0
-    while time.monotonic() < deadline:
-        time.sleep(0.02)
+    def reached():
         view = counter.context(folder)
         if view.get("status") != "observed" or view.get("generation") != generation or view.get("revision", 0) >= target_revision:
-            return
+            return True
+        return None
+
+    poll(reached, timeout=1.0, interval=0.02, sleep=time.sleep)
 
 
 def _summarize_wild_network(result, *, verbose=False):
@@ -79,7 +78,8 @@ def _summarize_wild_network(result, *, verbose=False):
 
 
 def register_pawnshop_tools(server, folder, database):
-    section_cache = getattr(server, "section_cache", None) or shop_day.SectionCache()
+    state = getattr(server, "state", None)
+    section_cache = state.section_cache if state is not None else (getattr(server, "section_cache", None) or shop_day.SectionCache())
     server.section_cache = section_cache
     heat_control.register(server, folder)
     machine_wait.register(server, folder)
@@ -508,14 +508,17 @@ def register_pawnshop_tools(server, folder, database):
         if view.get("stage") == "customer_departing":
             return {**shopdesk.strip_protocols(view), "status": "customer_departing"}
         if not view.get("visit") and view.get("stage") == "arriving":
-            deadline = time.monotonic() + min(5.0, max(0.0, timeout))
-            while time.monotonic() < deadline:
-                time.sleep(0.15)
-                view = counter.context(folder)
-                if view.get("status") != "observed":
-                    return view
-                if view.get("visit") or view.get("stage") != "arriving":
-                    break
+            def arrived():
+                nxt = counter.context(folder)
+                if nxt.get("status") != "observed" or nxt.get("visit") or nxt.get("stage") != "arriving":
+                    return nxt
+                return None
+
+            nxt, timed_out = poll(arrived, timeout=min(5.0, max(0.0, timeout)), interval=0.15, sleep=time.sleep)
+            if not timed_out:
+                if nxt.get("status") != "observed":
+                    return nxt
+                view = nxt
         if view.get("visit"):
             waited = counter.wait_opening(folder, view["generation"], view["visit"], timeout=timeout)
             if waited.get("status") == "observed":
@@ -534,17 +537,25 @@ def register_pawnshop_tools(server, folder, database):
         If blocked, returns status="dismiss_unavailable" with reason, blocking_items, reception_token and latest_revision; if visitor left or changed, returns customer_left or customer_replaced."""
         result = counter.command(folder, "dismiss", generation, revision, visit=visit)
         if result.get("status")=="dismiss_unavailable" and result.get("reason") in {"client_not_dismissable","bell_locked","dialogue_in_progress"}:
-            deadline=time.monotonic()+1.5
-            while time.monotonic()<deadline:
+            replaced = None
+
+            def try_dismiss():
+                nonlocal replaced
                 current=counter.context(folder)
                 if current.get("generation")!=generation or current.get("status")!="observed":
-                    break
+                    return result
                 if current.get("visit")!=visit:
-                    return counter.visit_mismatch_status(current.get("visit"),current.get("customer"))
+                    replaced = counter.visit_mismatch_status(current.get("visit"),current.get("customer"))
+                    return replaced
                 if current.get("reception",{}).get("can_dismiss"):
-                    result=counter.command(folder,"dismiss",generation,revision,visit=visit)
-                    break
-                time.sleep(0.1)
+                    return counter.command(folder,"dismiss",generation,revision,visit=visit)
+                return None
+
+            retried, timed_out = poll(try_dismiss, timeout=1.5, interval=0.1, sleep=time.sleep)
+            if replaced is not None:
+                return replaced
+            if not timed_out:
+                result = retried
         if result.get("status") in {"dismissed", "customer_left", "customer_replaced"}:
             current = counter.context(folder)
             if current.get("generation") == generation and current.get("phase") == "OPEN":

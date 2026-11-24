@@ -1,10 +1,9 @@
 """Local trade plans and confirmed receipts. Reading and dismissing never post game commands."""
 import json
 import book_history
-import re
 from contextlib import contextmanager
 
-from receipt_store import read_optional_json, read_command_receipt, replayed
+from command_transport import is_hex32, read_optional_json, read_command_receipt, replayed
 from database import transaction
 from ledger import lookup
 
@@ -165,7 +164,7 @@ def dispatch(database, folder, tool, request, slot, customer, send, *, observati
 def import_inflight(db, folder, slot):
     head = read_optional_json(folder / "head.json") or {}
     gen = head.get("generation", "")
-    if head.get("slot") != slot or not re.fullmatch("[0-9a-f]{32}", gen):
+    if head.get("slot") != slot or not is_hex32(gen):
         return
     # A trade submitted before the journal upgrade can still have a live inbox.
     for prefix in ("sale", "counter"):
@@ -173,7 +172,7 @@ def import_inflight(db, folder, slot):
         if not plan or plan.get("generation") != gen or not plan.get("visit"):
             continue
         tool = plan.get("tool", "sell_order") if prefix == "sale" else TOOLS.get(plan.get("action"))
-        if tool and re.fullmatch("[0-9a-f]{32}", plan.get("command_id", "")):
+        if tool and is_hex32(plan.get("command_id", "")):
             insert(db, tool, plan, slot, None)
 
 

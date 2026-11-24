@@ -1,12 +1,12 @@
 """Import the game observer's published changes, then query the local account."""
 import json
-import re
 import time
 from contextlib import nullcontext
 from sqlite3 import Connection
 import book_history
 from pathlib import Path
 
+from command_transport import is_hex32
 from database import transaction
 from stock_query import STOCK_DETAIL_COLUMNS, row_to_item, select_stock
 
@@ -69,7 +69,7 @@ def lookup(folder: Path, database: Path | Connection, name=None, area=None, owne
             return {"status": "waiting_for_load", "items": []}
         generation = head["generation"]
         revision = head["revision"]
-        if (head["status"] != "observed" or not re.fullmatch("[a-f0-9]{32}", generation)
+        if (head["status"] != "observed" or not is_hex32(generation)
                 or type(revision) is not int or revision < 1):
             raise ValueError("Invalid game ledger head")
         db.execute("CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY, generation TEXT, revision INTEGER)")

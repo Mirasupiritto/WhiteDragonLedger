@@ -8,6 +8,7 @@ from mcp.server.stdio import stdio_server
 
 from journey import ACTION_REGIONS, REGIONS
 from scene import read_scene, shop_visit, tool_region
+from server_state import ServerState
 
 
 # Tools that can change shop state; their replies carry the shop_update delta.
@@ -113,7 +114,9 @@ class SceneServer(FastMCP):
         self.global_tools = {"get_scene", "wait_for_scene"}
         self.ledger_tools = {"get_shop_ledger", "dismiss_trade_ticket"}
         self.client_session = None
-        self._last_emitted_items = {}
+        self.state = ServerState()
+        self.section_cache = self.state.section_cache
+        self._last_emitted_items = self.state.last_emitted_items
 
     async def list_tools(self):
         self.client_session = self.get_context().session

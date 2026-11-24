@@ -1,31 +1,27 @@
 """Receive one customer, inspect the visible offer and execute a capped purchase."""
-import json
-import re
 import time
-from uuid import NAMESPACE_URL, uuid4, uuid5
+from uuid import uuid4
 
-from command_transport import exchange
-from receipt_store import replayed, read_command_receipt
+from command_transport import (
+    deterministic_id,
+    exchange,
+    is_hex32,
+    poll,
+    read_command_receipt,
+    replayed,
+    submit_command,
+)
+from server_state import ServerState
 import trade_journal
 from shopdesk import published, strip_protocols
 
 
-_seen_finished_heat = set()
+default_state = ServerState()
+_seen_finished_heat = default_state._heat_seen
 
 
 def filter_finished_heat(folder, result):
-    if not isinstance(result, dict):
-        return result
-    heat = result.get("heat")
-    if not isinstance(heat, dict) or heat.get("status") == "running":
-        return result
-    key = (str(folder), result.get("generation"), heat.get("run_id"), heat.get("status"))
-    if key in _seen_finished_heat:
-        filtered = dict(result)
-        filtered.pop("heat", None)
-        return filtered
-    _seen_finished_heat.add(key)
-    return result
+    return default_state.filter_finished_heat(folder, result)
 
 
 def context(folder):
@@ -55,9 +51,8 @@ def wait_choices_ready(folder, view, timeout=1.5):
     if view.get("stage") != "choice_required" or "dialog_choices" not in view or view["dialog_choices"]:
         return view
     gen, visit = view.get("generation"), view.get("visit")
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        time.sleep(0.05)
+
+    def check():
         nxt = context(folder)
         if nxt.get("status") != "observed":
             return nxt
@@ -65,14 +60,17 @@ def wait_choices_ready(folder, view, timeout=1.5):
             return nxt
         if nxt.get("stage") != "choice_required" or nxt.get("dialog_choices"):
             return nxt
-    return context(folder)
+        return None
+
+    matched, timed_out = poll(check, timeout=timeout, interval=0.05, sleep=time.sleep)
+    return context(folder) if timed_out else matched
 
 
 def command(folder, action, generation, revision, *, database=None, **args):
-    if not re.fullmatch("[0-9a-f]{32}", generation) or revision < 1:
+    if not is_hex32(generation) or revision < 1:
         raise ValueError("Expected generation and revision from get_counter")
     plan = dict(action=action, generation=generation, revision=revision, **args)
-    token = uuid5(NAMESPACE_URL, "white-dragon/counter/"+json.dumps(plan, sort_keys=True)).hex
+    token = deterministic_id("white-dragon/counter/", plan)
     channel = "report" if action == "report_client" else "counter"
     def receipt():
         return read_command_receipt(folder, token, generation, channel)
@@ -81,19 +79,19 @@ def command(folder, action, generation, revision, *, database=None, **args):
     # Only this refusal is proof that the native dismiss action never ran.
     # Concurrent callers follow the same attempt IDs, including after reconnect.
     while action == "dismiss" and result is not None and result["status"] == "dismiss_unavailable":
-        token = uuid5(NAMESPACE_URL, "white-dragon/retry-dismiss/"+token).hex
+        token = deterministic_id("white-dragon/retry-dismiss/", token)
         result = receipt()
     # A settings change or unlocked inventory can permit sorting at the same revision.
     while action == "sort_inventory" and result is not None and result["status"] in {
         "inventory_sort_disabled", "external_sorter_active", "sort_unavailable",
     }:
-        token = uuid5(NAMESPACE_URL, "white-dragon/retry-sort/"+token).hex
+        token = deterministic_id("white-dragon/retry-sort/", token)
         result = receipt()
     # A rejected bell never admitted anyone. Retry at the same revision only once the published desk is ringable.
     if action == "ring" and result is not None:
         refused = {"customer_departing", "bell_unavailable", "occupied", "queue_changed"}
         while result is not None and result["status"] in refused:
-            token = uuid5(NAMESPACE_URL, "white-dragon/retry-ring/"+token).hex
+            token = deterministic_id("white-dragon/retry-ring/", token)
             previous = result
             result = receipt()
             if result is None:
@@ -217,7 +215,7 @@ def command(folder, action, generation, revision, *, database=None, **args):
         return {"status": "reload_updated_mod"}
     request = dict(plan, command_id=token)
     def send():
-        return exchange(folder, folder/f"{channel}-{generation}.json", request, receipt)
+        return submit_command(folder, channel, generation, request, read_receipt=receipt, transport=exchange)
     if database is not None and action in trade_journal.TOOLS:
         return trade_journal.dispatch(database, folder, trade_journal.TOOLS[action], request,
                                       view["slot"], view.get("customer"), send,

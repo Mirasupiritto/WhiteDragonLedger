@@ -13,6 +13,7 @@ import shopdesk
 import shop_day
 from ledger import lookup, same_observation
 from database import transaction
+from server_state import ServerState
 
 
 class BatchLine(BaseModel):
@@ -143,11 +144,11 @@ def wait_event(folder, event, timeout):
 
 
 class Updates:
-    def __init__(self, folder, database):
+    def __init__(self, folder, database, state=None):
         self.folder = folder
         self.database = database
         self.cursor = None
-        self._seen_finished_heat = set()
+        self.state = state if state is not None else ServerState()
 
     def report(self, since=None, full=False):
         view = shopdesk.published(self.folder)
@@ -167,13 +168,8 @@ class Updates:
                       can_dismiss=desk["reception"].get("can_dismiss"), can_open_shop=desk.get("can_open_shop"))
         if "heat" in desk:
             h = desk["heat"]
-            if h.get("status") == "running":
+            if h.get("status") == "running" or not self.state.is_finished_heat_seen(self.folder, gen, h):
                 fields["heat"] = h
-            else:
-                key = (str(self.folder), gen, h.get("run_id"), h.get("status"))
-                if key not in self._seen_finished_heat:
-                    fields["heat"] = h
-                    self._seen_finished_heat.add(key)
         fields["page"] = desk.get("page")
         encoded = json.dumps(fields, sort_keys=True, ensure_ascii=False)
         token = f"{gen}:{rev}:{hashlib.sha256(encoded.encode()).hexdigest()[:24]}"
@@ -217,8 +213,11 @@ class Updates:
 
 
 def register(server, folder, database):
-    tracker = Updates(folder, database)
+    state = getattr(server, "state", None)
+    tracker = Updates(folder, database, state=state)
     server.updates = tracker
+    if state is not None:
+        state.updates = tracker
 
     @server.tool()
     def report_client(mode: Literal["read","report"] = "read", visit: str | None = None,
