@@ -95,10 +95,30 @@ namespace WhiteDragon.Ledger
         private static void AddChemicalPurityFields(GameItem item, JObject row)
         {
             if (item==null || row==null || !ChemicalProductHelper.HasChemicalPurity(item)) return;
-            double raw=ChemicalProductHelper.GetPurity(item);
-            row["purity"]=Math.Round(raw<=1.0 ? raw*100.0 : raw, 2);
+            row["purity"]=Math.Round(ChemicalProductHelper.GetPurity(item)*100.0, 2);
             string grade=ChemicalProductHelper.GetCurrentChemicalConditionId(item);
             if (!string.IsNullOrEmpty(grade)) row["grade"]=grade;
+        }
+
+        private static void DescribeChemFinisher(WindowRead read, JArray rows)
+        {
+            string outputText=LocHelper.GetLocalizedMechanic("mech_chem_finisher_btn_output");
+            foreach (JObject row in rows)
+            {
+                if (!read.Controls.TryGetValue((string)row["control"], out var element) || !(element is MachineryButton button)) continue;
+                row["action"]=button.text==outputText ? "output" : "configure";
+            }
+        }
+
+        private JArray SmugglerBayRows()
+        {
+            var result=new JArray();
+            foreach (var area in areas)
+                foreach (var item in area.Key.childItems)
+                    if (ContrabandHelper.IsSmugglerBay(item) && GeneralHelper.IsItemEffectivelyOwned(item))
+                        result.Add(new JObject { ["id"]=LocalId(item), ["name"]=item.GetDisplayName(true),
+                            ["kind"]=item.identifier, ["area"]=area.Value });
+            return result;
         }
 
         private string ProduceBatch(GameItem machine, MachineryButton button, int quantity, JObject receipt)

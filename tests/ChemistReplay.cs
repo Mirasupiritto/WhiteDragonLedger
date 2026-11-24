@@ -48,7 +48,12 @@ namespace WhiteDragon.Ledger
                 (double)receipt["purity"]==61.0 && (string)receipt["grade"]=="street_standard",
                 "production stops at the real input limit and reports purity/grade");
             machine.To(EmporiumEntry.Instance.invElement);
-            machine.contentWindow=new PixelWindow { visible=true, childElement=slot };
+            var configBtn=new MachineryButton { text="Configure" };
+            var finisherLayout=new MachineryPanelRow();
+            finisherLayout.Panels.Add(new MachineryPanel { role="input", content=slot });
+            finisherLayout.Panels.Add(new MachineryPanel { role="control", content=configBtn });
+            finisherLayout.Panels.Add(new MachineryPanel { role="control", content=button });
+            machine.contentWindow=new PixelWindow { visible=true, childElement=finisherLayout };
             var finisherPanel=new ItemPanelView { Key="chemical_finisher", Identity="finisher/1" };
             finisherPanel.Controls["-57964"]=new JObject { ["type"]="button", ["label"]="Select", ["recipe_id"]="dream_dust", ["enabled"]=true };
             finisherPanel.Actions["-57964"]=_=>{ machine.bookTagValue="dream_dust"; return "applied"; };
@@ -62,7 +67,10 @@ namespace WhiteDragon.Ledger
                 ["control"]="-57964" },pickResult)=="applied","select recipe by recipe_id button");
             var inspectFinisher=new JObject();
             Expect(WorkstationAction(new JObject { ["action"]="inspect_window", ["owner_id"]=LocalId(machine) },inspectFinisher)=="observed" &&
-                (string)inspectFinisher["window"]["recipe_id"]=="dream_dust","chem_finisher window reports selected recipe_id");
+                (string)inspectFinisher["window"]["recipe_id"]=="dream_dust" &&
+                (string)inspectFinisher["window"]["controls"][1]["action"]=="configure" &&
+                (string)inspectFinisher["window"]["controls"][2]["action"]=="output",
+                "chem_finisher window reports selected recipe_id and button actions");
             NativeItemPanels.panel=null;
             Expect(BottleLabel(source)!=null,"water has label");
             source.waterTags.Add("replay_solvent");

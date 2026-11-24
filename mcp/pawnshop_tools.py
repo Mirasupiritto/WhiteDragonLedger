@@ -236,7 +236,7 @@ def register_pawnshop_tools(server, folder, database):
                             since_token: str | None = None) -> dict:
         """Inspect an owned inventory/showcase item, or a directly held owned back-counter item after closing.
         Pass the local ID of the item itself as owner_id (never 0, the area or save_id). Pass open_if_closed=True to open and read in one call. Slot items include save_id for matching night loot.
-        Read a document by its own ID, including inside an open archive. window.document contains original pages, text, structured terms, or a reason (image_only_guide for image pages). Other windows return visible slots, text and controls (single-item slots report accepts="one_container"; chem_finisher reports recipe_id; evaporator reports battery energy, container liquid summary, and distillate_capture status). Pass the last token as since_token for changes only."""
+        Read a document by its own ID, including inside an open archive. window.document contains original pages, text, structured terms, or a reason (image_only_guide for image pages). Other windows return visible slots, text and controls (single-item slots report accepts="one_item"; chem_finisher reports recipe_id and button actions configure/output; evaporator reports battery energy, container liquid summary, and distillate_capture status). Pass the last token as since_token for changes only."""
         return counter.command(folder, "inspect_window", generation, revision, owner_id=owner_id,
                                open_if_closed=open_if_closed, since_token=since_token, read_id=uuid4().hex)
 

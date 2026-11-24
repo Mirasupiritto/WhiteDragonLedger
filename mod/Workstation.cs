@@ -63,7 +63,7 @@ namespace WhiteDragon.Ledger
                 row["type"] = "slot";
                 row["insert_allowed"] = role != "output" && !storage.IsInsertLocked() && !read.Window.isLocked;
                 row["remove_allowed"] = !storage.IsRemoveLocked() && !read.Window.isLocked;
-                if (storage is GameSlotInventory) row["accepts"] = "one_container";
+                if (storage is GameSlotInventory) row["accepts"] = "one_item";
                 else if (InventoryCapacity(storage) is JObject cap) row["capacity"] = cap;
                 var items = new JArray();
                 foreach (var child in storage.childItems)
@@ -136,8 +136,12 @@ namespace WhiteDragon.Ledger
             DescribeMachine(owner,read,rows);
             read.View = new JObject { ["owner_id"]=LocalId(owner), ["save_id"]=owner.GetUniqueID(), ["name"]=owner.GetDisplayName(true),
                 ["title"]=read.Window.titleString, ["locked"]=read.Window.isLocked, ["controls"]=rows };
-            if (owner.identifier=="chem_finisher" && owner.IsTag("SELECTED_CHEM_ID_TAG"))
-                read.View["recipe_id"]=owner.GetTagReadonly("SELECTED_CHEM_ID_TAG").GetString();
+            if (owner.identifier=="chem_finisher")
+            {
+                if (owner.IsTag("SELECTED_CHEM_ID_TAG"))
+                    read.View["recipe_id"]=owner.GetTagReadonly("SELECTED_CHEM_ID_TAG").GetString();
+                DescribeChemFinisher(read,rows);
+            }
             if (owner.identifier=="evaporator") DescribeEvaporator(owner,read,rows);
             if (owner.identifier=="heating_plate") read.View["heating"]=HeatingView(owner);
             if (owner.IsTag("FILTER_CONTAINER_TAG")) read.View["pour_filter"]=FilterView(owner);

@@ -84,9 +84,9 @@ namespace WhiteDragon.Ledger {
             slotOwner.contentWindow = new PixelWindow { visible=true, childElement=new MachineryPanel { role="input", content=singleSlot } };
             var slotReply = new JObject();
             Expect(WorkstationAction(new JObject { ["owner_id"]=LocalId(slotOwner), ["action"]="inspect_window" }, slotReply)=="observed" &&
-                (string)slotReply["window"]["controls"][0]["accepts"]=="one_container" &&
+                (string)slotReply["window"]["controls"][0]["accepts"]=="one_item" &&
                 slotReply["window"]["controls"][0]["capacity"]==null,
-                "single-item slot reports accepts one_container instead of 1x1 capacity");
+                "single-item slot reports accepts one_item instead of 1x1 capacity");
             slotOwner.To(null);
             input.replayFull = true;
             var blockedTransfer = new JObject();

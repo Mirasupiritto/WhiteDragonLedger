@@ -1,13 +1,12 @@
 """Automated chemist finishing workflow built on top of existing pawnshop commands."""
-from typing import Literal
 from uuid import uuid4
 
 import counter
 import ledger
+import shopdesk
 
 
 LIQUID_RAW_IDS = {"water", "alcohol"}
-SMUGGLER_KINDS = {"smuggler_bay", "mini_smuggler_bay", "smuggler_bay_mod"}
 
 
 def _next_rev(receipt, folder, generation, fallback):
@@ -29,10 +28,6 @@ def _find_owned_by_kind(items, kinds):
     return None
 
 
-def _find_all_owned_by_kind(items, kinds):
-    return [item for item in items if item.get("kind") in kinds and item.get("area") in {"inventory", "showcase"}]
-
-
 def _slot_with_item(controls, item_id):
     for ctrl in controls:
         if ctrl.get("type") == "slot":
@@ -45,19 +40,24 @@ def _slot_with_item(controls, item_id):
 def _find_finisher_controls(controls):
     input_ctrl = None
     output_ctrl = None
-    buttons = []
+    config_btn = None
+    output_btn = None
     for ctrl in controls:
         ctype = ctrl.get("type")
         role = ctrl.get("role")
         if ctype == "slot":
             if role == "output":
                 output_ctrl = ctrl
-            elif role == "input" or (ctrl.get("accepts") == "one_container" and ctrl.get("insert_allowed")):
+            elif role == "input" or (ctrl.get("accepts") in {"one_item", "one_container"} and ctrl.get("insert_allowed")):
                 if input_ctrl is None:
                     input_ctrl = ctrl
         elif ctype == "button" and ctrl.get("enabled"):
-            buttons.append(ctrl)
-    return input_ctrl, output_ctrl, buttons
+            action = ctrl.get("action")
+            if action == "configure":
+                config_btn = ctrl
+            elif action == "output":
+                output_btn = ctrl
+    return input_ctrl, output_ctrl, config_btn, output_btn
 
 
 def _use_scanner(folder, scanner_id, target_id, generation, rev):
@@ -68,11 +68,8 @@ def _use_scanner(folder, scanner_id, target_id, generation, rev):
     if read_res.get("status") != "observed":
         return False, read_res, rev
     token = read_res.get("menu_token")
-    verbs = read_res.get("verbs") or {}
-    use_info = verbs.get("use")
-    if isinstance(use_info, dict) and not use_info.get("enabled", True):
-        return False, {"status": "scanner_use_disabled", "receipt": read_res}, rev
-    if not token or "use" not in verbs:
+    enabled = read_res.get("enabled") or []
+    if not token or "use" not in enabled:
         return False, {"status": "scanner_use_unavailable", "receipt": read_res}, rev
     use_res = counter.command(
         folder, "item_menu", generation, rev, item_id=scanner_id, mode="choose",
@@ -115,7 +112,7 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
 
     items = stock.get("items") or []
     finisher = _find_owned_by_kind(items, "chem_finisher")
-    scanner = _find_owned_by_kind(items, "chemical_scanner")
+    scanner = _find_owned_by_kind(items, "chem_scanner")
     if not finisher:
         return stop("locate_equipment", "missing_chem_finisher")
     if not scanner:
@@ -157,10 +154,15 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         c for c in (scan.get("components") or [])
         if c.get("id") in LIQUID_RAW_IDS and (c.get("ul", 0) > 0 or c.get("ml", 0) > 0)
     ]
-    if remaining_raw:
-        steps["scan_vessel"] = {"status": "liquid_raw_material_remaining", "remaining_liquids": remaining_raw, "scan": scan}
-        return stop("scan_vessel", "liquid_raw_material_remaining", remaining_liquids=remaining_raw, scan=scan)
-    steps["scan_vessel"] = {"status": "clean", "total_ml": scan.get("total_ml"), "components": scan.get("components")}
+    if (scan.get("total_ml") or 0) <= 0 and not (scan.get("components") or []):
+        steps["scan_vessel"] = {"status": "empty_vessel", "scan": scan}
+        return stop("scan_vessel", "empty_vessel", scan=scan)
+    steps["scan_vessel"] = {
+        "status": "scanned",
+        "total_ml": scan.get("total_ml"),
+        "components": scan.get("components"),
+        "remaining_liquids": remaining_raw,
+    }
 
     fin_inspect = counter.command(
         folder, "inspect_window", generation, rev, owner_id=finisher["id"], open_if_closed=True, read_id=uuid4().hex
@@ -170,7 +172,7 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         return stop("insert_into_finisher", fin_inspect.get("status"), receipt=fin_inspect)
     win = fin_inspect.get("window") or {}
     win_token = fin_inspect.get("window_token")
-    input_ctrl, output_ctrl, buttons = _find_finisher_controls(win.get("controls") or [])
+    input_ctrl, output_ctrl, config_btn, output_btn = _find_finisher_controls(win.get("controls") or [])
     if not input_ctrl or not output_ctrl:
         return stop("insert_into_finisher", "finisher_slots_unavailable", receipt=fin_inspect)
 
@@ -196,11 +198,8 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
     if win.get("recipe_id") == recipe_id:
         steps["select_recipe"] = {"status": "already_selected", "recipe_id": recipe_id}
     else:
-        if len(buttons) < 2:
-            return stop("select_recipe", "finisher_buttons_unavailable", buttons=buttons)
-        # In MachineChemFinisher, the output button is first and the recipe-config button is second;
-        # pressing a non-output button opens the chemical_finisher item_panel.
-        config_btn = buttons[-1]
+        if not config_btn:
+            return stop("select_recipe", "configure_button_unavailable")
         press_cfg = counter.command(
             folder, "press_control", generation, rev, owner_id=finisher["id"],
             control=config_btn["control"], label=config_btn["label"], window_token=win_token,
@@ -247,12 +246,11 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         win_token = fin_recheck.get("window_token")
         if win.get("recipe_id") != recipe_id:
             return stop("select_recipe", "recipe_selection_unconfirmed", actual_recipe_id=win.get("recipe_id"))
-        _, output_ctrl, buttons = _find_finisher_controls(win.get("controls") or [])
+        _, output_ctrl, _, output_btn = _find_finisher_controls(win.get("controls") or [])
         steps["select_recipe"] = {"status": "selected", "recipe_id": recipe_id}
 
-    if not buttons:
+    if not output_btn:
         return stop("produce_batch", "output_button_unavailable")
-    output_btn = buttons[0]
     total_produced = 0
     stop_reason = None
     batch_purity = None
@@ -278,6 +276,10 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         if quantity is not None or pstatus == "batch_incomplete" or batch_count < 64:
             break
 
+    if total_produced == 0 and stop_reason == "recipe_not_ready":
+        steps["produce_batch"] = {"status": "recipe_not_ready", "produced": 0, "remaining_liquids": remaining_raw}
+        return stop("produce_batch", "recipe_not_ready", remaining_liquids=remaining_raw)
+
     steps["produce_batch"] = {"status": "done", "produced": total_produced, "stop_reason": stop_reason}
 
     fin_after = counter.command(
@@ -288,7 +290,7 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         return stop("collect_output", fin_after.get("status"), produced=total_produced, receipt=fin_after)
     win_after = fin_after.get("window") or {}
     win_token = fin_after.get("window_token")
-    in_after, out_after, _ = _find_finisher_controls(win_after.get("controls") or [])
+    in_after, out_after, _, _ = _find_finisher_controls(win_after.get("controls") or [])
     produced_ids = [i["id"] for i in (out_after.get("items") or []) if isinstance(i.get("id"), int)]
     remaining_vessel = (in_after.get("items") or [None])[0] if in_after else None
 
@@ -333,7 +335,8 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         if stash_ids is not None:
             bay_ids = list(stash_ids)
         else:
-            bay_ids = [b["id"] for b in _find_all_owned_by_kind(items, SMUGGLER_KINDS)]
+            pub = shopdesk.published(folder)
+            bay_ids = [b["id"] for b in (pub.get("smuggler_bays") or []) if isinstance(b, dict) and b.get("id")]
         if not bay_ids:
             return stop("stash_products", "no_smuggler_bay_found", collected_ids=collected_ids)
         pending = list(to_stash)
@@ -371,6 +374,7 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         "stashed_ids": stashed_ids,
         "product_scan": product_scan,
         "remaining_reagent": remaining_vessel,
+        "remaining_liquids": remaining_raw,
         "stop_reason": stop_reason,
         "vessel_location": vessel_location,
         "steps": steps,
@@ -384,7 +388,7 @@ def register(server, folder, database):
                     quantity: int | None = None, stash_ids: list[int] | None = None,
                     stash_count: int | None = None) -> dict:
         """Run the chemical finishing sequence for an evaporated vessel: retrieve from evaporator (if inside),
-        scan to confirm no raw water/alcohol remains, insert into chem_finisher, select recipe_id by name,
+        scan contents (recording any remaining water/alcohol), insert into chem_finisher, select recipe_id by name,
         batch-produce (up to quantity, or until reagent runs out if omitted), collect outputs to inventory,
         scan one sample for purity/grade, and optionally move products into smuggler bays (stash_ids/stash_count).
         Stops immediately on any failure and reports the stopped step and current vessel location."""

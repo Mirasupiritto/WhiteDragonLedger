@@ -6,7 +6,10 @@ using Newtonsoft.Json.Linq;
 namespace WhiteDragon.Ledger
 {
     public static class TypeHelper { public const string CONTRABAND="contraband"; }
-    public static class ContrabandHelper { public static bool IsSmugglerBay(GameItem item)=>item.identifier=="smuggler_bay"; public static bool IsContraband(GameItem item) => item.IsTag(TypeHelper.CONTRABAND); }
+    public static class ContrabandHelper {
+        public static bool IsSmugglerBay(GameItem item) => item.identifier == "smuggler_bay" || item.identifier == "smuggler_bay_mini";
+        public static bool IsContraband(GameItem item) => item.IsTag(TypeHelper.CONTRABAND);
+    }
 
     public sealed partial class InventoryObserver
     {
