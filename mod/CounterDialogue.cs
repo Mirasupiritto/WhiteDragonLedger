@@ -40,6 +40,45 @@ namespace WhiteDragon.Ledger
             return rows;
         }
 
+        private static bool LinesRequestCounter(JArray lines)
+        {
+            if (lines == null) return false;
+            foreach (var token in lines)
+            {
+                string line = (string)token;
+                if (string.IsNullOrEmpty(line)) continue;
+                if (line.IndexOf("柜台", StringComparison.Ordinal) >= 0 ||
+                    line.IndexOf("櫃檯", StringComparison.Ordinal) >= 0 ||
+                    line.IndexOf("counter", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            return false;
+        }
+
+        private JObject BuildCounterRequest()
+        {
+            var tableItems = new JArray();
+            foreach (var item in EmporiumEntry.Instance.backInvinvElement.childItems)
+            {
+                if (item == null || GeneralHelper.IsDisplayOnly(item) || !GeneralHelper.IsItemOwned(item)) continue;
+                var entry = new JObject
+                {
+                    ["id"] = LocalId(item),
+                    ["name"] = item.GetDisplayName(true),
+                    ["kind"] = item.identifier,
+                    ["quantity"] = item.unitCount
+                };
+                if (BottleLabel(item) is string bottleLabel) entry["bottle_label"] = bottleLabel;
+                AddChemicalPurityFields(item, entry);
+                tableItems.Add(entry);
+            }
+            return new JObject
+            {
+                ["from_lines"] = openingLines.DeepClone(),
+                ["table_items"] = tableItems
+            };
+        }
+
         private void ObserveDecision(string stage, JObject view)
         {
             if (stage != "advance_required" && stage != "choice_required" && stage != "response_required")
@@ -78,6 +117,9 @@ namespace WhiteDragon.Ledger
                 view["consequence_hint"]=merchant.identifier=="cartelSec" ?
                     "警官詢問是否舉報卡特爾，請玩家決定。" : "這是卡特爾的對話選擇，請玩家決定。";
             }
+            if (stage == "choice_required" && merchant?.clientIntent == StoreClient.ClientIntent.DIALOGUE &&
+                (merchant.identifier == "cartelHandlerWeekly" || LinesRequestCounter(openingLines)))
+                view["counter_request"] = BuildCounterRequest();
             if (stage == "choice_required" && merchant?.identifier == "radioactiveWasteCustomer")
             {
                 view["forced_choice"] = true;

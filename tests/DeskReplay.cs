@@ -544,6 +544,7 @@ namespace WhiteDragon.Ledger {
             ReplayNetwork();
             ReplayDismiss();
             ReplayCounterDay();
+            ReplayDialogueStage();
             ReplayStockSection();
             Console.WriteLine("Counter replay passed: bell, opening guard, cap, stale offer, wholesale and normal purchase.");
             Console.WriteLine("Native replay passed: paid 9, four sales of 10, budget-return/skip/cheap sale, same bottle after night.");
