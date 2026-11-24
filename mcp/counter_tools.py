@@ -75,6 +75,7 @@ def register(server, folder, database, *, heat_state=None, section_cache=None):
         return present_counter(
             payload,
             folder=folder,
+            database=database,
             heat_state=heat,
             summarize_offer=trade_tools.summarize_offer,
             verbose=verbose,
@@ -126,13 +127,13 @@ def register(server, folder, database, *, heat_state=None, section_cache=None):
         Unchanged calendar/trash/sleep sections and large (>5 item) supplier offers return summaries unless verbose=True."""
         view = shopdesk.published(folder)
         if view["status"] != "observed" or view.get("counter_protocol") != 2:
-            return heat.filter_finished_heat(folder, counter.context(folder))
+            return counter.filter_finished_heat(database, counter.context(folder))
         if (view["counter"].get("stage") == "choice_required"
                 and "dialog_choices" in view["counter"] and not view["counter"]["dialog_choices"]):
             counter.wait_choices_ready(folder, counter.context(folder))
             view = shopdesk.published(folder)
             if view["status"] != "observed" or view.get("counter_protocol") != 2:
-                return heat.filter_finished_heat(folder, counter.context(folder))
+                return counter.filter_finished_heat(database, counter.context(folder))
         day_info = {k: v for k, v in view["day_info"].items() if k in {"calendar", "trash", "sleep"}}
         result = {**{k: view[k] for k in ("status", "slot", "phase", "generation", "revision", "day")}, **view["counter"], **day_info}
         result["trash"] = shop_day.trash_contents(folder, database, result)
@@ -151,6 +152,9 @@ def register(server, folder, database, *, heat_state=None, section_cache=None):
         """One-step guest admission: if counter is idle, ring the bell, wait through opening dialogue and tablet opening (up to timeout seconds, default 20, returning opening_timeout if exceeded) and return trade-ready state; if a customer is already at the counter, finish opening and return status="already_present".
         Auto-closes tool-opened item panels; player-opened panels return item_panel_open with current visit/customer/stage and after_close_next_tool.
         Large (>5 item) supplier offers return a summary unless verbose=True."""
+        return _present(admit_customer(generation, revision, waiting, timeout), verbose=verbose)
+
+    def admit_customer(generation, revision, waiting, timeout):
         view = counter.context(folder)
         if view.get("status") != "observed":
             return view
@@ -161,41 +165,31 @@ def register(server, folder, database, *, heat_state=None, section_cache=None):
             return {"status": "shop_closed", "phase": view.get("phase"),
                     "generation": view["generation"], "revision": view["revision"],
                     "can_open_shop": view.get("can_open_shop")}
-        deadline = time.monotonic() + max(0.0, timeout)
-        if view.get("stage") == "idle" and not view.get("visit"):
-            ring_wait = view.get("waiting", 0) if waiting is None else waiting
-            result = counter.ring(folder, view["generation"], view["revision"], ring_wait, timeout=timeout)
-            if result.get("status") not in {"occupied", "bell_unavailable", "customer_replaced", "customer_left", "queue_changed", "customer_departing"}:
-                return _present(result, verbose=verbose)
-            current = counter.context(folder)
-            if current.get("generation") != view["generation"] or current.get("phase") != "OPEN":
-                return result
-            if not current.get("visit") and current.get("stage") != "customer_departing":
-                return result
-            view = current
-        if view.get("stage") == "customer_departing":
-            def departed():
-                nxt = counter.context(folder)
-                if nxt.get("status") != "observed":
-                    return nxt
-                if nxt.get("generation") != view["generation"] or nxt.get("phase") != "OPEN":
-                    return nxt
-                if nxt.get("stage") != "customer_departing":
-                    return nxt
-                return None
-
-            nxt, timed_out = poll(departed, timeout=min(5.0, max(0.0, deadline - time.monotonic())), interval=0.15, sleep=time.sleep)
-            if timed_out:
-                return _present({**view, "status": "customer_departing"}, verbose=verbose, strip=True)
-            if nxt.get("status") != "observed":
-                return nxt
-            if nxt.get("generation") != view["generation"] or nxt.get("phase") != "OPEN":
-                return _present(nxt, verbose=verbose, strip=True)
-            view = nxt
-            if view.get("stage") == "idle" and not view.get("visit"):
+        deadline = time.monotonic() + min(20.0, max(0.0, timeout))
+        start_generation = view["generation"]
+        while True:
+            if view.get("stage") == "customer_departing":
+                if time.monotonic() >= deadline:
+                    return {**shopdesk.strip_protocols(view), "status": "customer_departing"}
+                time.sleep(min(0.15, max(0, deadline - time.monotonic())))
+                view = counter.context(folder)
+            elif view.get("stage") == "idle" and not view.get("visit"):
                 ring_wait = view.get("waiting", 0) if waiting is None else waiting
-                result = counter.ring(folder, view["generation"], view["revision"], ring_wait, timeout=max(0.0, deadline - time.monotonic()))
-                return _present(result, verbose=verbose)
+                result = counter.ring(folder, view["generation"], view["revision"], ring_wait,
+                                      timeout=max(0, deadline - time.monotonic()))
+                if result.get("status") not in {"occupied", "bell_unavailable", "customer_replaced", "customer_left", "queue_changed", "customer_departing"}:
+                    return result
+                view = counter.context(folder)
+                if not view.get("visit") and view.get("stage") != "customer_departing":
+                    return result
+            else:
+                break
+            if view.get("status") != "observed":
+                return view
+            if view.get("generation") != start_generation:
+                return {"status": "stale_observation"}
+            if view.get("phase") != "OPEN":
+                return {"status": "shop_closed", "phase": view.get("phase")}
         if not view.get("visit") and view.get("stage") == "arriving":
             def arrived():
                 nxt = counter.context(folder)
@@ -212,8 +206,8 @@ def register(server, folder, database, *, heat_state=None, section_cache=None):
             waited = counter.wait_opening(folder, view["generation"], view["visit"], timeout=max(0, deadline - time.monotonic()))
             if waited.get("status") == "observed":
                 waited = {**waited, "status": "already_present", "already_at_counter": True}
-            return _present(waited, verbose=verbose)
-        return _present(dict(view), verbose=verbose, strip=True)
+            return waited
+        return shopdesk.strip_protocols(dict(view))
 
     @server.tool()
     def finish_customer(generation: str, revision: int, visit: str) -> dict:

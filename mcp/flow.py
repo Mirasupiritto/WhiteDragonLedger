@@ -61,7 +61,7 @@ class Flow:
         return out
 
 
-def present_counter(view, *, folder, heat_state, summarize_offer, verbose=False,
+def present_counter(view, *, folder, summarize_offer, database=None, heat_state=None, verbose=False,
                     apply_barter=False, strip=False):
     """Apply the standard counter post-processing chain:
     with_barter -> reception_token -> strip_protocols -> summarize_offer -> filter_finished_heat.
@@ -76,4 +76,8 @@ def present_counter(view, *, folder, heat_state, summarize_offer, verbose=False,
     if strip and isinstance(payload, dict):
         payload = shopdesk.strip_protocols(payload)
     payload = summarize_offer(payload, verbose=verbose)
-    return heat_state.filter_finished_heat(folder, payload)
+    if database is not None:
+        return counter.filter_finished_heat(database, payload)
+    if heat_state is not None:
+        return heat_state.filter_finished_heat(folder, payload)
+    return payload
