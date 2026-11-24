@@ -22,7 +22,7 @@ namespace WhiteDragon.Ledger {
     }
     public class Window : UnityEngine.GameObject { }
     public class NegotiationTabletFrame { public PanelNode infoHost; public Window confirmRoot; }
-    public class ReplayClientAvatar { public Window gameObject = new Window(); }
+    public partial class ReplayClientAvatar { public Window gameObject = new Window(); }
     public partial class StoreUIManager {
         public ReplayClientAvatar clientGameObject = new ReplayClientAvatar();
         public static StoreUIManager Instance = new StoreUIManager();
@@ -32,7 +32,7 @@ namespace WhiteDragon.Ledger {
         public StoreCalendar storeCalendar = new StoreCalendar();
         public bool isAboutToStartMainDialog;
     }
-    public class DialogUIManager {
+    public partial class DialogUIManager {
         public List<DialogChoiceBubble> dialogChoiceBubbles=new List<DialogChoiceBubble>();
         public static DialogUIManager Instance;
         public Label clientNameTMP;
@@ -528,6 +528,7 @@ namespace WhiteDragon.Ledger {
             ReplayBargain();
             ReplayPhone();
             ReplayHealth();
+            ReplayReport();
             ReplayScenes();
             ReplayScratchCard();
             ReplayJourney();

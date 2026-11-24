@@ -37,6 +37,14 @@ def record(db, head, rev, event):
                     for item, row in changes.items()))
 
 
+def visible_stock(payload):
+    row = json.loads(payload)
+    # Historical revisions also contain private stock-filter columns.
+    row.pop("trade_contraband", None)
+    row.pop("contraband", None)
+    return row
+
+
 def snapshot(db, gen, rev, name=None, area=None, owned=None):
     filters = ["payload IS NOT NULL"]
     args = [gen, rev]
@@ -50,7 +58,7 @@ def snapshot(db, gen, rev, name=None, area=None, owned=None):
     rows = db.execute("""SELECT payload FROM (
         SELECT item,payload,MAX(rev) FROM book_changes WHERE gen=? AND rev<=? GROUP BY item
         ) WHERE """ + " AND ".join(filters) + " ORDER BY item", args)
-    return [json.loads(row[0]) for row in rows]
+    return [visible_stock(row[0]) for row in rows]
 
 
 def delta(db, gen, since, rev):
@@ -63,11 +71,11 @@ def delta(db, gen, since, rev):
                              (gen, item, at)).fetchone()
             return row[0] if row else None
         old, new = value(since), value(rev)
-        if old != new:
+        if old != new and (not old or not new or visible_stock(old) != visible_stock(new)):
             if new is None:
                 removed.append(item)
             else:
-                upserts.append(json.loads(new))
+                upserts.append(visible_stock(new))
     return upserts, removed
 
 

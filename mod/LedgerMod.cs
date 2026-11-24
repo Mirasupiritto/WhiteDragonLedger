@@ -251,6 +251,7 @@ namespace WhiteDragon.Ledger
             CheckMachineWait();
             CheckMove();
             CheckOrder();
+            CheckReport();
             CheckCounter();
             TickReception();
         }

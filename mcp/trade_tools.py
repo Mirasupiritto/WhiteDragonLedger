@@ -45,7 +45,7 @@ def context(view):
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
     for key in ("client_role", "offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
-                "forced_choice", "forced_choice_reason", "wanted_name_match", "story_branch", "consequence_hint", "consequence", "table_items"):
+                "forced_choice", "forced_choice_reason", "wanted_name_match", "poster_match", "story_branch", "consequence_hint", "consequence", "table_items"):
         if key in desk:
             result[key] = desk[key]
     if isinstance(desk.get("reception"), dict) and "token" in desk["reception"]:
@@ -219,6 +219,22 @@ class Updates:
 def register(server, folder, database):
     tracker = Updates(folder, database)
     server.updates = tracker
+
+    @server.tool()
+    def report_client(mode: Literal["read","report"] = "read", visit: str | None = None,
+                      report_token: str | None = None, generation: str | None = None,
+                      revision: int | None = None) -> dict:
+        """Read the visible alarm or press it with the current visit, token, generation and revision.
+        Read again with the reported visit until arrest_finished. Compare feedback_box before and after."""
+        if mode == "read":
+            view = counter.context(folder)
+            if view["status"] != "observed":
+                return view
+            return counter.command(folder, "report_client", generation or view["generation"], view["revision"],
+                                   mode=mode, visit=visit or view.get("visit"), read_id=uuid4().hex)
+        if not (generation and revision and visit and report_token):
+            raise ValueError("Report requires generation, revision, visit and report_token from read")
+        return counter.command(folder, "report_client", generation, revision, mode=mode, visit=visit, report_token=report_token)
 
     @server.tool()
     def bargain(mode: Literal["read","offer"], generation: str, revision: int, visit: str,

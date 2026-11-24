@@ -48,6 +48,28 @@ namespace WhiteDragon.Ledger
             view["next_action"]="player_visual_check";
         }
 
+        private void AttachPosterMatch(JObject view)
+        {
+            view["report_protocol"]=1;
+            var avatar=StoreUIManager.Instance?.clientGameObject;
+            if (merchant==null || !PlayerStore.Instance.isClientArrived || avatar?.image==null ||
+                !avatar.image.enabled || !avatar.gameObject.activeInHierarchy) return;
+            var portrait=avatar.image.sprite;
+            var sprites=SpriteDict.Instance?.spriteDictionary;
+            if (portrait==null || sprites==null) return;
+            // WantedElement registers the poster ID. The native wanted portraits use those
+            // same keys in SpriteDict. Compare the rendered sprite, including scene overrides.
+            foreach (string id in StoreClientListWanted.POSTER_IDS)
+            {
+                if (!PosterData.TryGetValue(id,out var poster) || !sprites.TryGetValue(id,out var expected) ||
+                    portrait!=expected) continue;
+                view["poster_match"]=new JObject { ["poster_id"]=id, ["name"]=LocHelper.GetLocalizedClientName(poster.name),
+                    ["bounty"]=poster.bounty, ["arrested"]=PlayerStore.Instance.wantedStatus.TryGetValue(id,out int status) && status==1 };
+                view["next_action"]="report_decision";
+                return;
+            }
+        }
+
         private static JObject SecurityView()
         {
             var shop=EmporiumEntry.Instance;
