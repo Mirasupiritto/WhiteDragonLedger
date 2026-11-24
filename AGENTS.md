@@ -49,6 +49,7 @@
 - 用 `item_menu(mode="read")` 看物品的原生右鍵選項。帶上一個 `menu_token` 可看變動；實際選擇用當前物品的 token 和啟用的 `verb`。工具能作用於多件候選貨時，用 `mode="targets"` 和 `target_ids` 先試配，這一步只預覽。選定後用 `mode="choose"`、`verb="use"` 與 `target_id`，或依回執改走指定流程。
 - 用物品**自己的當局編號**作為 `inspect_item_window` 的 `owner_id`，需開窗時帶 `open_if_closed=True`。讀 `window.document`、槽位容量、可見控制項及 `window_token`。例如先讀化學手冊的可讀頁，按實驗設備當頁標明的配方放料，先核對容器是否到位，再操作。從同一槽批次存取用 `transfer_slot_items`，指定回執的 `control` 和 `window_token`。從槽取出帶 `source="slot"`，放入帶實際來源 `inventory` 或 `showcase`，逐件檢查實到數量。
 - 按鈕、單選與分頁用 `press_machine_button`，換頁帶當頁給出的標題與從 0 起算的 `tab_index`。滑桿用 `adjust_machine_control` 傳 `values=[數值]`，範圍滑桿傳 `[下限, 上限]`，再讀遊戲實際套用的值。化學成型機的輸出按鈕支援 `quantity` 1 至 64，對照 `produced` 和停止原因取貨。
+- 化學蒸發後段可用 `chem_finish` 串接：從蒸發器取出容器、用光譜儀確認沒有水或酒精殘留、放進成型機、在 `chemical_finisher` 面板依 `recipe_id` 選配方、批次輸出、收回庫存並抽檢純度與分級（`purity`、`grade`），有指定 `stash_ids` 或 `stash_count` 時再放進走私暗格；中途任一步失敗即停下並回報容器位置。蒸發器視窗也會回報電池電量、容器液量主成分與 `distillate_capture` 條件。
 - 回執指向 `item_panel` 時先讀第二層面板。用當頁 `panel_token` 和啟用的 `control` 操作，結果和新 token 見 `after`。遇 `select_panel` 就從 `panels` 選名稱，以 `panel` 指定要讀哪一張，再依可用控制聚焦或關閉。遇 `dedicated_panel` 看 `next`。若掃描後需回同一位客人的交易平板，用 `reopen_trade_tablet` 帶當次 `visit`。
 - 水務可用 `inspect_purifiers` 查瓶貼、電力及微型淨水器耐久。用 `water_use` 裝水時以容器為 `source_id`、`"faucet"` 為 `target_id`；手持淨水器則以機器為來源、瓶子為目標。裝水、淨化、試紙可用 `apply_now`，排水、倒水、藥片與口糧先 `preview` 再 `apply`。試紙與藥片須先從容器取出單件。水商依瓶貼和讀值配貨，其他專精也可以按需求操作水務設備。
 
