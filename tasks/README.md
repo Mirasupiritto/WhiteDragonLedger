@@ -11,8 +11,9 @@
 | [C](C-風險與劇情資訊.md) | 證據等級、通緝名單、存檔資訊、劇情分支提示 | 第二輪（誰先做完誰接） | `task/c-risk` |
 | [D](D-化學家流程.md) | 成型機按名稱選配方、蒸發器狀態、純度估價、`chem_finish` | 大白龍 | `task/d-chem` |
 | [E](E-回執精簡與錯誤原因.md) | 回執減重、舊 token 與錯誤附原因 | 第二輪 | `task/e-receipts` |
+| [F](F-健康與致命義務.md) | 成癮、哨兵注射、勒索封口費、遊戲結束偵測 | Codex | `task/f-health` |
 
-C 和 E 都會動到 `mod/Counter.cs`，不要同時做這兩包。
+C 和 E 都會動到 `mod/Counter.cs`，不要同時做這兩包。C 和 F 都會動到 `mod/ShopDay.cs`，同一個人依序做，後做的從先做的分支接著開。
 
 ## 共同規則
 
