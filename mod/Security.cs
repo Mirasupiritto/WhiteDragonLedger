@@ -70,15 +70,16 @@ namespace WhiteDragon.Ledger
             }
         }
 
-        private static JObject SecurityView()
+        private static JObject ContrabandCounts(bool includeCounter=false)
         {
             var shop=EmporiumEntry.Instance;
             var counts=new JObject { ["inventory"]=0, ["showcase"]=0, ["smuggler_bay"]=0 };
-            void Count(GameInventory inventory,string area)
+            void Count(GameInventory inventory,string area, bool ownedOnly=false)
             {
                 if (inventory==null) return;
                 foreach (var root in inventory.childItems)
                 {
+                    if (ownedOnly && !GeneralHelper.IsItemEffectivelyOwned(root)) continue;
                     var items=root.FindAllChildItems();
                     items.Add(root);
                     var hidden=new HashSet<GameItem>(items.Where(ContrabandHelper.IsSmugglerBay)
@@ -92,8 +93,19 @@ namespace WhiteDragon.Ledger
             }
             Count(shop.invElement,"inventory");
             Count(shop.showcaseElement,"showcase");
+            if (includeCounter)
+            {
+                counts["on_counter"]=0;
+                Count(shop.frontInvinvElement,"on_counter",true);
+                Count(shop.backInvinvElement,"on_counter",true);
+            }
+            return counts;
+        }
+
+        private static JObject SecurityView()
+        {
             var sec=PlayerStore.Instance.secData;
-            var result=new JObject { ["contraband"]=counts };
+            var result=new JObject { ["contraband"]=ContrabandCounts() };
             if (sec!=null)
             {
                 result["evidence_level"]=sec.evidenceLevel;

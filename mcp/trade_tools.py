@@ -45,16 +45,29 @@ def context(view):
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
     for key in ("client_role", "offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
-                "forced_choice", "forced_choice_reason", "wanted_name_match", "poster_match", "story_branch", "consequence_hint", "consequence", "counter_request", "barter", "stale_during_speech", "table_items"):
+                "forced_choice", "forced_choice_reason", "wanted_name_match", "poster_match", "story_branch", "consequence_hint", "consequence", "counter_request", "inspection_exposure", "heat", "barter", "stale_during_speech", "table_items"):
         if key in desk:
             result[key] = desk[key]
     if isinstance(desk.get("reception"), dict) and "token" in desk["reception"]:
         result["reception_token"] = desk["reception"]["token"]
     if bottles:
-        result["seller_water"] = {"count":len(bottles), "bottles":bottles}
-        if any("capacity_ml" not in row for row in bottles):
-            result["seller_water"]["capacity_status"] = "reload_updated_mod"
+        result["seller_water"] = {"count":len(bottles), "ids":[row["id"] for row in bottles]}
     return result
+
+
+def group_bargain_options(options):
+    groups = {}
+    for opt in options:
+        group = groups.setdefault(opt["type"], {k:opt[k] for k in ("type","uses_roll","crime","reputation_faction")})
+        for key, value in (("percents", opt["percent"]), ("leave_chance", opt["leave_chance"]),
+                           ("success_chance", opt["success_chance"]), ("buy_factor", opt["offer_price_factors"]["buy"]),
+                           ("sell_factor", opt["offer_price_factors"]["sell"]), ("reputation_buy", opt["reputation_multipliers"]["buy"]),
+                           ("reputation_sell", opt["reputation_multipliers"]["sell"])):
+            group.setdefault(key, []).append(value)
+        for key in ("budget_cut_percent","budget_increase_percent"):
+            if key in opt:
+                group.setdefault(key, []).append(opt[key])
+    return list(groups.values())
 
 
 def summarize_offer(payload, *, verbose=False):
@@ -89,8 +102,6 @@ def summarize_offer(payload, *, verbose=False):
         "categories": list(grouped.values()),
         "summary_only": True,
     }
-    if isinstance(out.get("seller_water"), dict):
-        out["seller_water"] = {"count": out["seller_water"].get("count", 0), "summary_only": True}
     return out
 
 
@@ -147,7 +158,6 @@ class Updates:
         self.folder = folder
         self.database = database
         self.cursor = None
-        self._seen_finished_heat = set()
 
     def report(self, since=None, full=False):
         view = shopdesk.published(self.folder)
@@ -166,14 +176,9 @@ class Updates:
                       latest_line=(desk.get("lines") or [None])[-1], can_ring=desk["reception"].get("can_ring"),
                       can_dismiss=desk["reception"].get("can_dismiss"), can_open_shop=desk.get("can_open_shop"))
         if "heat" in desk:
-            h = desk["heat"]
-            if h.get("status") == "running":
-                fields["heat"] = h
-            else:
-                key = (str(self.folder), gen, h.get("run_id"), h.get("status"))
-                if key not in self._seen_finished_heat:
-                    fields["heat"] = h
-                    self._seen_finished_heat.add(key)
+            notified = counter.filter_finished_heat(self.database, {"generation":gen, "heat":desk["heat"]})
+            if "heat" in notified:
+                fields["heat"] = notified["heat"]
         fields["page"] = desk.get("page")
         encoded = json.dumps(fields, sort_keys=True, ensure_ascii=False)
         token = f"{gen}:{rev}:{hashlib.sha256(encoded.encode()).hexdigest()[:24]}"
@@ -239,8 +244,8 @@ def register(server, folder, database):
 
     @server.tool()
     def bargain(mode: Literal["read","offer"], generation: str, revision: int, visit: str,
-                type: str | None = None, percent: int | None = None, bargain_token: str | None = None) -> dict:
-        """Read native buttons, chances, budget effects, trade reputation multipliers and the actual table quote. Offer one listed type/percent
+                type: str | None = None, percent: int | None = None, bargain_token: str | None = None, verbose: bool = False) -> dict:
+        """Read options grouped by type (verbose=True for individual buttons), chances, budget effects, trade reputation multipliers and the actual table quote. Offer one listed type/percent
         with its bargain_token. After bargain_pending, read with the same visit and current revision until the dialogue settles."""
         args = dict(visit=visit, mode=mode)
         if mode == "read":
@@ -249,7 +254,10 @@ def register(server, folder, database):
             if not type or percent is None or not bargain_token:
                 raise ValueError("Offer needs a listed type, percent and bargain_token")
             args.update(type=type, percent=percent, bargain_token=bargain_token)
-        return counter.command(folder,"bargain",generation,revision,**args)
+        result = counter.command(folder,"bargain",generation,revision,**args)
+        if mode == "read" and not verbose and "options" in result:
+            result = {**result, "options": group_bargain_options(result["options"])}
+        return result
 
     @server.tool()
     def get_shop_updates(since: str | None = None, full: bool = False) -> dict:
@@ -266,7 +274,7 @@ def register(server, folder, database):
         if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
             counter.wait_choices_ready(folder, ctx)
             ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
-        return counter.filter_finished_heat(folder, summarize_offer(ctx, verbose=verbose))
+        return counter.filter_finished_heat(database, summarize_offer(ctx, verbose=verbose))
 
     @server.tool()
     def wait_for_shop_event(event: Literal["goods_offered","next_customer_available","opening_finished"],

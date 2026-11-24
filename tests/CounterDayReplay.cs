@@ -40,6 +40,11 @@ namespace WhiteDragon.Ledger
             talk.dialogChoiceBubbles.Add(option);
             var view = CounterView();
             Expect(view["wanted_name_match"]==null && view["consequence"]==null && view["story_branch"]==null,"ordinary choice omits story hints");
+            option.TMP.text="[接受盘查。]";
+            var exposure=CounterView()["inspection_exposure"];
+            Expect(exposure["on_counter"]!=null && JToken.DeepEquals(exposure["inventory"],SecurityView()["contraband"]["inventory"]),
+                "visible inspection choice shows current stock exposure");
+            option.TMP.text="Trade";
             merchant.identifier="cartelHandlerWeekly";
             Expect((string)CounterView()["consequence"]=="unknown","unresolved cartel choice marked for player");
             merchant.displayName="name_odin"; merchant.identifier="cartelSec";
@@ -80,7 +85,10 @@ namespace WhiteDragon.Ledger
             request["choice_id"]=responses["response_choices"][0]["id"];
             store.currentClientInstance=new StoreClientInstance();
             Expect(ActAtCounter(request,reply)=="customer_replaced" && paper.responseClicks==0,"changed visit reports customer_replaced");
+            Expect((string)CounterView()["client_role"]=="buyer_seller","water buyer also offers stock");
+            merchant.isClientBuying=false;
             Expect((string)CounterView()["client_role"]=="seller","selling client reports client_role seller");
+            merchant.isClientBuying=true;
             merchant.isClientSelling=false;
             Expect((string)CounterView()["client_role"]=="buyer","buying client reports client_role buyer");
             merchant.isClientBuying=false;

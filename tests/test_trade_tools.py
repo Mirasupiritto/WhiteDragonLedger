@@ -42,6 +42,14 @@ class TradeTools(unittest.TestCase):
         self.write(f"desk-{self.generation}.json", self.view)
         self.write("scene.json",dict(status="ready",location="pawnshop",slot=4,session="test",revision=1))
 
+    def test_group_bargain_percentages(self):
+        options = [dict(type="BuyingDiscount", percent=p, uses_roll=True, crime=False, reputation_faction="FACTION_LOWER_LEVEL",
+                        leave_chance=leave, success_chance=success, offer_price_factors=dict(buy=buy, sell=1),
+                        reputation_multipliers=dict(buy=rep, sell=1)) for p,leave,success,buy,rep in
+                   [(10,0,95,0.9,-0.5),(25,15,65,0.75,-1.5)]]
+        group, = trade_tools.group_bargain_options(options)
+        self.assertEqual((group["percents"],group["buy_factor"],group["reputation_buy"]),([10,25],[0.9,0.75],[-0.5,-1.5]))
+
     def test_background_heat_returns_only_transitions_at_same_revision(self):
         updates = trade_tools.Updates(self.folder, self.db)
         updates.report()
@@ -130,7 +138,7 @@ class TradeTools(unittest.TestCase):
             r = trade_tools.wait_event(self.folder,"goods_offered",0)
             self.assertEqual(r["customer_line"], "星際客｜我要買水｜剩餘 114")
             self.assertEqual(r["next_action"],"可以報價")
-            self.assertEqual(r["seller_water"]["bottles"][0]["capacity_ml"],500)
+            self.assertEqual(r["seller_water"],{"count":1,"ids":[27]})
             self.counter.update(stage="choice_required",quote_ready=False)
             self.assertEqual(trade_tools.wait_event(self.folder,"opening_finished",0)["reason"],"input_needed")
             self.counter.update(stage="speaking")

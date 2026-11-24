@@ -93,13 +93,18 @@ class CounterFlow(unittest.TestCase):
         self.assertEqual(counter.command(self.folder, "item_panel", self.generation, 2, mode="read"), exchange.return_value)
 
     def test_finished_heat_shown_once_in_counter_receipts(self):
-        counter._seen_finished_heat.clear()
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            database = Path(tmp) / "ledger.sqlite3"
+            self.check_heat_receipts(database)
+
+    def check_heat_receipts(self, database):
         running = {"generation": self.generation, "heat": {"run_id": "r1", "status": "running"}}
-        self.assertIn("heat", counter.filter_finished_heat(self.folder, running))
-        self.assertIn("heat", counter.filter_finished_heat(self.folder, running))
+        self.assertIn("heat", counter.filter_finished_heat(database, running))
+        self.assertIn("heat", counter.filter_finished_heat(database, running))
         finished = {"generation": self.generation, "heat": {"run_id": "r1", "status": "finished"}}
-        first = counter.filter_finished_heat(self.folder, finished)
-        second = counter.filter_finished_heat(self.folder, finished)
+        first = counter.filter_finished_heat(database, finished)
+        second = counter.filter_finished_heat(database, finished)
         self.assertEqual(first["heat"]["status"], "finished")
         self.assertNotIn("heat", second)
 
@@ -470,8 +475,20 @@ class CounterFlow(unittest.TestCase):
 
             leaving = dict(self.view, stage="customer_departing", visit=None, next_action="上一位客人正在離場，等候即可。")
             with patch("counter.context", return_value=leaving), patch("counter.ring") as ring:
-                self.assertEqual(call("next_customer")["status"], "customer_departing")
+                self.assertEqual(call("next_customer",timeout=0)["status"], "customer_departing")
                 ring.assert_not_called()
+            with (patch("counter.context", side_effect=[leaving, dict(leaving, stage="idle", waiting=1)]),
+                  patch("counter.ring", return_value={"status":"called","visit":self.visit}) as ring):
+                self.assertEqual(call("next_customer")["status"], "called")
+                ring.assert_called_once()
+            heated = dict(leaving, heat={"run_id":"344261ba","status":"stopped"})
+            with patch("counter.context",return_value=heated), patch("counter.ring",return_value=heated):
+                self.assertIn("heat", call("next_customer", timeout=0))
+                self.assertNotIn("heat", call("ring_customer", generation=self.generation, revision=6, waiting=1))
+                server = FastMCP("reconnected")
+                register_pawnshop_tools(server, folder, folder / "ledger.sqlite")
+                with patch("shopdesk.published",return_value={"status":"waiting_for_load"}):
+                    self.assertNotIn("heat", call("get_counter"))
             incoming = dict(self.view, visit="new", customer="新客", stage="arriving")
             with patch("counter.context", return_value=incoming), patch("counter.command", return_value={"status": "dismissed", "visit": self.visit}):
                 handoff = call("finish_customer", generation=self.generation, revision=6, visit=self.visit)
