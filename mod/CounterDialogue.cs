@@ -68,6 +68,15 @@ namespace WhiteDragon.Ledger
             view["page"] = pageToken;
             foreach (string name in new[] { "dialog_choices", "response_choices" })
                 if (decision[name] != null) view[name] = decision[name].DeepClone();
+            if (stage == "choice_required")
+            {
+                if (merchant?.identifier == "cartelSec")
+                {
+                    view["story_branch"]=true;
+                    view["consequence_hint"]="舉報會排入卡特爾接頭人的後續來訪；不舉報則讓警官離開。請玩家決定。";
+                }
+                else view["consequence"]="unknown";
+            }
             if (stage == "choice_required" && merchant?.identifier == "radioactiveWasteCustomer")
             {
                 view["forced_choice"] = true;

@@ -24,7 +24,7 @@
 
 ## 一位客人從進門到離店
 
-1. 到約定的營業時間，用 `open_shop` 開門，`next_customer` 叫鈴、等開場並取得來客狀態。客人已在場時，沿用回執的 `visit` 和 `stage`。需要細讀開場、選項或平板時，用 `get_trade_context`；大貨單帶 `verbose=True` 取逐項明細。對話用目前的 `page` 和回執提供的選項 ID；若標示 `forced_choice: true`，先看後果，再按本局安排處理。
+1. 到約定的營業時間，用 `open_shop` 開門，`next_customer` 叫鈴、等開場並取得來客狀態。客人已在場時，沿用回執的 `visit` 和 `stage`。若回 `wanted_name_match`，請玩家比對通緝照；`story_branch` 請玩家看過後果後決定。需要細讀開場、選項或平板時，用 `get_trade_context`；大貨單帶 `verbose=True` 取逐項明細。對話用目前的 `page` 和回執提供的選項 ID；若標示 `forced_choice: true`，先看後果，再按本局安排處理。
 2. 按平板顯示的需求、限制及剩餘預算配貨。買家沒有顯示標籤時仍要看限制，例如 `exclude_contraband`。用 `find_stock(owned=True, ...)` 找合條件的貨。遇「種類多樣」，按 `kind_groups` **每個原生 `kind` 只放一件**，同一位客人買過的種類先收起來。查 `WATER` 會含空容器，配已裝水的貨要看 `water_ml`、`contains_water` 或瓶貼。
 3. 按當次交易類型下單，並以實際回執核算成本與庫存。
 
@@ -66,6 +66,8 @@
 - `mode="stop"` 必帶該次工作回傳的 `run_id`。收到 `already_running`，先看既有工作的狀態；遇 `manual_override`、`vessel_changed`、`target_unavailable` 或 `off_unconfirmed`，回查原生視窗確認容器與實際模式再繼續。原設定或容器由玩家改動時，先確認玩家的安排。以 `finished` 或 `stopped` 和 `mode_index` 核對這次工作的結束。
 
 ## 打烊、過夜與外出
+
+用 `get_shop_status(verbose=True)` 查看證據、違禁品分區件數、通緝名單和 `last_save`。過夜後遊戲先進入次日早晨才存檔。
 
 - 打烊前看剩餘客數及檯上留貨，用目前的 `reception_token` 呼叫 `close_shop`。若需要提前打烊，按回執核對剩餘客數和玩家交代，再以 `confirm_remaining` 確認。歇業後可以留店收貨、外出或睡覺。
 - 要過夜時，用當天 `bill_token` 呼叫 `prepare_sleep` 查帳單；需要時用 `night_service` 調整服務。沿用最新憑證和帳單的 `service_cost` 呼叫 `sleep`。回 `awaiting_report` 時等當晚報告，改查店況及日數確認進度。收到報告，核對租金、垃圾、服務費、餘額與 `alerts`，並留意下次到期日、傷勢及保險。若通緝警示關係到來客身分，交給玩家鑑定。

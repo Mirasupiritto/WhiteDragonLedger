@@ -108,6 +108,7 @@ namespace WhiteDragon.Ledger
                 });
             if (backTableItems.Count > 0) view["table_items"] = backTableItems;
             ObserveDecision(stage, view);
+            AttachWantedMatch(view);
             if (phase == "OPEN") view["waiting"] = store.GetClientInQueueCount();
             if (stage == "information")
                 ObserveInformationReceipt(view);

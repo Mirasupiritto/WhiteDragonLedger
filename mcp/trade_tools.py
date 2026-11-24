@@ -43,7 +43,7 @@ def context(view):
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
     for key in ("offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
-                "forced_choice", "forced_choice_reason", "table_items"):
+                "forced_choice", "forced_choice_reason", "wanted_name_match", "story_branch", "consequence_hint", "consequence", "table_items"):
         if key in desk:
             result[key] = desk[key]
     if isinstance(desk.get("reception"), dict) and "token" in desk["reception"]:
@@ -218,7 +218,7 @@ def register(server, folder, database):
 
     @server.tool()
     def get_trade_context(verbose: bool = False) -> dict:
-        """Read the customer, budget, tablet requirements, quote, offered water, mandatory forced_choice warnings, and any page awaiting a choice.
+        """Read the customer, budget, tablet requirements, quote, offered water, wanted name matches, story consequences, forced_choice warnings, and any page awaiting a choice.
         Supplier offers with >5 items return a category/count/total summary unless verbose=True."""
         ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
         if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
