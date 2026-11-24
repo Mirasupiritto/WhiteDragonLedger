@@ -1,4 +1,5 @@
-"""One local mailbox per load. Only the Unity game thread may confirm a transfer."""
+"""One local mailbox per load. Only the Unity game thread may confirm a transfer.
+Trade table (back) moves are allowed during ready, barter, or an unlocked dialogue choice stage for owned goods."""
 import json
 import re
 from pathlib import Path
