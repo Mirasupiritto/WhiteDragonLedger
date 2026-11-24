@@ -80,6 +80,18 @@ namespace WhiteDragon.Ledger
             request["choice_id"]=responses["response_choices"][0]["id"];
             store.currentClientInstance=new StoreClientInstance();
             Expect(ActAtCounter(request,reply)=="customer_replaced" && paper.responseClicks==0,"changed visit reports customer_replaced");
+            Expect((string)CounterView()["client_role"]=="seller","selling client reports client_role seller");
+            merchant.isClientSelling=false;
+            Expect((string)CounterView()["client_role"]=="buyer","buying client reports client_role buyer");
+            merchant.isClientBuying=false;
+            Expect((string)CounterView()["client_role"]=="dialogue","non-trading client reports client_role dialogue");
+            merchant.clientIntent=StoreClient.ClientIntent.BARTER;
+            Expect((string)CounterView()["client_role"]=="barter","barter client reports client_role barter");
+            merchant.clientIntent=StoreClient.ClientIntent.GUNSMITH;
+            Expect((string)CounterView()["client_role"]=="service","service client reports client_role service");
+            merchant.clientIntent=StoreClient.ClientIntent.MERCHANT;
+            merchant.isClientSelling=true;
+            merchant.isClientBuying=true;
             request["visit"]=visitId;
             request["page"]=CounterView()["page"];
             shop.responseWindow.visible=false;

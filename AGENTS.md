@@ -15,7 +15,7 @@
 
 ## 接手店面與查帳
 
-- 用 `get_scene` 核對場景與存檔欄位。工具若回 `tool_status="unavailable_in_scene"`，確認目前畫面及轉場進度。當鋪內先讀一次 `get_shop_updates` 建立庫存基準並記下 `cursor`，之後看操作回執內的變動。重連可帶 `since=cursor`；重新讀檔後以新的 `generation` 和當局物品編號為準。
+- 用 `get_scene` 核對場景與存檔欄位。工具若回 `tool_status="unavailable_in_scene"`，確認目前畫面及轉場進度。當鋪內先讀一次 `get_shop_updates` 建立庫存基準並記下 `cursor`，之後看操作回執內的變動。重連可帶 `since=cursor`；重新讀檔後以新的 `generation` 和當局物品編號為準。非庫存工具遇到 `cursor_reset` 時，`shop_update` 只回件數、現金與日數摘要，需要完整基準時再呼叫 `get_shop_updates`。
 - 用 `get_shop_status` 看日數、營業、房租、垃圾、夜間服務、傷勢與店鋪狀況。店況、`get_counter` 或 `query_inventory` 有時省略未變動的日曆、垃圾與睡眠欄位，要看完整資訊就帶 `verbose=True`。用 `query_inventory` 依名稱、位置和所有權找貨，`find_stock` 依原生分類、種類、限制和瓶貼配貨，`get_stock_items` 查一批當局物品編號。
 - 用 `get_shop_ledger(slot=目前欄位)` 接手舊局。帶 `inventory=True` 可讀該欄位最後入帳的庫存，即使遊戲已關閉。實際出貨以前用遊戲當前位置與所有權核對。
 - 遇未完交易、插話或 `sale_pending`，用原 `ticket_id` 查原工具、參數及最新回執。核對是否仍為同一位客人、原單是否已成交，以及還有哪些步驟。恢復交易回執時沿用原工具的相同參數，避免另開一單；`replayed: true` 代表取回既有結果。若回 `outcome_unknown` 或 `reason="receipt_corrupt"`，先核對帳本、現金、貨物及櫃檯。若此時仍無法確定結果，先停下該單。

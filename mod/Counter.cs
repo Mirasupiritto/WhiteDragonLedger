@@ -83,12 +83,36 @@ namespace WhiteDragon.Ledger
                 store.lockShutterButtonFlag <= 0 && !store.isClientBeingArrested && !store.isHandlingShootout && store.CanStartDay();
         }
 
+        private string ClientRole()
+        {
+            if (merchant == null) return null;
+            if (merchant.barterOffer != null || merchant.clientIntent == StoreClient.ClientIntent.BARTER) return "barter";
+            if (merchant.clientIntent == StoreClient.ClientIntent.DIALOGUE) return "dialogue";
+            switch (merchant.clientIntent)
+            {
+                case StoreClient.ClientIntent.INFORMATION_DEALER:
+                case StoreClient.ClientIntent.APPRAISAL_SERVICE:
+                case StoreClient.ClientIntent.EXPEDITION:
+                case StoreClient.ClientIntent.GUNSMITH:
+                case StoreClient.ClientIntent.INSPECTION:
+                case StoreClient.ClientIntent.LOAN_SHARK:
+                case StoreClient.ClientIntent.PROCUREMENT_COLLECT:
+                case StoreClient.ClientIntent.PROCUREMENT_OFFER:
+                case StoreClient.ClientIntent.RENT:
+                    return "service";
+            }
+            if (merchant.IsClientSelling()) return "seller";
+            if (merchant.IsClientBuying()) return "buyer";
+            return "dialogue";
+        }
+
         private JObject CounterView()
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
             var view = new JObject { ["stage"] = stage, ["heat_control_protocol"]=1, ["machine_wait_protocol"]=1, ["chemist_protocol"]=1, ["item_panel_protocol"]=1, ["item_menu_protocol"]=1, ["inventory_sort_protocol"]=1, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
+            if (ClientRole() is string clientRole) view["client_role"] = clientRole;
             if (heatRun != null || lastHeat != null) view["heat"] = (heatRun?.Summary ?? lastHeat).DeepClone();
             if (stage=="barter_unsupported")
             {

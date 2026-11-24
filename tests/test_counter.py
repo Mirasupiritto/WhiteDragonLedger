@@ -92,6 +92,17 @@ class CounterFlow(unittest.TestCase):
         exchange.return_value = {"status": "unchanged"}
         self.assertEqual(counter.command(self.folder, "item_panel", self.generation, 2, mode="read"), exchange.return_value)
 
+    def test_finished_heat_shown_once_in_counter_receipts(self):
+        counter._seen_finished_heat.clear()
+        running = {"generation": self.generation, "heat": {"run_id": "r1", "status": "running"}}
+        self.assertIn("heat", counter.filter_finished_heat(self.folder, running))
+        self.assertIn("heat", counter.filter_finished_heat(self.folder, running))
+        finished = {"generation": self.generation, "heat": {"run_id": "r1", "status": "finished"}}
+        first = counter.filter_finished_heat(self.folder, finished)
+        second = counter.filter_finished_heat(self.folder, finished)
+        self.assertEqual(first["heat"]["status"], "finished")
+        self.assertNotIn("heat", second)
+
     def setUp(self):
         self.generation = "b" * 32
         self.visit = "a" * 32

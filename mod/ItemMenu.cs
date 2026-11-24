@@ -65,6 +65,25 @@ namespace WhiteDragon.Ledger
             return CanUseOnItem(source,target) ? "available" : "target_blocked";
         }
 
+        private string RefreshMenuToken(bool seen, bool same, JObject view, JObject options, JObject receipt)
+        {
+            if (seen && same && !itemMenuUsed) return null;
+            bool optionsChanged = seen && !itemMenuUsed && previousItemMenu != null &&
+                !JToken.DeepEquals(previousItemMenu["options"], options);
+            string reason = optionsChanged ? "options_changed"
+                : !seen ? "token_expired"
+                : itemMenuUsed ? "token_already_used"
+                : "state_changed";
+            itemMenuToken = Guid.NewGuid().ToString("N");
+            itemMenuUsed = false;
+            previousItemMenu = view;
+            receipt["menu_token"] = itemMenuToken;
+            receipt["enabled"] = options["enabled"];
+            receipt["labels"] = options["labels"];
+            receipt["reason"] = reason;
+            return optionsChanged ? "menu_changed" : "stale_menu_token";
+        }
+
         private string ItemMenuAction(JObject request, JObject receipt)
         {
             int id = (int)request["item_id"];
@@ -111,7 +130,7 @@ namespace WhiteDragon.Ledger
             }
             if ((string)request["mode"] == "targets")
             {
-                if (!seen || !same || itemMenuUsed) return "menu_changed";
+                if (RefreshMenuToken(seen, same, view, options, receipt) is string staleStatus) return staleStatus;
                 if (!options["enabled"].Values<string>().Contains("use")) return "option_unavailable";
                 if (!(request["target_ids"] is JArray candidates) || candidates.Count==0 || candidates.Count>64 ||
                     candidates.Any(n=>n.Type!=JTokenType.Integer || (long)n<=0 || (long)n>int.MaxValue)) return "invalid_targets";
@@ -128,7 +147,7 @@ namespace WhiteDragon.Ledger
                 return "observed";
             }
             if ((string)request["mode"] != "choose") return "invalid_action";
-            if (!seen || !same || itemMenuUsed) return "menu_changed";
+            if (RefreshMenuToken(seen, same, view, options, receipt) is string chooseStale) return chooseStale;
             string verb = (string)request["verb"];
             if (!options["enabled"].Values<string>().Contains(verb)) return "option_unavailable";
             if (Interactable.isPaused || GeneralHelper.IsItemLocked(item) || PlayerStore.Instance.lockAllInventoryFlag != 0 ||

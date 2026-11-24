@@ -44,7 +44,7 @@ def context(view):
         result["next_action"] = desk["next_action"]
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
-    for key in ("offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
+    for key in ("client_role", "offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
                 "forced_choice", "forced_choice_reason", "wanted_name_match", "story_branch", "consequence_hint", "consequence", "table_items"):
         if key in desk:
             result[key] = desk[key]
@@ -147,6 +147,7 @@ class Updates:
         self.folder = folder
         self.database = database
         self.cursor = None
+        self._seen_finished_heat = set()
 
     def report(self, since=None, full=False):
         view = shopdesk.published(self.folder)
@@ -165,7 +166,14 @@ class Updates:
                       latest_line=(desk.get("lines") or [None])[-1], can_ring=desk["reception"].get("can_ring"),
                       can_dismiss=desk["reception"].get("can_dismiss"), can_open_shop=desk.get("can_open_shop"))
         if "heat" in desk:
-            fields["heat"] = desk["heat"]
+            h = desk["heat"]
+            if h.get("status") == "running":
+                fields["heat"] = h
+            else:
+                key = (str(self.folder), gen, h.get("run_id"), h.get("status"))
+                if key not in self._seen_finished_heat:
+                    fields["heat"] = h
+                    self._seen_finished_heat.add(key)
         fields["page"] = desk.get("page")
         encoded = json.dumps(fields, sort_keys=True, ensure_ascii=False)
         token = f"{gen}:{rev}:{hashlib.sha256(encoded.encode()).hexdigest()[:24]}"
@@ -240,7 +248,7 @@ def register(server, folder, database):
         if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
             counter.wait_choices_ready(folder, ctx)
             ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
-        return summarize_offer(ctx, verbose=verbose)
+        return counter.filter_finished_heat(folder, summarize_offer(ctx, verbose=verbose))
 
     @server.tool()
     def wait_for_shop_event(event: Literal["goods_offered","next_customer_available","opening_finished"],

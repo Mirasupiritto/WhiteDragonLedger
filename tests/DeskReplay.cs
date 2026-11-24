@@ -159,7 +159,7 @@ namespace WhiteDragon.Ledger {
         }
     }
     public partial class StoreClient {
-        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER, DIALOGUE }
+        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER, DIALOGUE, APPRAISAL_SERVICE, EXPEDITION, GUNSMITH, INSPECTION, LOAN_SHARK, PROCUREMENT_COLLECT, PROCUREMENT_OFFER, RENT }
         public ClientIntent clientIntent;
         public BarterOffer barterOffer;
         public bool isIntroduced;
@@ -174,8 +174,10 @@ namespace WhiteDragon.Ledger {
         public int GetBudget() => budget;
         public object mainDialogue;
         public bool isMainDialogueStarted, isRegularSellDisable, isMultiBuyDisabled;
-        public bool IsClientSelling() => true;
-        public bool IsClientBuying() => true;
+        public bool isClientSelling = true;
+        public bool isClientBuying = true;
+        public bool IsClientSelling() => isClientSelling;
+        public bool IsClientBuying() => isClientBuying;
     }
     public class StoreClientInstance {
         public StoreClient client=new StoreClient();
