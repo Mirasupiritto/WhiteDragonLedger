@@ -8,3 +8,6 @@ bin/
 *.dll
 *.sqlite*
 *.log
+tasks/
+/白龍店帳-*.md
+/probably-stolen-*.md
