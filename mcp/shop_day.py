@@ -24,7 +24,7 @@ class SectionCache:
                 del self._seen[old]
         out = dict(payload)
         unchanged = []
-        for key in ("calendar", "trash", "sleep"):
+        for key in ("calendar", "trash", "sleep", "security", "last_save"):
             if key not in out:
                 continue
             val = out[key]
@@ -84,9 +84,13 @@ def register_day_tools(server, folder, database, section_cache=None):
     @server.tool()
     def get_shop_status(verbose: bool = False) -> dict:
         """Current cash, calendar events, rent, trash contents, night report, shop appeal, status summary (including injury), nuclear_waste counts and sleep costs inside the pawnshop.
-        Unchanged calendar/trash/sleep sections are omitted after the first read on this connection unless verbose=True."""
+        Includes security evidence, contraband counts and last_save. verbose=True includes the wanted poster roster and base bounties.
+        Unchanged calendar/trash/sleep/security/save sections are omitted after the first read on this connection unless verbose=True."""
         view = shop_status(folder)
         if view["status"] == "observed":
+            view = dict(view)
+            if not verbose:
+                view.pop("wanted", None)
             view["trash"] = trash_contents(folder, database, view)
             view = cache.filter(view.get("generation"), view, verbose=verbose)
         return view

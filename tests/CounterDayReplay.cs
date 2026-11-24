@@ -39,6 +39,14 @@ namespace WhiteDragon.Ledger
             option.TMP.text="Trade";
             talk.dialogChoiceBubbles.Add(option);
             var view = CounterView();
+            Expect(view["wanted_name_match"]==null && view["consequence"]==null && view["story_branch"]==null,"ordinary choice omits story hints");
+            merchant.identifier="cartelHandlerWeekly";
+            Expect((string)CounterView()["consequence"]=="unknown","unresolved cartel choice marked for player");
+            merchant.displayName="name_odin"; merchant.identifier="cartelSec";
+            view=CounterView();
+            Expect((bool)view["story_branch"] && (string)view["consequence"]=="unknown" && (string)view["next_action"]=="player_visual_check" &&
+                ((JObject)view["wanted_name_match"]).Count==2,"cartel branch and exact poster name without appearance");
+            merchant.displayName="unmatched"; merchant.identifier="regular";
             var request = new JObject { ["generation"]=generation,["revision"]=sequence,["visit"]=visitId,
                 ["action"]="choose_dialogue",["choice_id"]=2,["page"]=view["page"],
                 ["expires_ms"]=DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds() };

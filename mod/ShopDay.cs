@@ -333,6 +333,7 @@ namespace WhiteDragon.Ledger
                 sleepSubmittedDay!=day && PlayerStore.Instance.playerCash >= cost };
             if (phase == "CLOSED") sleep["bill"] = NightBill();
             return new JObject {
+                ["security"]=SecurityView(), ["wanted"]=WantedRows(), ["last_save"]=LastSave(PlayerStore.Instance.saveSlotId),
                 ["calendar"]=CalendarView(day), ["trash"]=TrashSummary(day), ["sleep"]=sleep,
                 ["night_report"]=NightReportView(), ["appeal"]=AppealView(), ["status_summary"]=StatusSummaryView(),
                 ["nuclear_waste"]=NuclearWasteSummary(), ["capacities"]=ShopCapacities()

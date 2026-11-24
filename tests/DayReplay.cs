@@ -3,6 +3,12 @@ using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 namespace WhiteDragon.Ledger
 {
+    public class WantedElement { public string identifier; }
+    public class WantedUIManager { public static WantedUIManager Instance; private List<WantedElement> wantedElements=new List<WantedElement>(); }
+    public class SavePreviewData { public int dayCount; public DateTime lastSaveDateTime; }
+    public static class SaveUIManager { public static SavePreviewData preview; public static SavePreviewData GetPreview(int slot)=>preview; }
+    public static class StoreClientListWanted { public static HashSet<string> POSTER_IDS=new HashSet<string>{"wanted4"}; }
+    public partial class PlayerStore { public Dictionary<string,int> wantedStatus=new Dictionary<string,int>(); }
     public class SlotMarker {}
     public partial class GameInventory {
         public Action<GameItem,GameInventory,SlotMarker> onSlotAddItemLateFunc,onSlotRemoveItemLateFunc,onSlotChangeAmountItemFunc;
@@ -223,6 +229,17 @@ namespace WhiteDragon.Ledger
             var wasteInside = Item(88104, "nuclear_waste", 0); wasteInside.To(bagInv);
             store.storeClientData.nuclearWasteLeftOnCounter = 1;
             store.storeClientData.nuclearWasteDumped = 2;
+            wasteBag.identifier="smuggler_bay";
+            wasteInside.waterTags.Add(TypeHelper.CONTRABAND);
+            wasteInv.waterTags.Add(TypeHelper.CONTRABAND);
+            wasteInside.unitCount=2;
+            store.secData.evidenceLevel=73;
+            var counts=SecurityView();
+            Expect((int)counts["evidence_level"]==73 && (int)counts["contraband"]["smuggler_bay"]==2 &&
+                (int)counts["contraband"]["inventory"]>=1,"security counts hidden and inventory contraband separately");
+            SaveUIManager.preview=new SavePreviewData {dayCount=3,lastSaveDateTime=new DateTime(2020,1,2,3,0,0)};
+            Expect((int)LastSave(12)["day"]==3 && (string)LastSave(12)["phase"]=="MORNING","saved morning from preview");
+            SaveUIManager.preview=null;
             var nw = DayView()["nuclear_waste"];
             Expect((int)nw["on_counter"] == 2 && (int)nw["in_shop"] == 4 && (int)nw["dumped"] == 2,
                 "nuclear_waste counts front, pending morning counter, inventory, backpack and dumped totals");

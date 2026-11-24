@@ -99,6 +99,7 @@ namespace WhiteDragon.Ledger
     }
     public class SecData
     {
+        public int evidenceLevel;
         public string note = "Officer notes";
         public int GetTotalCrimeValue() => 12;
         public string GetCaseOfficer(int value) => "Officer " + value;
