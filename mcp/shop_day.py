@@ -134,7 +134,9 @@ def register_day_tools(server, folder, database, section_cache=None):
                 return {**result, **scene, "tool_status":"game_over"}
             view = shop_status(folder)
             if view.get("generation")==generation and view.get("day")==day+1 and view.get("alerts"):
-                before = result.get("alerts", [])
+                due_today = {alert["due_day"] for alert in view["alerts"] if alert.get("type") == "blackmail_due_today"}
+                before = [alert for alert in result.get("alerts", []) if not
+                          (alert.get("type") == "blackmail_due_tomorrow" and alert.get("due_day") in due_today)]
                 result = {**result, "alerts": before + [alert for alert in view["alerts"] if alert not in before]}
             report = view.get("night_report", {})
             if (view.get("slot") == result["slot"] and view.get("generation") == generation

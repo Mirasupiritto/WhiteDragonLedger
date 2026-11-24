@@ -112,7 +112,10 @@ class MoveMailbox(unittest.TestCase):
         self.assertEqual(self.request(1)["status"], "stale_observation")
         self.head["phase"] = "OPEN"
         self.publish_head()
-        self.assertEqual(self.request()["status"], "shop_open")
+        visit = "b23e2f27c9984ab3ab33ff692bf4185c"
+        with patch("moves.exchange") as exchange:
+            move_item(self.folder, 58, "inventory", "showcase", self.generation, 2, visit=visit)
+            self.assertEqual(exchange.call_args.args[2]["visit"], visit)
         self.head["phase"] = "CLOSED"
         del self.head["move_protocol"]
         self.publish_head()

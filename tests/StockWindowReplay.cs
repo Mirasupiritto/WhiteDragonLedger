@@ -153,7 +153,12 @@ namespace WhiteDragon.Ledger
                 (int)showcaseFull["item_size"]["w"] == 1 && (int)showcaseFull["target_capacity"]["w"] == 7,
                 "showcase capacity refusal includes item_size and target_capacity");
             shop.showcaseElement.replayFull = false;
-            card.To(shop.showcaseElement);
+            phase="OPEN";
+            shelve["visit"]=visitId;
+            Expect((string)ExecuteMove(shelve)["status"]=="moved" && card.parentInventory==shop.showcaseElement,
+                "open shop allows owned inventory onto a visible showcase");
+            shelve.Remove("visit");
+            phase="MORNING";
             var returnToInv = (JObject)shelve.DeepClone();
             returnToInv["source"] = "showcase"; returnToInv["destination"] = "inventory"; returnToInv["revision"] = sequence;
             shop.invElement.replayFull = true;

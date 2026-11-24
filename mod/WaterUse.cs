@@ -139,6 +139,11 @@ namespace WhiteDragon.Ledger
             if (offered && (operation != "test" || !source.IsTag("CAN_USE_ON_NON_OWNED_TAG") ||
                 CounterStage() != "ready" || !((area == "front" && shop.frontInvWindow.IsVisible()) ||
                     (area == "back" && shop.backInvWindow.IsVisible())))) return "offered_water_unavailable";
+            if (operation=="pour" && area!="faucet" && WaterHelper.GetCurrentCapacityUL(source)==0)
+            {
+                receipt["reason"]="source_empty";
+                return "source_unavailable";
+            }
             var notice = GenericConfirmationUIManager.Instance;
             if (Interactable.isPaused || (notice?.panel != null && notice.panel.activeInHierarchy) || !CanUseOnItem(source,target))
             {

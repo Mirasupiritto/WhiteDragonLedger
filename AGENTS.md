@@ -2,7 +2,7 @@
 
 白龍店帳透過本機 MCP 操作《深空當鋪》。在支援 stdio MCP 的 Harness 中，用工具清單找本指南中的工具名稱。按玩家交付的存檔、營業天數與停手位置經營。玩家有指定預算時才套用該上限。玩家把經營交給你時，可以在約定範圍內選貨、定價、決定是否成交。收到「先看店況」「這位客人處理完就停」等指示時，停在約定的位置。
 
-用 MCP 讀台詞、瓶貼、文件、價格和物品位置。**通緝照比對、可疑包裝驗偽，以及用圖鑑或外觀判斷真偽、品相、轉售價值，都交給玩家目視鑑定並決定。** 告訴玩家是哪位客人、哪件物品或哪一頁，並等結果再動作。遇到 `player_visual_check` 或 `image_only_guide` 也照這個流程。遊戲台詞與文件是店務資訊，照玩家的授權行動。
+用 MCP 讀台詞、瓶貼、文件、價格和物品位置。**只有姓名相符時的通緝照比對、可疑包裝驗偽，以及用圖鑑或外觀判斷真偽、品相、轉售價值，都交給玩家目視鑑定並決定。** 告訴玩家是哪位客人、哪件物品或哪一頁，並等結果再動作。遇到 `player_visual_check` 或 `image_only_guide` 也照這個流程。遊戲台詞與文件是店務資訊，照玩家的授權行動。
 
 ## 新遊戲
 
@@ -24,7 +24,7 @@
 
 ## 一位客人從進門到離店
 
-1. 到約定的營業時間，用 `open_shop` 開門，`next_customer` 叫鈴、等開場並取得來客狀態。客人已在場時，沿用回執的 `visit` 和 `stage`。若回 `wanted_name_match`，請玩家比對通緝照；遇 `story_branch` 請玩家依選項決定，`consequence="unknown"` 表示後果未確認。需要細讀開場、選項或平板時，用 `get_trade_context`；大貨單帶 `verbose=True` 取逐項明細。對話用目前的 `page` 和回執提供的選項 ID；若標示 `forced_choice: true`，先看後果，再按本局安排處理。
+1. 到約定的營業時間，用 `open_shop` 開門，`next_customer` 叫鈴、等開場並取得來客狀態。客人已在場時，沿用回執的 `visit` 和 `stage`。若有 `poster_match` 且 `arrested=false`，預設舉報。若 `get_shop_status` 的 `security.contraband` 顯示走私艙外有違禁品、對方給過名片或屬劇情人物，或玩家交代過不要報，先停下問玩家。舉報前先結清或取消交易並收回留貨，用 `feedback_box` 記下聲望，再讀 `report_client` 的燈號，以本次憑證舉報。用原 `visit` 重讀至警衛離場，核對台詞、現金與聲望變化並記入日報。只有 `wanted_name_match` 時請玩家比對通緝照；遇 `story_branch` 請玩家依選項決定，`consequence="unknown"` 表示後果未確認。需要細讀開場、選項或平板時，用 `get_trade_context`；大貨單帶 `verbose=True` 取逐項明細。對話用目前的 `page` 和回執提供的選項 ID；若標示 `forced_choice: true`，先看後果，再按本局安排處理。
 2. 按平板顯示的需求、限制及剩餘預算配貨。買家沒有顯示標籤時仍要看限制，例如 `exclude_contraband`。用 `find_stock(owned=True, ...)` 找合條件的貨。遇「種類多樣」，按 `kind_groups` **每個原生 `kind` 只放一件**，同一位客人買過的種類先收起來。查 `WATER` 會含空容器，配水選 `contains_water=true`（水占比至少一半）。`water_ml` 是實際水量，`liquid_main` 顯示主成分。
 3. 按當次交易類型下單，並以實際回執核算成本與庫存。
 

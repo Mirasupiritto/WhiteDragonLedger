@@ -59,6 +59,9 @@ namespace WhiteDragon.Ledger
 
             int id = (int)request["item_id"];
             string source = (string)request["source"], destination = (string)request["destination"];
+            bool stockMove=(source=="inventory" && destination=="showcase") || (source=="showcase" && destination=="inventory");
+            if (stockMove && request["visit"]!=null && (string)request["visit"]!=visitId)
+                return Receipt(request, visitId==null ? "customer_left" : "customer_replaced");
             itemsById.TryGetValue(id, out var item);
             bool validArea = source == "inventory" || source == "showcase" || source == "front" || source == "back";
             bool allowAlreadyAtDest = destination == "inventory" || destination == "showcase" ||
@@ -87,7 +90,17 @@ namespace WhiteDragon.Ledger
                 redirect["arguments"] = new JObject { ["source_id"]=LocalId(portable), ["target_id"]=id, ["mode"]="preview" };
                 return redirect;
             }
-            if (phase != "CLOSED" && phase != "MORNING") return Receipt(request,"shop_open");
+            if (phase != "CLOSED" && phase != "MORNING")
+            {
+                if (!stockMove || phase!="OPEN") return Receipt(request,"shop_open");
+                var entry=EmporiumEntry.Instance;
+                if (!entry.showcaseWindow.IsVisible() || !entry.invWindow.IsVisible() || Interactable.isPaused)
+                {
+                    var blocked=Receipt(request,"transfer_blocked");
+                    blocked["reason"]=Interactable.isPaused ? "paused" : "stock_window_hidden";
+                    return blocked;
+                }
+            }
             GameSlotInventory container = null;
             GameItem machine = null;
             bool loading = destination == "purifier";

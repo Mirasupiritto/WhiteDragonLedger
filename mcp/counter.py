@@ -73,8 +73,9 @@ def command(folder, action, generation, revision, *, database=None, **args):
         raise ValueError("Expected generation and revision from get_counter")
     plan = dict(action=action, generation=generation, revision=revision, **args)
     token = uuid5(NAMESPACE_URL, "white-dragon/counter/"+json.dumps(plan, sort_keys=True)).hex
+    channel = "report" if action == "report_client" else "counter"
     def receipt():
-        return read_command_receipt(folder, token, generation, "counter")
+        return read_command_receipt(folder, token, generation, channel)
 
     result = receipt()
     # Only this refusal is proof that the native dismiss action never ran.
@@ -120,7 +121,10 @@ def command(folder, action, generation, revision, *, database=None, **args):
                      or args.get("explicit_reopen") or "quantity" in args or action=="request_quote")
     if needs_chemist and view.get("chemist_protocol")!=1:
         return {"status":"reload_updated_mod"}
-    if action == "heat_control":
+    if action == "report_client":
+        if not view.get("report_protocol"):
+            return {"status": "reload_updated_mod"}
+    elif action == "heat_control":
         if view.get("heat_control_protocol") != 1:
             return {"status":"reload_updated_mod", "need":"mod", "required_protocol":"heat_control_protocol"}
     elif action in {"choose_dialogue","response_choice","advance"}:
@@ -213,7 +217,7 @@ def command(folder, action, generation, revision, *, database=None, **args):
         return {"status": "reload_updated_mod"}
     request = dict(plan, command_id=token)
     def send():
-        return exchange(folder, folder/f"counter-{generation}.json", request, receipt)
+        return exchange(folder, folder/f"{channel}-{generation}.json", request, receipt)
     if database is not None and action in trade_journal.TOOLS:
         return trade_journal.dispatch(database, folder, trade_journal.TOOLS[action], request,
                                       view["slot"], view.get("customer"), send,

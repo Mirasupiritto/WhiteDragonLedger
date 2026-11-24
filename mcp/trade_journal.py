@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 from receipt_store import read_optional_json, read_command_receipt, replayed
 from database import transaction
+from ledger import lookup
 
 
 TOOLS = {"buy": "buy_merchant_batch", "pay_info": "pay_info_receipt"}
@@ -108,8 +109,45 @@ def describe(row, detail=False):
     return result
 
 
+def finished_sale(db, folder, request, slot):
+    rows = db.execute("""SELECT * FROM trade_tickets WHERE slot=? AND tool='sell_order'
+                         AND state IN ('complete','open') AND json_extract(args,'$.visit')=?
+                         AND json_extract(args,'$.generation')=? ORDER BY rowid DESC""",
+                      (slot, request["visit"], request["generation"]))
+    for row in rows:
+        args = json.loads(row["args"])
+        if (args["lines"] != request["lines"] or
+                any(bool(args.get(k)) != bool(request.get(k)) for k in ("bundle", "stop_same_kind_on_budget"))):
+            continue
+        row = refresh(db, folder, row)
+        if not row["receipt"]:
+            continue
+        receipt = json.loads(row["receipt"])
+        if receipt["status"] == "sale_pending":
+            return replayed(receipt)
+        if receipt["status"] != "finished":
+            continue
+        sold = {item["item_id"] for item in receipt.get("items", []) if item.get("status") == "sold"}
+        unsold = [line["item_id"] for line in request["lines"] if line["item_id"] not in sold]
+        if unsold:
+            # Use the same SQLite transaction for the stock observation and ticket decision.
+            head = lookup(folder, db, sync_only=True)
+            if (head.get("status") != "observed" or head["slot"] != slot or head["generation"] != args["generation"]
+                    or head["revision"] < max(request["revision"], receipt.get("revision", args["revision"]))):
+                return None
+            if db.execute("""SELECT 1 FROM stock WHERE owned=1
+                             AND id IN (SELECT value FROM json_each(?)) LIMIT 1""", (json.dumps(unsold),)).fetchone():
+                return None
+        return replayed(receipt)
+    return None
+
+
 def dispatch(database, folder, tool, request, slot, customer, send, *, observation=None):
     with ticket_transaction(database) as db:
+        if tool == "sell_order":
+            prior = finished_sale(db, folder, request, slot)
+            if prior is not None:
+                return prior
         row = insert(db, tool, request, slot, customer, observation)
         row = refresh(db, folder, row)
         if row["state"] == "complete" or (row["state"] == "open" and row["evidence"] == 3):

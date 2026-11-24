@@ -10,6 +10,34 @@ namespace WhiteDragon.Ledger
             ["debuff_after_days"]=HealthData.ADDICTION_DEBUFF_DAY, ["cure_after_days"]=HealthData.ADDICTION_CURE_DAY
         };
 
+        private string blackmailGeneration;
+        private int blackmailDay, cashBeforeCollection;
+        private bool collecting, paidToday;
+
+        private void ObserveBlackmailPayment(int day)
+        {
+            if (blackmailGeneration!=generation || blackmailDay!=day)
+            {
+                blackmailGeneration=generation;
+                blackmailDay=day;
+                collecting=paidToday=false;
+            }
+            if (day<8 || day%7!=1 || paidToday || !StartingPerk.IsBlackmail()) return;
+            // CreateBlackmailer only debits cash and dismisses. The game has no weekly payment flag.
+            var store=PlayerStore.Instance;
+            if (store.currentClientInstance?.GetClientBlueprint()?.identifier=="blackmailer")
+            {
+                if (!collecting) cashBeforeCollection=store.playerCash;
+                collecting=true;
+            }
+            else if (collecting)
+            {
+                paidToday=cashBeforeCollection-store.playerCash==StoreClientListSpec.GetBlackmailCost();
+                collecting=false;
+                if (paidToday) nextView=0;
+            }
+        }
+
         private JObject HealthView(int day, JArray alerts)
         {
             var data=PlayerStore.Instance.healthData;
@@ -48,10 +76,12 @@ namespace WhiteDragon.Ledger
             if (StartingPerk.IsBlackmail())
             {
                 int due=day<=8 ? 8 : day+(8-day%7)%7;
-                if (day==due && phase=="CLOSED") due+=7;
+                if (day==due && (phase=="CLOSED" || (paidToday && blackmailDay==day && blackmailGeneration==generation))) due+=7;
                 int cost=StoreClientListSpec.GetBlackmailCost()+due-day;
                 health["obligations"]=new JArray(new JObject { ["type"]="blackmail_payment", ["due_day"]=due,
                     ["amount"]=cost, ["payment"]="choose_dialogue", ["refusal"]="下層、革命、治安、上層及 NC 聲望各減 30，勒索特性移除。" });
+                if (due==day) alerts.Add(new JObject { ["type"]="blackmail_due_today", ["due_day"]=day, ["amount"]=cost,
+                    ["hint"]="敲詐者今天會來，用對話付款。" });
                 if (due==day+1) alerts.Add(new JObject { ["type"]="blackmail_due_tomorrow", ["due_day"]=due, ["amount"]=cost });
             }
             return health;

@@ -28,8 +28,8 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     elif idle_clear:
         if machine_id is not None:
             raise ValueError("Use the current visit and a route to or from the trade table (back)")
-    elif visit is not None:
-        raise ValueError("A visit is only used for trade table moves")
+    elif visit is not None and (machine_id is not None or {source, destination} != {"inventory", "showcase"}):
+        return {"status":"invalid_route", "reason":"visit_requires_stock_or_counter_move", "command_id":command}
     elif machine_id is not None:
         if machine_id < 1 or (source, destination) not in {
             ("purifier", "inventory"), ("inventory", "purifier"), ("showcase", "purifier")
@@ -41,7 +41,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         raise ValueError("Expected a positive item ID, revision and two different stock areas")
     request = dict(command_id=command, item_id=item_id, source=source, destination=destination,
                    generation=generation, revision=revision)
-    if counter_move and not idle_clear:
+    if visit is not None:
         request["visit"] = visit
     if machine_id is not None:
         request["machine_id"] = machine_id
@@ -79,7 +79,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         return {"status": "reload_updated_mod", "command_id": command}
     if counter_move and not idle_clear and not (verify_location and destination in {"inventory", "showcase"}) and head["phase"] != "OPEN":
         return {"status":"shop_closed", "command_id":command}
-    if not counter_move and not verify_location and destination != "purifier" and head["phase"] not in ("CLOSED", "MORNING"):
+    if {source, destination} != {"inventory", "showcase"} and not counter_move and not verify_location and destination != "purifier" and head["phase"] not in ("CLOSED", "MORNING"):
         return {"status": "shop_open", "command_id": command}
     inbox = folder / f"move-{generation}.json"
     return exchange(folder, inbox, request, read_receipt, previous_command)

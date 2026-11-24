@@ -12,6 +12,7 @@ from scene import read_scene, shop_visit, tool_region
 
 # Tools that can change shop state; their replies carry the shop_update delta.
 MUTATING_TOOLS = frozenset({
+    "report_client",
     "move_item", "move_items", "sell_order", "trade_batch", "confirm_trade", "buy_merchant_batch",
     "barter_offer", "pay_info_receipt", "open_shop", "close_shop", "ring_customer", "dismiss_customer",
     "control_heat", "next_customer", "finish_customer", "fill_and_purify_bottles", "sort_inventory",
@@ -144,9 +145,11 @@ class SceneServer(FastMCP):
             token = shop_visit.set((scene["session"], scene["revision"]))
             try:
                 mutating = name in MUTATING_TOOLS or (name in MODE_MUTATING_TOOLS and arguments.get("mode", "read") != "read")
-                if mutating and self.updates.cursor is not None:
+                if mutating and (self.updates.cursor is not None or name == "report_client"):
                     tool = self._tool_manager.get_tool(name)
                     result = await tool.run(arguments, context=self.get_context())
+                    if name == "report_client" and result.get("status") != "arrest_finished" and (arguments.get("mode", "read") == "read" or self.updates.cursor is None):
+                        return tool.fn_metadata.convert_result(result)
                     try:
                         result["shop_update"] = _slim_shop_update(name, result, self.updates.report(), arguments, self._last_emitted_items)
                     except (OSError, sqlite3.Error, json.JSONDecodeError) as error:
