@@ -78,6 +78,16 @@ namespace WhiteDragon.Ledger {
                 (int)reply["window"]["controls"][0]["capacity"]["w"]==4 &&
                 (int)reply["window"]["controls"][0]["capacity"]["free_cells"]==12,
                 "native open and full controls with slot capacity");
+            var slotOwner = Item(823, "evaporator", 0);
+            slotOwner.To(EmporiumEntry.Instance.showcaseElement);
+            var singleSlot = new GameSlotInventory();
+            slotOwner.contentWindow = new PixelWindow { visible=true, childElement=new MachineryPanel { role="input", content=singleSlot } };
+            var slotReply = new JObject();
+            Expect(WorkstationAction(new JObject { ["owner_id"]=LocalId(slotOwner), ["action"]="inspect_window" }, slotReply)=="observed" &&
+                (string)slotReply["window"]["controls"][0]["accepts"]=="one_container" &&
+                slotReply["window"]["controls"][0]["capacity"]==null,
+                "single-item slot reports accepts one_container instead of 1x1 capacity");
+            slotOwner.To(null);
             input.replayFull = true;
             var blockedTransfer = new JObject();
             Expect(WorkstationAction(new JObject { ["action"]="transfer_slot", ["owner_id"]=LocalId(owner),

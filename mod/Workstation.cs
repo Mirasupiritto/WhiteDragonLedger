@@ -63,7 +63,8 @@ namespace WhiteDragon.Ledger
                 row["type"] = "slot";
                 row["insert_allowed"] = role != "output" && !storage.IsInsertLocked() && !read.Window.isLocked;
                 row["remove_allowed"] = !storage.IsRemoveLocked() && !read.Window.isLocked;
-                if (InventoryCapacity(storage) is JObject cap) row["capacity"] = cap;
+                if (storage is GameSlotInventory) row["accepts"] = "one_container";
+                else if (InventoryCapacity(storage) is JObject cap) row["capacity"] = cap;
                 var items = new JArray();
                 foreach (var child in storage.childItems)
                 {
