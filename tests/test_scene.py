@@ -12,6 +12,23 @@ from mcp.client.stdio import stdio_client
 
 
 class SceneRouting(unittest.IsolatedAsyncioTestCase):
+    def test_scene_version_and_delivery_interval(self):
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
+        from scene import scene_version
+        from scene_server import attach_arrivals
+        scene = {"dll_commit":"22baa43"}
+        self.assertNotIn("version_mismatch",scene_version(scene,"22baa43"))
+        self.assertEqual(scene_version(scene,"277a165")["version_mismatch"],{"dll":"22baa43","mcp":"277a165"})
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            delivery = {"source":"phone_delivery","contact":"阿希什","ids":[103,104]}
+            (folder/"load-2.json").write_text(json.dumps({"arrivals":[delivery],"contraband_outside_bay":2}))
+            (folder/"load-3.json").write_text("{}")
+            delta = {"mode":"delta","revision":3}
+            self.assertEqual(attach_arrivals(folder,"load:1:cursor",dict(delta)),
+                             dict(delta,arrivals=[delivery],contraband_outside_bay=2))
+            self.assertEqual(attach_arrivals(folder,"load:2:cursor",dict(delta)),delta)
+
     async def test_loader_refusal_explains_stale_waiting_receipt(self):
         with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
             root = Path(temp)

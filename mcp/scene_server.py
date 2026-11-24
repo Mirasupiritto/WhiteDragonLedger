@@ -26,6 +26,23 @@ MUTATING_TOOLS = frozenset({
 MODE_MUTATING_TOOLS = frozenset({"wild_network", "bargain"})
 
 
+def attach_arrivals(folder, previous, update):
+    if not previous or update.get("mode") != "delta":
+        return update
+    generation, rev, _ = previous.split(":", 2)
+    arrivals = []
+    outside = 0
+    for number in range(int(rev)+1, update["revision"]+1):
+        record = json.loads((folder / f"{generation}-{number}.json").read_text(encoding="utf-8-sig"))
+        arrivals.extend(record.get("arrivals", []))
+        outside += record.get("contraband_outside_bay", 0)
+    if arrivals:
+        update["arrivals"] = arrivals
+    if outside:
+        update["contraband_outside_bay"] = outside
+    return update
+
+
 def _slim_shop_update(tool_name, result, update, arguments=None, last_emitted=None):
     if not isinstance(update, dict):
         return update
@@ -93,7 +110,7 @@ def _slim_shop_update(tool_name, result, update, arguments=None, last_emitted=No
     offer_summarized = isinstance(result.get("offer"), dict) and result["offer"].get("summary_only") is True
     verbose = bool((arguments or {}).get("verbose"))
 
-    if not upsert and not remove and not fields and not checkpoints and not id_changes:
+    if not upsert and not remove and not fields and not checkpoints and not id_changes and not update.get("arrivals"):
         return {"status": "unchanged", "revision": update["revision"], "cursor": update["cursor"]}
     if offer_summarized and not verbose and upsert:
         slimmed = dict(update)
@@ -144,6 +161,11 @@ class SceneServer(FastMCP):
                 return await super().call_tool(name, arguments)
             token = shop_visit.set((scene["session"], scene["revision"]))
             try:
+                if name == "get_shop_updates":
+                    previous = arguments.get("since") or self.updates.cursor
+                    result = self.updates.report(**arguments)
+                    tool = self._tool_manager.get_tool(name)
+                    return tool.fn_metadata.convert_result(attach_arrivals(self.folder, previous, result))
                 mutating = name in MUTATING_TOOLS or (name in MODE_MUTATING_TOOLS and arguments.get("mode", "read") != "read")
                 if mutating and (self.updates.cursor is not None or name == "report_client"):
                     tool = self._tool_manager.get_tool(name)
@@ -151,7 +173,9 @@ class SceneServer(FastMCP):
                     if name == "report_client" and result.get("status") != "arrest_finished" and (arguments.get("mode", "read") == "read" or self.updates.cursor is None):
                         return tool.fn_metadata.convert_result(result)
                     try:
-                        result["shop_update"] = _slim_shop_update(name, result, self.updates.report(), arguments, self._last_emitted_items)
+                        previous = self.updates.cursor
+                        update = attach_arrivals(self.folder, previous, self.updates.report())
+                        result["shop_update"] = _slim_shop_update(name, result, update, arguments, self._last_emitted_items)
                     except (OSError, sqlite3.Error, json.JSONDecodeError) as error:
                         # The action may already have settled. Keep its receipt even when the next read fails.
                         result["shop_update"] = {"status":"update_unavailable", "detail":str(error)}

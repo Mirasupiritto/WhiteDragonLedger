@@ -268,12 +268,20 @@ class MoveMailbox(unittest.TestCase):
         )
         with patch("moves.move_item", return_value=receipt_data):
             res = move_items(self.folder, [26, 27], "showcase", "inventory", self.generation, 2)
-        self.assertEqual(res["status"], "stopped")
+        self.assertEqual(res["status"], "partial")
+        self.assertEqual(res["skipped_ids"], [26, 27])
         self.assertEqual(res["items"][0]["status"], "no_space")
         self.assertEqual(res["items"][0]["item_size"], {"w": 2, "h": 3})
         self.assertEqual(res["items"][0]["target_capacity"]["largest_free"], {"w": 2, "h": 2})
         self.assertEqual(res["identity_changed"][0]["to"], "紅牌香菸（贗品）")
-        self.assertEqual(res["items"][1]["status"], "not_attempted")
+        self.assertEqual(res["items"][1]["status"], "no_space")
+
+    def test_smaller_item_moves_after_showcase_full(self):
+        moved = dict(status="moved", revision=3, load_scans=1, full_scans=1, phase="CLOSED",slot=4)
+        with patch("moves.move_item",side_effect=[moved,dict(status="showcase_full"),dict(moved,revision=4)]):
+            res = move_items(self.folder,[25,26,27],"inventory","showcase",self.generation,2)
+        self.assertEqual((res["status"],res["skipped_ids"],res["moved_count"]),("partial",[26],2))
+        self.assertEqual([row["status"] for row in res["items"]],["moved","showcase_full","moved"])
 
     def test_all_already_in_destination_batch_and_front_back_verify_location(self):
         self.head.update(revision=5, move_location_protocol=1, counter_move_protocol=1, phase="OPEN")

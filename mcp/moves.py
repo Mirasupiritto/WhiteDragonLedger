@@ -126,8 +126,13 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
             result["already_count"] = result.get("already_count", 0) + 1
             previous_command = command
             continue
+        if receipt["status"] in {"no_space", "showcase_full"}:
+            result.setdefault("skipped_ids", []).append(item_id)
+            result["status"] = "partial"
+            previous_command = command
+            continue
         if receipt["status"] != "moved":
-            result["status"] = "partial" if result["moved_count"] or receipt["status"] == "partial" else "stopped"
+            result["status"] = "partial" if result["moved_count"] or result.get("skipped_ids") or receipt["status"] == "partial" else "stopped"
             result["items"].extend({"item_id": pending, "status": "not_attempted", "actual_area": None}
                                    for pending in item_ids[position+1:])
             break
