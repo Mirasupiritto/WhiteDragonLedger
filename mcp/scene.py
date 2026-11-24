@@ -8,6 +8,8 @@ from contextvars import ContextVar
 from typing import Annotated
 from pydantic import Field
 
+from server_state import snapshot_cache
+
 
 shop_visit = ContextVar("shop_visit", default=None)
 
@@ -42,7 +44,7 @@ def _last_loader_audit(path, modified, size):
 
 def read_scene(folder: Path, *, include_options=False):
     try:
-        scene = json.loads((folder / "scene.json").read_text(encoding="utf-8-sig"))
+        scene = snapshot_cache.read_json(folder / "scene.json")
         if not include_options:
             scene.pop("travel_options", None)
     except FileNotFoundError:

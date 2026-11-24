@@ -1,6 +1,39 @@
-"""Shared per-server state: section cache, incremental update cursor, and bounded heat tracking."""
+"""Shared per-server state: section cache, incremental update cursor, file cache, and heat tracking."""
 import copy
+import json
+from pathlib import Path
 import threading
+
+
+class FileSnapshotCache:
+    """Process-level JSON file cache keyed by (resolved_path, st_mtime_ns, st_size)."""
+
+    def __init__(self, max_entries=64):
+        self._lock = threading.Lock()
+        self._entries = {}
+        self._max_entries = max_entries
+
+    def read_json(self, path: Path):
+        resolved = path.resolve()
+        stat = path.stat()
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        with self._lock:
+            cached = self._entries.get(resolved)
+            if cached is not None and cached[0] == stamp:
+                return copy.deepcopy(cached[1])
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        with self._lock:
+            if len(self._entries) >= self._max_entries and resolved not in self._entries:
+                self._entries.pop(next(iter(self._entries)))
+            self._entries[resolved] = (stamp, data)
+        return copy.deepcopy(data)
+
+    def clear(self):
+        with self._lock:
+            self._entries.clear()
+
+
+snapshot_cache = FileSnapshotCache()
 
 
 class SectionCache:

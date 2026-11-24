@@ -1,17 +1,11 @@
 """Store published stock revisions for offline lookup and cursor-based deltas."""
 import json
 
+from database import ensure_schema
+
 
 def schema(db):
-    db.execute("""CREATE TABLE IF NOT EXISTS book_events(
-        gen TEXT, rev INTEGER, slot INTEGER, day INTEGER, phase TEXT, PRIMARY KEY(gen,rev))""")
-    columns = {row[1] for row in db.execute("PRAGMA table_info(book_events)")}
-    if "identity_changes" not in columns:
-        db.execute("ALTER TABLE book_events ADD COLUMN identity_changes TEXT")
-    db.execute("""CREATE TABLE IF NOT EXISTS book_changes(
-        gen TEXT, item INTEGER, rev INTEGER, payload TEXT, PRIMARY KEY(gen,item,rev))""")
-    db.execute("CREATE INDEX IF NOT EXISTS book_change_revision ON book_changes(gen,rev)")
-    db.execute("CREATE TABLE IF NOT EXISTS book_cursors(token TEXT PRIMARY KEY, fields TEXT)")
+    ensure_schema(db)
 
 
 def record(db, head, rev, event):
@@ -53,16 +47,31 @@ def snapshot(db, gen, rev, name=None, area=None, owned=None):
     return [json.loads(row[0]) for row in rows]
 
 
+def changes_between(db, gen, since, rev):
+    """Fetch before/after payloads for all items modified in (since, rev] in a single query."""
+    return db.execute(
+        """
+        SELECT
+            c.item,
+            (SELECT payload FROM book_changes
+             WHERE gen = ? AND item = c.item AND rev <= ?
+             ORDER BY rev DESC LIMIT 1) AS old_payload,
+            (SELECT payload FROM book_changes
+             WHERE gen = ? AND item = c.item AND rev <= ?
+             ORDER BY rev DESC LIMIT 1) AS new_payload
+        FROM (
+            SELECT DISTINCT item FROM book_changes
+            WHERE gen = ? AND rev > ? AND rev <= ?
+            ORDER BY item
+        ) c
+        """,
+        (gen, since, gen, rev, gen, since, rev),
+    ).fetchall()
+
+
 def delta(db, gen, since, rev):
-    ids = db.execute("SELECT DISTINCT item FROM book_changes WHERE gen=? AND rev>? AND rev<=? ORDER BY item",
-                     (gen, since, rev))
     upserts, removed = [], []
-    for item, in ids:
-        def value(at):
-            row = db.execute("SELECT payload FROM book_changes WHERE gen=? AND item=? AND rev<=? ORDER BY rev DESC LIMIT 1",
-                             (gen, item, at)).fetchone()
-            return row[0] if row else None
-        old, new = value(since), value(rev)
+    for item, old, new in changes_between(db, gen, since, rev):
         if old != new:
             if new is None:
                 removed.append(item)
@@ -71,7 +80,7 @@ def delta(db, gen, since, rev):
     return upserts, removed
 
 
-def identity_changes(db, gen, since, rev):
+def identity_changes(db, gen, since, rev, *, item_rows=None):
     changes = []
     seen = set()
     for row, in db.execute(
@@ -83,17 +92,8 @@ def identity_changes(db, gen, since, rev):
             if key not in seen:
                 seen.add(key)
                 changes.append(entry)
-    for item, in db.execute(
-        "SELECT DISTINCT item FROM book_changes WHERE gen=? AND rev>? AND rev<=? ORDER BY item",
-        (gen, since, rev),
-    ):
-        def payload(at):
-            found = db.execute(
-                "SELECT payload FROM book_changes WHERE gen=? AND item=? AND rev<=? ORDER BY rev DESC LIMIT 1",
-                (gen, item, at),
-            ).fetchone()
-            return found[0] if found else None
-        old, new = payload(since), payload(rev)
+    rows = item_rows if item_rows is not None else changes_between(db, gen, since, rev)
+    for item, old, new in rows:
         if not old or not new or old == new:
             continue
         old_obj, new_obj = json.loads(old), json.loads(new)

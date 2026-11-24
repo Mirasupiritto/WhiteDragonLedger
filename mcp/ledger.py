@@ -7,7 +7,8 @@ import book_history
 from pathlib import Path
 
 from command_transport import is_hex32
-from database import transaction
+from database import ensure_schema, transaction
+from server_state import snapshot_cache
 from stock_query import STOCK_DETAIL_COLUMNS, row_to_item, select_stock
 
 
@@ -53,7 +54,7 @@ def read_head(folder):
     path = folder / "head.json"
     for attempt in range(3):
         try:
-            return json.loads(path.read_text(encoding="utf-8-sig"))
+            return snapshot_cache.read_json(path)
         except FileNotFoundError:
             return {"status": "waiting_for_load"}
         except (PermissionError, json.JSONDecodeError):
@@ -64,6 +65,8 @@ def read_head(folder):
 
 def lookup(folder: Path, database: Path | Connection, name=None, area=None, owned=None, *, save_ids=None, stock_query=None, sync_only=False):
     with (nullcontext(database) if isinstance(database, Connection) else transaction(database)) as db:
+        if isinstance(database, Connection):
+            ensure_schema(db)
         head = read_head(folder)
         if head["status"] == "waiting_for_load":
             return {"status": "waiting_for_load", "items": []}
@@ -72,32 +75,8 @@ def lookup(folder: Path, database: Path | Connection, name=None, area=None, owne
         if (head["status"] != "observed" or not is_hex32(generation)
                 or type(revision) is not int or revision < 1):
             raise ValueError("Invalid game ledger head")
-        db.execute("CREATE TABLE IF NOT EXISTS checkpoint (id INTEGER PRIMARY KEY, generation TEXT, revision INTEGER)")
-        db.execute("CREATE TABLE IF NOT EXISTS ledger_meta (key TEXT PRIMARY KEY, value TEXT)")
-        db.execute("CREATE TABLE IF NOT EXISTS stock (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, area TEXT, owned INTEGER, quantity INTEGER)")
-        columns = {row["name"] for row in db.execute("PRAGMA table_info(stock)")}
-        if "bottle_label" not in columns:
-            db.execute("ALTER TABLE stock ADD COLUMN bottle_label TEXT")
-        if "save_id" not in columns:
-            db.execute("ALTER TABLE stock ADD COLUMN save_id INTEGER")
-            db.execute("CREATE INDEX IF NOT EXISTS stock_save_id ON stock(save_id)")
-        if "categories" not in columns:
-            db.execute("ALTER TABLE stock ADD COLUMN categories TEXT")
-            db.execute("CREATE INDEX stock_categories ON stock(categories)")
-            db.execute("CREATE INDEX stock_label ON stock(bottle_label)")
-        if "contraband" not in columns:
-            db.execute("ALTER TABLE stock ADD COLUMN contraband INTEGER")
-        for column in ("trade_contraband", "machine_id", "can_take_now"):
-            if column not in columns:
-                db.execute(f"ALTER TABLE stock ADD COLUMN {column} INTEGER")
-        for column, col_type in _EXTRA_STOCK_COLUMNS:
-            if column not in columns:
-                db.execute(f"ALTER TABLE stock ADD COLUMN {column} {col_type}")
-        db.execute("CREATE INDEX IF NOT EXISTS stock_kind ON stock(kind)")
         previous = db.execute("SELECT generation, revision FROM checkpoint WHERE id=1").fetchone()
         cursor = previous["revision"] if previous and previous["generation"] == generation else 0
-        if "liquid_main" not in columns:
-            cursor = 0  # Import composition from records already seen by older readers.
         if cursor > revision:
             raise ValueError("Game journal revision moved backwards in the same load")
         # An older MCP process can import this load while omitting its new columns.
@@ -117,7 +96,6 @@ def lookup(folder: Path, database: Path | Connection, name=None, area=None, owne
         if head.get("bag_stock_protocol"):
             bag_cursor = db.execute("SELECT revision FROM checkpoint WHERE id=3 AND generation=?", (generation,)).fetchone()
             cursor = min(cursor, bag_cursor["revision"]) if bag_cursor else 0
-        book_history.schema(db)
         recorded = db.execute("SELECT MAX(rev) FROM book_events WHERE gen=?", (generation,)).fetchone()[0]
         cursor = min(cursor, recorded or 0)
         for number in range(cursor + 1, revision + 1):

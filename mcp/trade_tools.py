@@ -187,8 +187,15 @@ class Updates:
                     result["reason"] = "cursor_reset"
             else:
                 old = json.loads(row[0])
-                upsert, remove = book_history.delta(db, gen, base, rev)
-                id_changes = book_history.identity_changes(db, gen, base, rev)
+                item_rows = book_history.changes_between(db, gen, base, rev)
+                upsert, remove = [], []
+                for item, old_p, new_p in item_rows:
+                    if old_p != new_p:
+                        if new_p is None:
+                            remove.append(item)
+                        else:
+                            upsert.append(json.loads(new_p))
+                id_changes = book_history.identity_changes(db, gen, base, rev, item_rows=item_rows)
                 changed = {k:v for k,v in fields.items() if old.get(k)!=v}
                 checkpoints = []
                 last = old["phase"]

@@ -27,8 +27,6 @@ def trash_contents(folder, database, view):
         return summary
     generation, version, day = view["generation"], summary["version"], view["day"]
     with transaction(database) as db:
-        db.execute("CREATE TABLE IF NOT EXISTS trash_checkpoint (slot INTEGER PRIMARY KEY,generation TEXT,version INTEGER)")
-        db.execute("CREATE TABLE IF NOT EXISTS trash_items (slot INTEGER,id INTEGER,name TEXT,kind TEXT,quantity INTEGER,PRIMARY KEY(slot,id))")
         slot = view["slot"]
         prior = db.execute("SELECT generation,version FROM trash_checkpoint WHERE slot=?", (slot,)).fetchone()
         if prior is None or (prior["generation"], prior["version"]) != (generation,version):

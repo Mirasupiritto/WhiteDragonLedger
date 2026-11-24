@@ -4,7 +4,7 @@ import book_history
 from contextlib import contextmanager
 
 from command_transport import is_hex32, read_optional_json, read_command_receipt, replayed
-from database import transaction
+from database import ensure_trade_tickets_schema, transaction
 from ledger import lookup
 
 
@@ -15,11 +15,7 @@ SUCCESS = {"finished", "purchased", "information_purchased"}
 @contextmanager
 def ticket_transaction(database):
     with transaction(database) as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS trade_tickets (
-            id TEXT PRIMARY KEY, slot INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL,
-            customer TEXT, state TEXT NOT NULL, version INTEGER NOT NULL, receipt TEXT, evidence INTEGER NOT NULL DEFAULT 0
-        )""")
-        db.execute("CREATE INDEX IF NOT EXISTS trade_tickets_slot ON trade_tickets(slot,state)")
+        ensure_trade_tickets_schema(db, database)
         yield db
 
 

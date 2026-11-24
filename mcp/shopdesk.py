@@ -5,6 +5,7 @@ import time
 from search_text import search_text
 from scene import interrupted_shop_call
 from ledger import lookup, same_observation, read_head
+from server_state import snapshot_cache
 from command_transport import (
     deterministic_id,
     exchange,
@@ -45,7 +46,7 @@ def published(folder, stream="desk"):
         if not is_hex32(generation):
             raise ValueError("Invalid game load identifier")
         try:
-            data = json.loads((folder / f"{stream}-{generation}.json").read_text(encoding="utf-8-sig"))
+            data = snapshot_cache.read_json(folder / f"{stream}-{generation}.json")
         except (FileNotFoundError, PermissionError, json.JSONDecodeError):
             if attempt < 2:
                 time.sleep(.05)
