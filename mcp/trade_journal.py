@@ -108,8 +108,32 @@ def describe(row, detail=False):
     return result
 
 
+def finished_sale(db, folder, request, slot):
+    rows = db.execute("""SELECT * FROM trade_tickets WHERE slot=? AND tool='sell_order'
+                         AND state IN ('complete','open') AND json_extract(args,'$.visit')=?
+                         AND json_extract(args,'$.generation')=? ORDER BY rowid DESC""",
+                      (slot, request["visit"], request["generation"]))
+    for row in rows:
+        args = json.loads(row["args"])
+        if (args["lines"] != request["lines"] or
+                any(bool(args.get(k)) != bool(request.get(k)) for k in ("bundle", "stop_same_kind_on_budget"))):
+            continue
+        row = refresh(db, folder, row)
+        if row["state"] == "complete":
+            return replayed(json.loads(row["receipt"]))
+        if row["receipt"]:
+            receipt = json.loads(row["receipt"])
+            if receipt["status"] == "sale_pending":
+                return replayed(receipt)
+    return None
+
+
 def dispatch(database, folder, tool, request, slot, customer, send, *, observation=None):
     with ticket_transaction(database) as db:
+        if tool == "sell_order":
+            prior = finished_sale(db, folder, request, slot)
+            if prior is not None:
+                return prior
         row = insert(db, tool, request, slot, customer, observation)
         row = refresh(db, folder, row)
         if row["state"] == "complete" or (row["state"] == "open" and row["evidence"] == 3):

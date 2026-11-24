@@ -186,6 +186,12 @@ def sell_order(folder, lines, generation, revision, visit, stop_same_kind_on_bud
         return context
     if tool != "sell_order" and context.get("trade_tools_protocol") != 1:
         return {"status":"reload_updated_mod"}
+    if (tool == "sell_order" and database is not None and context["generation"] == generation and
+            (context["phase"] != "OPEN" or context["revision"] != revision or (context["customer"] or {}).get("visit") != visit)):
+        with trade_journal.ticket_transaction(database) as db:
+            prior = trade_journal.finished_sale(db, folder, plan, context["slot"])
+            if prior is not None:
+                return prior
     if context["phase"] != "OPEN":
         return {"status":"shop_closed"}
     if (context["generation"], (context["customer"] or {}).get("visit")) == (generation, visit):

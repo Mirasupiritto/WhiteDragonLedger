@@ -156,6 +156,10 @@ namespace WhiteDragon.Ledger
             Preview(source,"drain");
             Expect(Apply()=="transferred" && source.volume==0,"drain");
 
+            foreach (var target in new JToken[]{ "drain", LocalId(dest) })
+                Expect(Preview(source,target)=="source_unavailable" && (string)receipt["reason"]=="source_empty" &&
+                    receipt["use_token"]==null,"empty source cannot authorize a drain or pour");
+
             var ration = Item(974,"water_ration",1);
             Preview(ration,LocalId(dest));
             Expect(Apply()=="ration_used" && (int)receipt["units_used"]==1 && dest.volume==120,"water ration");

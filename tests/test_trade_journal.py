@@ -33,6 +33,28 @@ class TradeJournal(unittest.TestCase):
     def dismiss(self, ticket):
         return journal.dismiss(self.folder, self.database, 4, ticket["ticket_id"], ticket["version"])
 
+    def test_nurse_sale_replayed_after_revision_change(self):
+        # Original and duplicate ticket from day three, slot 13.
+        generation = "cc0ce363910e49eeaa4640d8b0f6f1de"
+        visit = "b23e2f27c9984ab3ab33ff692bf4185c"
+        original = "9d67638479be58ae89ab75246c030ade"
+        duplicate = "56c016f3182f51aaa666076cf45f0692"
+        lines = [dict(item_id=i, min_price=8) for i in (58, 59, 35, 37, 14, 36, 40, 41)]
+        view = dict(status="observed", generation=generation, slot=13, visit=visit, revision=91,
+                    customer=dict(visit=visit, name="中層區護士"), phase="OPEN")
+        with patch("shopdesk.buyer", return_value=view), patch("shopdesk.exchange") as send:
+            send.return_value = dict(status="sale_pending", command_id=original)
+            shopdesk.sell_order(self.folder, lines, generation, 91, visit, database=self.database)
+            self.assertEqual(send.call_args.args[2]["command_id"], original)
+            self.write("receipt-"+original+".json", dict(status="finished", command_id=original,
+                       generation=generation, revision=107, visit=visit, slot=13))
+            view["revision"] = 107
+            result = shopdesk.sell_order(self.folder, lines, generation, 107, visit, database=self.database)
+            self.assertEqual((result["status"], result["command_id"], result["replayed"]), ("finished", original, True))
+            self.assertEqual(self.tickets(13), [])
+            self.assertEqual(journal.ledger(self.folder,self.database,13,duplicate)["status"], "ticket_not_found")
+            send.assert_called_once()
+
     def test_sale_recovery_new_evidence_and_local_close(self):
         view = dict(status="observed", slot=4, phase="OPEN", generation=self.generation,
                     revision=12, customer=dict(name="客人", visit=self.visit))

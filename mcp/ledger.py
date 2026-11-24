@@ -170,7 +170,7 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
             values.append(json.dumps(sorted(save_ids)))
         condition = " WHERE " + " AND ".join(filters) if filters else ""
         items = [row_to_item(row) for row in db.execute(
-            "SELECT id,name,kind,area,owned,quantity,bottle_label,save_id," + STOCK_DETAIL_COLUMNS + " FROM stock" + condition + " ORDER BY id",
+            "SELECT id,name,kind,area,owned,quantity,bottle_label,categories,save_id," + STOCK_DETAIL_COLUMNS + " FROM stock" + condition + " ORDER BY id",
             values,
         )]
         extra = {}

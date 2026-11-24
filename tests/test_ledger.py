@@ -33,6 +33,14 @@ class LedgerReplay(unittest.TestCase):
     def read(self, **filters):
         return lookup(self.folder, self.db, **filters)
 
+    def test_showcase_meat_categories(self):
+        # Slot 13 stock journal, item 141 from the chemist playtest.
+        meat = dict(id=141, kind="processed_meat", name="“泥炭”合成肉", area="showcase",
+                    categories=["FOOD", "PROCESSED_FOOD"], quantity=1, owned=True)
+        self.event(1, op="baseline", items=[meat])
+        self.head(1)
+        self.assertEqual(self.read(area="showcase")["items"][0]["categories"], meat["categories"])
+
     def test_queries_and_move(self):
         self.assertEqual(self.read()["status"], "waiting_for_load")
         self.event(1, op="baseline", items=[self.bottle, dict(self.bottle, id=8, owned=False)])
@@ -143,7 +151,7 @@ class LedgerReplay(unittest.TestCase):
         self.assertEqual(ids(exclude_categories=["日用品"]), [1,4])
         self.assertEqual(ids(categories=["ALL_TYPE_EXCEPT_CONTRABAND"]), [1,2,3])
         self.assertEqual(ids(categories=["food"], exclude_categories=["food"]), [])
-        self.assertNotIn("categories",self.read()["items"][0])
+        self.assertEqual(self.read()["items"][0]["categories"], ["FOOD"])
         with closing(sqlite3.connect(self.db)) as old_client, old_client:
             old_client.execute("UPDATE stock SET categories=NULL WHERE id=2")
         self.assertEqual(ids(categories=["材料"]), [2])

@@ -26,7 +26,7 @@ STOCK_DETAIL_COLUMNS = (
 )
 
 
-def row_to_item(row, *, include_categories=False):
+def row_to_item(row):
     raw = dict(row)
     item = {}
     for key in ("id", "name", "kind", "area", "owned", "quantity", "bottle_label", "machine_id", "can_take_now", "save_id"):
@@ -41,7 +41,7 @@ def row_to_item(row, *, include_categories=False):
         item["can_take_now"] = bool(item["can_take_now"])
     if "save_id" in item and not item["save_id"]:
         del item["save_id"]
-    if include_categories and raw.get("categories") is not None:
+    if raw.get("categories") is not None:
         item["categories"] = json.loads(raw["categories"])
     if raw.get("size_w") is not None and raw.get("size_h") is not None:
         item["size"] = {"w": raw["size_w"], "h": raw["size_h"]}
@@ -178,7 +178,7 @@ def select_stock(folder, db, head, query):
     columns = "id,name,kind,area,owned,quantity,bottle_label,categories,machine_id,can_take_now," + STOCK_DETAIL_COLUMNS
     if ids is not None:
         columns += ",save_id"
-    items = [row_to_item(row, include_categories=True) for row in db.execute("SELECT " + columns + " FROM stock" + where + " ORDER BY id", params)]
+    items = [row_to_item(row) for row in db.execute("SELECT " + columns + " FROM stock" + where + " ORDER BY id", params)]
     if ids is not None:
         by_id = {item["id"]: item for item in items}
         ordered = dict.fromkeys(ids)

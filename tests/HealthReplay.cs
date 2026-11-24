@@ -78,6 +78,25 @@ namespace WhiteDragon.Ledger
             var owned=health["sentinel"]["immunivax_owned"];
             Expect((int)owned["unusable"]==1 && (int)owned["unidentified"]==0 &&
                 !(health["usable_items"]?.Any(i=>(int)i["item_id"]==LocalId(injector)) ?? false),"identified unusable injector excluded from activation");
+            var priorPhase=phase;
+            var priorCustomer=store.currentClientInstance;
+            int priorCash=store.playerCash;
+            phase="OPEN";
+            StoreStation.Instance.dayCounter=8;
+            store.currentClientInstance=new StoreClientInstance();
+            store.currentClientInstance.client.identifier="blackmailer";
+            ObserveBlackmailPayment(8);
+            alerts=new JArray();
+            HealthView(8,alerts);
+            Expect(alerts.Any(a=>(string)a["type"]=="blackmail_due_today" && (int)a["amount"]==48),"day 8 collection");
+            store.playerCash-=48;
+            store.currentClientInstance=null;
+            ObserveBlackmailPayment(8);
+            var next=HealthView(8,new JArray())["obligations"][0];
+            Expect((int)next["due_day"]==15 && (int)next["amount"]==55,"advance as soon as collector leaves paid");
+            store.playerCash=priorCash;
+            store.currentClientInstance=priorCustomer;
+            phase=priorPhase;
             StoreStation.Instance.dayCounter=savedDay;
             StartingPerk.blackmail=false;
             HealthData.sentinel=false;

@@ -235,6 +235,7 @@ namespace WhiteDragon.Ledger
                 return;
             }
             if (generation == null || !PlayerStore.HasInstance) return;
+            ObserveBlackmailPayment(StoreStation.Instance.dayCounter);
             TickHeat();
             CloseTransactions();
             FileCounterPapers();

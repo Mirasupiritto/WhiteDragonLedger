@@ -121,7 +121,7 @@ def register_pawnshop_tools(server, folder, database):
                         owned: bool | None = None,
                         verbose: bool = False) -> dict:
         """Query the most recently published inventory by literal name substring, area or owner.
-        Items include size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate, before haggling/markup),
+        Items include native categories (the same as find_stock), size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate, before haggling/markup),
         actual water_ml, liquid_main and water-majority contains_water on water containers, and charge_remaining/liters_remaining on portable_water_purifier.
         Includes area capacity{w,h,free_cells,largest_free{w,h}} for inventory/showcase. IDs are scoped to generation.
         Unchanged calendar/trash sections are omitted after the first read unless verbose=True."""
@@ -176,7 +176,7 @@ def register_pawnshop_tools(server, folder, database):
     @server.tool()
     def move_items(item_ids: list[int], source: Literal["inventory", "showcase", "front", "back"],
                    destination: Literal["inventory", "showcase"], generation: str, revision: int, visit: str | None = None) -> dict:
-        """Move owned stock between inventory and showcase with the shutter closed, or collect owned front/back items to inventory.
+        """Move owned stock between visible inventory and showcase windows, including while open, or collect owned front/back items to inventory.
         Pass the current visit during any arrived customer visit without an active order (including ready, barter, seller-only or dialogue), or omit it at an empty counter. Pass the generation and
         starting revision from query_inventory. When space is insufficient, returns no_space or showcase_full with item_size and target_capacity instead of not_moved.
         Stops at the first unconfirmed or rejected item. The original arguments recover completed lines and can continue pending lines."""
@@ -292,7 +292,7 @@ def register_pawnshop_tools(server, folder, database):
     def water_use(source_id: int, target_id: int | Literal["faucet", "drain"], generation: str, revision: int,
                   mode: Literal["preview", "apply", "apply_now"] = "preview", use_token: str | None = None) -> dict:
         """Preview or apply a water interaction. Sources include bottles, rations, tablets, portable purifiers and fresh strips.
-        A receiving filter adds component losses and final vessel volume to plan.filter.
+        An empty drain or pour source returns source_empty before a token is issued. A receiving filter adds component losses and final vessel volume to plan.filter.
         Low-risk operations (filling from target_id="faucet", purifying with portable_water_purifier, or testing with water_test_strip) support mode="apply_now" in a single call without preview. High-risk operations (drain, bottle-to-bottle pour, tablet, ration) reject apply_now with preview_required and must use preview + apply.
         To fill a container from the tap, pass the water container as source_id and target_id="faucet"; pass target_id="drain" to empty it.
         Use a single water_test_strip or water_tablet as source_id and the bottle as target_id. For boxed supplies, inspect_item_window(owner_id=box id, open_if_closed=True) then transfer_slot_item(source="slot").
@@ -441,6 +441,7 @@ def register_pawnshop_tools(server, folder, database):
         Set bundle=True to stage all listed
         items onto the trade table together and settle in one click (rolling all items back to their original
         areas if any item is declined, below minimum, duplicate variety, or the combined quote exceeds budget).
+        Repeating a finished plan at a new revision of the same visit retrieves the original receipt.
         With bundle=False (default), sells one item at a time and can opt in to stop_same_kind_on_budget.
         A staged item waits through dialogue and a closed tablet. Reuse identical arguments (including the original
         revision) to read sale_pending or the final receipt with actual received and remaining_budget."""
