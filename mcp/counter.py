@@ -233,6 +233,8 @@ def with_barter(folder, view):
 
 def wait_opening(folder, generation, visit, timeout=20):
     deadline = time.monotonic() + timeout
+    tablet_attempt = uuid4().hex
+    sent_tablet_rev = None
     while True:
         view = context(folder)
         if view["status"] != "observed":
@@ -258,10 +260,16 @@ def wait_opening(folder, generation, visit, timeout=20):
             return strip_protocols(with_barter(folder, ready_view))
         if time.monotonic() >= deadline:
             return strip_protocols({**view, "status": "opening_timeout"})
-        if stage in {"advance_required", "tablet_closed"} or tablet_pending:
-            action = "advance" if stage == "advance_required" else "tablet"
-            extra = {"page": view["page"]} if action == "advance" else {"read_id": uuid4().hex}
-            result = command(folder, action, generation, view["revision"], visit=visit, **extra)
+        if stage == "advance_required":
+            result = command(folder, "advance", generation, view["revision"], visit=visit, page=view["page"])
+            if result["status"] not in {
+                "advanced", "tablet_requested", "page_changed", "stale_observation", "ready", "speaking",
+                "awaiting_opening", "choice_required", "information", "awaiting_information_receipt", "barter",
+            }:
+                return result
+        elif (stage == "tablet_closed" or tablet_pending) and sent_tablet_rev != view["revision"]:
+            sent_tablet_rev = view["revision"]
+            result = command(folder, "tablet", generation, view["revision"], visit=visit, read_id=tablet_attempt)
             if result["status"] not in {
                 "advanced", "tablet_requested", "page_changed", "stale_observation", "ready", "speaking",
                 "awaiting_opening", "choice_required", "information", "awaiting_information_receipt", "barter",

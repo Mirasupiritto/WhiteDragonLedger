@@ -484,10 +484,12 @@ class CounterFlow(unittest.TestCase):
 
             closed_buyer = dict(self.view, stage="not_selling", client_role="buyer", demand={"status": "panel_closed", "interests": []})
             open_buyer = dict(self.view, stage="not_selling", client_role="buyer", demand={"status": "observed", "interests": ["MATERIAL"]})
-            with (patch("counter.context", side_effect=[closed_buyer, open_buyer]),
-                  patch("counter.command", return_value={"status": "tablet_requested"}) as cmd):
+            with (patch("counter.context", side_effect=[closed_buyer, closed_buyer, open_buyer]),
+                  patch("counter.command", return_value={"status": "tablet_requested"}) as cmd,
+                  patch("counter.time.sleep")):
                 opened = counter.wait_opening(self.folder, self.generation, self.visit, timeout=2)
             self.assertEqual(opened["demand"]["status"], "observed")
+            cmd.assert_called_once()
             self.assertEqual(cmd.call_args.args[1], "tablet")
             self.assertIn("read_id", cmd.call_args.kwargs)
 
