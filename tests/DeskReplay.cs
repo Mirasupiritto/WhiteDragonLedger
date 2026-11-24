@@ -105,7 +105,7 @@ namespace WhiteDragon.Ledger {
         }
         public GameItem trashcan;
     }
-    public class ItemCondition { public string display; }
+    public class ItemCondition { public string identifier, display; }
     public partial class ItemFeature {
         public ItemCondition label;
         public ItemCondition GetCurrentItemCondition() => label;
@@ -183,7 +183,7 @@ namespace WhiteDragon.Ledger {
         public StoreClient client=new StoreClient();
         public StoreClient GetClientBlueprint() => client;
     }
-    public class HealthData {
+    public partial class HealthData {
         public const int SERIOUS_WOUND_THRESHOLD = 5;
         public int woundState;
         public bool isWoundStable = true, isWoundedFresh;
@@ -527,6 +527,7 @@ namespace WhiteDragon.Ledger {
             ReplayBarter(true);
             ReplayBargain();
             ReplayPhone();
+            ReplayHealth();
             ReplayScenes();
             ReplayScratchCard();
             ReplayJourney();

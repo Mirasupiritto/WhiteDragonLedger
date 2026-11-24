@@ -144,3 +144,13 @@ class TrashLedger(unittest.TestCase):
             self.assertEqual(third["trash"], updated_tr)
             self.assertNotIn("calendar", third)
             self.assertEqual(third["unchanged_sections"], ["calendar", "sleep", "security"])
+
+    def test_health_warnings_remain_visible(self):
+        from shop_day import SectionCache
+        cache = SectionCache()
+        view = dict(status="observed", health={"luck":0})
+        cache.filter("g", view)
+        self.assertNotIn("health", cache.filter("g", view))
+        warning = dict(view, alerts=[{"type":"addiction_withdrawal"}])
+        self.assertIn("health", cache.filter("g", warning))
+        self.assertIn("alerts", cache.filter("g", warning))

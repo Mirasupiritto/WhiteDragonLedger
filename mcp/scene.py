@@ -88,7 +88,7 @@ def tool_region(scene):
 def register_scene_tools(server, folder):
     @server.tool()
     def get_scene() -> dict:
-        """Read the current location, transition destination, and most recent journey."""
+        """Read the current location, transition destination, most recent journey, or the game_over reason shown by the game."""
         return read_scene(folder)
 
     @server.tool()
@@ -114,6 +114,8 @@ def register_scene_tools(server, folder):
         while True:
             scene = read_scene(folder)
             status = scene.get("status")
+            if status == "game_over":
+                return {**scene, "tool_status":"game_over"}
             if status == "mod_not_loaded":
                 return {**scene, "wait_result": "mod_not_loaded"}
             if status not in {"waiting_for_load", "transitioning", "reading_scene", "waiting_for_scene_observer"}:

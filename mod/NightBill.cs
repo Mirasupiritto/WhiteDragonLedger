@@ -76,6 +76,7 @@ namespace WhiteDragon.Ledger
             {
                 if (!OpenBill(summary)) return "bedroll_unavailable";
                 var opened = NightBill();
+                AttachHealthAlerts(StoreStation.Instance.dayCounter,receipt);
                 receipt["bill"] = opened;
                 receipt["bill_token"] = billToken;
                 return (string)opened["status"] ?? "bill_open";

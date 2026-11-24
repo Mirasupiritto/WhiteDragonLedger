@@ -134,8 +134,12 @@ namespace WhiteDragon.Ledger
             store.storeService.Add(new StoreService {cost=5});EndOfDayUIManager.Instance.IsOpen=true;
             Expect(SubmitSleep(request,new JObject())=="service_cost_changed","charges have changed");
             request["service_cost"]=5;
-            Expect(SubmitSleep(request,new JObject())=="sleep_submitted" && SubmitSleep(request,new JObject())=="day_changed_or_pending" &&
+            HealthData.sentinel=true;
+            store.healthData.daysSinceSentinelInjection=6;
+            var sleepReceipt=new JObject();
+            Expect(SubmitSleep(request,sleepReceipt)=="sleep_submitted" && (string)sleepReceipt["alerts"][0]["stage"]=="warning" && SubmitSleep(request,new JObject())=="day_changed_or_pending" &&
                 EndOfDayUIManager.Instance.submissions==1,"one night only");
+            HealthData.sentinel=false;
             // Night report, appeal, and status summary
             var startUi = StartOfDayUIManager.Instance;
             startUi.contentGroupObject.labels = new[] {

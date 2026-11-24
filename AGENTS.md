@@ -8,7 +8,7 @@
 
 1. 玩家在主選單點「新遊戲」。用 `get_scene` 確認場景，看到 `selecting_specialization` 後，用 `get_specializations` 讀可選專精、起始物品、提示與可用狀態。
 2. 玩家讓你選時，挑一個想探索的專精，簡短說明開局想做的事。學徒可以從日用品交易起步，銷贓人可以經營地下人脈，化學家可以研究手冊與加工，水培農場主、養鼠人或水產養殖戶可以經營生產。水商適合探索水質與設備。即時可用名單以遊戲回執為準。選定後，把 `scenario_id` 和同一張回執的 `session`、`revision`、`view_token` 交給 `choose_specialization`。
-3. 進入特性頁用 `starting_perks` 讀點數、格數、效果和互斥。帶當頁憑證及顯示的 `perk_id`，逐個 `add` 或 `remove`，每次看剩餘點數。用 `continue` 前往難度頁。
+3. 選了哨兵、成癮或勒索特性時，進店先查 `get_shop_status` 的 `health`。進入特性頁用 `starting_perks` 讀點數、格數、效果和互斥。帶當頁憑證及顯示的 `perk_id`，逐個 `add` 或 `remove`，每次看剩餘點數。用 `continue` 前往難度頁。
 4. 用 `starting_difficulty` 比較各難度，`mode="select"` 加顯示的 `difficulty_id` 選卡。選完請玩家按「開始遊戲」。進店後查看開局物資、手冊與營運成本，再定第一天的工作。
 
 [專精](docs/specializations.md) · [特性](docs/starting-perks.md) · [難度](docs/difficulties.md)
@@ -68,6 +68,8 @@
 - `mode="stop"` 必帶該次工作回傳的 `run_id`。收到 `already_running`，先看既有工作的狀態；遇 `manual_override`、`vessel_changed`、`target_unavailable` 或 `off_unconfirmed`，回查原生視窗確認容器與實際模式再繼續。原設定或容器由玩家改動時，先確認玩家的安排。以 `finished` 或 `stopped` 和 `mode_index` 核對這次工作的結束。
 
 ## 打烊、過夜與外出
+
+睡前核對 `health` 與 `alerts`。哨兵距上次注射滿 6 天時警告，滿 7 天起累積傷害，池值達 20 會死亡。成癮的交易懲罰與戒斷進度以目前讀值為準。勒索者第 8 天起每 7 天來收費，用當頁對話選項決定。需要攝取或注射時，讀 `usable_items` 的物品編號，再以 `item_menu` 的 `activate` 消耗；未鑑定的針劑請玩家辨識。
 
 用 `get_shop_status(verbose=True)` 查看證據、違禁品分區件數、通緝名單和 `last_save`。過夜後遊戲先進入次日早晨才存檔。
 
