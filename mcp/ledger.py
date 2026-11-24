@@ -94,6 +94,8 @@ def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, sa
         db.execute("CREATE INDEX IF NOT EXISTS stock_kind ON stock(kind)")
         previous = db.execute("SELECT generation, revision FROM checkpoint WHERE id=1").fetchone()
         cursor = previous["revision"] if previous and previous["generation"] == generation else 0
+        if "liquid_main" not in columns:
+            cursor = 0  # Import composition from records already seen by older readers.
         if cursor > revision:
             raise ValueError("Game journal revision moved backwards in the same load")
         # An older MCP process can import this load while omitting its new columns.

@@ -215,7 +215,9 @@ class LedgerReplay(unittest.TestCase):
         )
         caps = {"inventory": {"w": 24, "h": 10, "free_cells": 235, "largest_free": {"w": 20, "h": 10}},
                 "showcase": {"w": 7, "h": 5, "free_cells": 35, "largest_free": {"w": 7, "h": 5}}}
-        self.event(1, op="baseline", items=[empty_bottle, soap, purifier], capacities=caps)
+        alcohol = dict(empty_bottle, id=34, name="小瓶酒精", empty=False, water_ml=75, liquid_ml=250,
+                       liquid_main={"id":"alcohol","name":"酒精","percent":70})
+        self.event(1, op="baseline", items=[empty_bottle, soap, purifier, alcohol], capacities=caps)
         self.put("head.json", dict(
             status="observed", slot=3, phase="CLOSED", generation=self.generation, revision=1,
             full_scans=1, load_scans=1, item_details_protocol=1, stock_categories_protocol=1, trade_panel_protocol=1,
@@ -232,6 +234,9 @@ class LedgerReplay(unittest.TestCase):
         water_matches = self.read(stock_query=dict(categories=["WATER"], owned=True))["items"]
         self.assertEqual([i["id"] for i in water_matches], [31])
         self.assertFalse(water_matches[0]["contains_water"])
+        mixture = self.read(name="小瓶酒精")["items"][0]
+        self.assertEqual((mixture["water_ml"], mixture["liquid_ml"], mixture["liquid_main"]),
+                         (75, 250, alcohol["liquid_main"]))
         by_id = self.read(stock_query=dict(item_ids=[33], generation=self.generation))["items"][0]
         self.assertEqual((by_id["charge_remaining"], by_id["liters_remaining"]), (25, 2.5))
 

@@ -149,7 +149,7 @@ def register_pawnshop_tools(server, folder, database):
                    area: Literal["inventory", "showcase", "front", "back", "purifier"] | None = None,
                    exclude_contraband: bool = False, kinds: list[str] | None = None, exclude_kinds: list[str] | None = None) -> dict:
         """Pick stock by exact visible label, area, ownership and native item categories.
-        Match any requested category or kind, then apply all exclusions. Searching category WATER also matches empty water containers categorized as HOUSEHOLD_GOOD and requires at least 50% water in filled vessels.
+        Match any requested category or kind, then apply all exclusions. Searching category WATER also matches empty water containers categorized as HOUSEHOLD_GOOD and filled water containers with at least 50% water.
         Each item includes size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate), and purifier charge_remaining/liters_remaining when applicable.
         Visible variety restrictions group sellable matches by kind, one per kind for this visit.
         Bag contents include parent_id, outer-to-inner container_path and access (unpack_first/container_locked). Unpack before sale.
