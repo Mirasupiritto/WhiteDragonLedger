@@ -10,29 +10,81 @@ from journey import ACTION_REGIONS, REGIONS
 from scene import read_scene, shop_visit, tool_region
 
 
-def _slim_purchase_update(tool_name, result, update):
-    if (tool_name not in {"buy_merchant_batch", "trade_batch", "confirm_trade"}
-            or update.get("mode") != "delta"
-            or not isinstance(result, dict)):
+def _slim_shop_update(tool_name, result, update, arguments=None, last_emitted=None):
+    if not isinstance(update, dict):
         return update
+    if update.get("mode") == "baseline" and update.get("reason") == "cursor_reset":
+        if last_emitted is not None:
+            last_emitted.clear()
+        fields = update.get("fields") or {}
+        return {
+            "status": update["status"],
+            "mode": "baseline_summary",
+            "reason": "cursor_reset",
+            "slot": update.get("slot"),
+            "generation": update.get("generation"),
+            "revision": update.get("revision"),
+            "cursor": update.get("cursor"),
+            "item_count": len(update.get("items") or []),
+            "cash": fields.get("cash"),
+            "day": fields.get("day"),
+            "phase": fields.get("phase"),
+            "next_tool": "get_shop_updates",
+        }
+    if update.get("mode") != "delta" or not isinstance(result, dict):
+        if last_emitted is not None and update.get("mode") == "baseline":
+            last_emitted.clear()
+            for row in update.get("items") or []:
+                if isinstance(row, dict) and row.get("id") is not None:
+                    last_emitted[row["id"]] = json.dumps(row, sort_keys=True, ensure_ascii=False)
+        return update
+
     receipt_ids = set()
-    for row in result.get("items") or []:
+    if tool_name in {"buy_merchant_batch", "trade_batch", "confirm_trade"}:
+        for row in result.get("items") or []:
+            if isinstance(row, dict):
+                item_id = row.get("id") if "id" in row else row.get("item_id")
+                if item_id is not None:
+                    receipt_ids.add(item_id)
+
+    prev_emitted = dict(last_emitted) if last_emitted is not None else {}
+    upsert = []
+    for row in update.get("upsert", []):
         if not isinstance(row, dict):
+            upsert.append(row)
             continue
-        item_id = row.get("id") if "id" in row else row.get("item_id")
-        if item_id is not None:
-            receipt_ids.add(item_id)
-    if not receipt_ids:
-        return update
-    upsert = [row for row in update.get("upsert", []) if row.get("id") not in receipt_ids]
+        rid = row.get("id")
+        if rid in receipt_ids:
+            continue
+        encoded = json.dumps(row, sort_keys=True, ensure_ascii=False)
+        if rid is not None and prev_emitted.get(rid) == encoded:
+            continue
+        upsert.append(row)
+
+    if last_emitted is not None:
+        last_emitted.clear()
+        for row in result.get("items") or []:
+            if isinstance(row, dict) and row.get("id") is not None:
+                last_emitted[row["id"]] = json.dumps(row, sort_keys=True, ensure_ascii=False)
+        for row in upsert:
+            if isinstance(row, dict) and row.get("id") is not None:
+                last_emitted[row["id"]] = json.dumps(row, sort_keys=True, ensure_ascii=False)
+
     remove = update.get("remove", [])
     fields = update.get("fields", {})
     checkpoints = update.get("checkpoints")
     id_changes = update.get("identity_changed")
+    offer_summarized = isinstance(result.get("offer"), dict) and result["offer"].get("summary_only") is True
+    verbose = bool((arguments or {}).get("verbose"))
+
     if not upsert and not remove and not fields and not checkpoints and not id_changes:
         return {"status": "unchanged", "revision": update["revision"], "cursor": update["cursor"]}
-    slimmed = dict(update, upsert=upsert)
-    return slimmed
+    if offer_summarized and not verbose and upsert:
+        slimmed = dict(update)
+        slimmed.pop("upsert", None)
+        slimmed["upsert_summary"] = {"count": len(upsert)}
+        return slimmed
+    return dict(update, upsert=upsert)
 
 
 class SceneServer(FastMCP):
@@ -42,6 +94,7 @@ class SceneServer(FastMCP):
         self.global_tools = {"get_scene", "wait_for_scene"}
         self.ledger_tools = {"get_shop_ledger", "dismiss_trade_ticket"}
         self.client_session = None
+        self._last_emitted_items = {}
 
     async def list_tools(self):
         self.client_session = self.get_context().session
@@ -79,7 +132,7 @@ class SceneServer(FastMCP):
                     tool = self._tool_manager.get_tool(name)
                     result = await tool.run(arguments, context=self.get_context())
                     try:
-                        result["shop_update"] = _slim_purchase_update(name, result, self.updates.report())
+                        result["shop_update"] = _slim_shop_update(name, result, self.updates.report(), arguments, self._last_emitted_items)
                     except (OSError, sqlite3.Error, json.JSONDecodeError) as error:
                         # The action may already have settled. Keep its receipt even when the next read fails.
                         result["shop_update"] = {"status":"update_unavailable", "detail":str(error)}

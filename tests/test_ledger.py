@@ -240,6 +240,43 @@ class LedgerReplay(unittest.TestCase):
         by_id = self.read(stock_query=dict(item_ids=[33], generation=self.generation))["items"][0]
         self.assertEqual((by_id["charge_remaining"], by_id["liters_remaining"]), (25, 2.5))
 
+    def test_slim_shop_update_cursor_reset_dedup_and_offer_summary(self):
+        import scene_server
+
+        last_emitted = {}
+        reset_update = {
+            "status": "observed", "mode": "baseline", "reason": "cursor_reset",
+            "slot": 3, "generation": self.generation, "revision": 5, "cursor": "c5",
+            "fields": {"cash": 120, "day": 4, "phase": "OPEN"},
+            "items": [{"id": 1, "name": "Soap"}, {"id": 2, "name": "Water"}],
+        }
+        summary = scene_server._slim_shop_update("item_menu", {"status": "observed"}, reset_update, {}, last_emitted)
+        self.assertEqual(summary["mode"], "baseline_summary")
+        self.assertEqual(summary["item_count"], 2)
+        self.assertEqual(summary["next_tool"], "get_shop_updates")
+        self.assertNotIn("items", summary)
+
+        row_a = {"id": 10, "name": "Bottle", "area": "inventory"}
+        delta_1 = {"status": "observed", "mode": "delta", "revision": 6, "cursor": "c6", "upsert": [row_a], "remove": [], "fields": {}}
+        first = scene_server._slim_shop_update("move_items", {"status": "moved"}, delta_1, {}, last_emitted)
+        self.assertEqual(len(first["upsert"]), 1)
+
+        delta_2 = {"status": "observed", "mode": "delta", "revision": 7, "cursor": "c7", "upsert": [dict(row_a)], "remove": [], "fields": {}}
+        second = scene_server._slim_shop_update("open_shop", {"status": "opened"}, delta_2, {}, last_emitted)
+        self.assertEqual(second["status"], "unchanged")
+
+        offer_rows = [{"id": 20 + i, "name": f"Item {i}"} for i in range(6)]
+        delta_3 = {"status": "observed", "mode": "delta", "revision": 8, "cursor": "c8", "upsert": offer_rows, "remove": [], "fields": {}}
+        third = scene_server._slim_shop_update(
+            "next_customer",
+            {"status": "called", "offer": {"summary_only": True, "count": 6}},
+            delta_3,
+            {"verbose": False},
+            last_emitted,
+        )
+        self.assertNotIn("upsert", third)
+        self.assertEqual(third["upsert_summary"], {"count": 6})
+
 
 if __name__ == "__main__":
     unittest.main()
