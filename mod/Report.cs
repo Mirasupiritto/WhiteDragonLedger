@@ -64,7 +64,7 @@ namespace WhiteDragon.Ledger
             bool read = (string)request["mode"] == "read";
             if (read && visit != null && visit == reportedVisit && reportGeneration == generation)
             {
-                receipt["next_tool"] = completedReport == null ? "report_client" : "feedback_box";
+                receipt["next_tool"] = ReportNextTool();
                 if (completedReport != null) receipt.Merge(completedReport);
                 return reportStatus;
             }
@@ -100,9 +100,13 @@ namespace WhiteDragon.Ledger
             reportCustomer = customer.reported || store.isHandlingShootout ? customer : null;
             reportStatus = store.isHandlingShootout ? "shootout" : customer.reported ? "reported" :
                 couldIntercept && customer.tryInterceptReport == null ? "report_intercepted" : "outcome_pending";
-            receipt["next_tool"] = "report_client";
+            receipt["next_tool"] = ReportNextTool();
             return reportStatus;
         }
+
+        private string ReportNextTool() =>
+            reportStatus == "report_intercepted" ? "get_trade_context" :
+            completedReport == null ? "report_client" : "feedback_box";
 
         private void CheckReport()
         {
