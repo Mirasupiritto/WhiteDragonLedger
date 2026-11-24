@@ -227,12 +227,21 @@ namespace WhiteDragon.Ledger
             if (!IsWaterContainerItem(item)) return;
             int ul = Math.Max(0, WaterHelper.GetCurrentCapacityUL(item));
             bool empty = WaterHelper.IsEmpty(item);
-            int volumeMl = empty ? 0 : ul / 1000;
+            double volumeMl = empty ? 0 : ul / 1000.0;
             int capMl = Math.Max(0, WaterHelper.GetTotalCapacityML(item));
             row["water_container"] = true;
             row["liquid_ml"] = volumeMl;
             bool containsWater=HasWater(item);
-            row["water_ml"] = containsWater ? volumeMl : 0;
+            row["water_ml"] = item.GetTagReadonly(Liquid.GetCurrentPartFromId("water")).GetInt() / 1000.0;
+            if (!empty)
+            {
+                var main = LiquidParts.Read(item).FirstOrDefault();
+                if (main.Key != null)
+                    row["liquid_main"] = new JObject { ["id"]=main.Key.identifier, ["name"]=main.Key.displayName,
+                        ["percent"]=Math.Round(100.0 * main.Value / ul, 2) };
+                if (!containsWater && row["categories"] is JArray tags)
+                    foreach (var tag in tags.Where(t => (string)t == "WATER").ToList()) tag.Remove();
+            }
             if (capMl > 0) row["capacity_ml"] = capMl;
             row["empty"] = empty;
             row["contains_water"] = containsWater;
