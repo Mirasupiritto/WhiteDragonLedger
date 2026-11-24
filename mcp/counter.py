@@ -10,6 +10,24 @@ import trade_journal
 from shopdesk import published, strip_protocols
 
 
+_seen_finished_heat = set()
+
+
+def filter_finished_heat(folder, result):
+    if not isinstance(result, dict):
+        return result
+    heat = result.get("heat")
+    if not isinstance(heat, dict) or heat.get("status") == "running":
+        return result
+    key = (str(folder), result.get("generation"), heat.get("run_id"), heat.get("status"))
+    if key in _seen_finished_heat:
+        filtered = dict(result)
+        filtered.pop("heat", None)
+        return filtered
+    _seen_finished_heat.add(key)
+    return result
+
+
 def context(folder):
     view = published(folder)
     if view["status"] != "observed":

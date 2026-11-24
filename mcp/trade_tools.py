@@ -165,7 +165,14 @@ class Updates:
                       latest_line=(desk.get("lines") or [None])[-1], can_ring=desk["reception"].get("can_ring"),
                       can_dismiss=desk["reception"].get("can_dismiss"), can_open_shop=desk.get("can_open_shop"))
         if "heat" in desk:
-            fields["heat"] = desk["heat"]
+            h = desk["heat"]
+            if h.get("status") == "running":
+                fields["heat"] = h
+            else:
+                key = (str(self.folder), gen, h.get("run_id"), h.get("status"))
+                if key not in counter._seen_finished_heat:
+                    fields["heat"] = h
+                    counter._seen_finished_heat.add(key)
         fields["page"] = desk.get("page")
         encoded = json.dumps(fields, sort_keys=True, ensure_ascii=False)
         token = f"{gen}:{rev}:{hashlib.sha256(encoded.encode()).hexdigest()[:24]}"
@@ -240,7 +247,7 @@ def register(server, folder, database):
         if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
             counter.wait_choices_ready(folder, ctx)
             ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
-        return summarize_offer(ctx, verbose=verbose)
+        return counter.filter_finished_heat(folder, summarize_offer(ctx, verbose=verbose))
 
     @server.tool()
     def wait_for_shop_event(event: Literal["goods_offered","next_customer_available","opening_finished"],

@@ -98,6 +98,8 @@ namespace WhiteDragon.Ledger
             Tick(50);
             Expect(heatRun==null && (string)lastHeat["status"]=="vessel_changed" && modeTag.associatedId==0,
                 "removing bottle shuts original plate off");
+            Expect(CounterView(consumeHeat: true)["heat"]!=null && CounterView(consumeHeat: true)["heat"]==null,
+                "finished heat appears only once in counter views");
             plate.To(null); MachineHelper.chemistrySlots=null; lastHeat=null;
         }
     }

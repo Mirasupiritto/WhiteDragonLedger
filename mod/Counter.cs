@@ -83,7 +83,7 @@ namespace WhiteDragon.Ledger
                 store.lockShutterButtonFlag <= 0 && !store.isClientBeingArrested && !store.isHandlingShootout && store.CanStartDay();
         }
 
-        private JObject CounterView()
+        private JObject CounterView(bool consumeHeat = false)
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
@@ -295,7 +295,7 @@ namespace WhiteDragon.Ledger
                 return (bool)receipt["tablet_open"] ? "tablet_requested" : "tablet_unavailable";
             }
             if (action != "buy") return "invalid_action";
-            var view = CounterView();
+            var view = CounterView(consumeHeat: true);
             if ((string)view["stage"] != "ready") return (string)view["stage"];
             if (view["offer_token"] == null || (string)request["offer_token"] != offerToken) return "offer_changed";
             long total = (long)view["offer"]["total"];
