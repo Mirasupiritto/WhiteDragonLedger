@@ -10,6 +10,7 @@ namespace WhiteDragon.Ledger
         private string itemMenuToken;
         private JObject previousItemMenu;
         private bool itemMenuUsed;
+        private readonly System.Collections.Generic.HashSet<string> toolOpenedPanels = new System.Collections.Generic.HashSet<string>();
         private static readonly string[] MenuVerbs = { "open", "use", "equip", "activate", "configure", "toggle", "unload", "pin" };
 
         private static JObject BaseItemMenu()
@@ -192,6 +193,7 @@ namespace WhiteDragon.Ledger
             if (verb=="open")
                 return WorkstationAction(new JObject {["action"]="inspect_window", ["owner_id"]=id, ["open_if_closed"]=true},receipt);
             bool confirmationWasOpen=NativeItemPanels.ConfirmationOpen;
+            string panelsBefore=NativeItemPanels.ActiveKey();
             switch (verb)
             {
                 case "activate": item.ActivateSlotItem(); break;
@@ -223,14 +225,34 @@ namespace WhiteDragon.Ledger
             changed.Add(item);
             receipt["remaining_units"] = item.parentInventory == null ? 0 : item.unitCount;
             NativeItemPanels.CaptureConfirmation(confirmationWasOpen);
+            var beforeSet = new System.Collections.Generic.HashSet<string>(
+                (panelsBefore ?? "").Split(new[]{','}, StringSplitOptions.RemoveEmptyEntries));
             string panel=NativeItemPanels.ActiveKey();
             if (panel!=null)
             {
-                receipt["panel"]=panel;
-                receipt["next_tool"]="item_panel";
+                foreach (var key in panel.Split(new[]{','}, StringSplitOptions.RemoveEmptyEntries))
+                    if (!beforeSet.Contains(key)) toolOpenedPanels.Add(key);
                 // A scan is complete as soon as the native scanner opens; return it without another read.
                 if (panel.Split(new[]{','}).Contains("chemical_scanner") && NativeItemPanels.ScannerReading() is JObject scan)
+                {
                     receipt["scan"]=scan;
+                    if (!beforeSet.Contains("chemical_scanner"))
+                    {
+                        var scannerView = NativeItemPanels.Current("chemical_scanner");
+                        if (scannerView?.Close != null)
+                        {
+                            scannerView.Close();
+                            toolOpenedPanels.Remove("chemical_scanner");
+                            receipt["panel_closed"]=true;
+                            panel=NativeItemPanels.ActiveKey();
+                        }
+                    }
+                }
+                if (panel!=null)
+                {
+                    receipt["panel"]=panel;
+                    receipt["next_tool"]="item_panel";
+                }
             }
             return "invoked";
         }

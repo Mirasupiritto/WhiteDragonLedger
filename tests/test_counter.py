@@ -455,7 +455,7 @@ class CounterFlow(unittest.TestCase):
 
             with patch("counter.command", return_value={"status": "dismissed", "waiting": 1, "reception_token": "rt3"}):
                 fin = call("finish_customer", generation=self.generation, revision=6, visit=self.visit)
-            self.assertEqual((fin["status"], fin["reception_token"]), ("dismissed", "rt3"))
+            self.assertEqual((fin["status"], fin["reception_token"], fin["next_tool"]), ("dismissed", "rt3", "next_customer"))
 
             transient = {"status": "dismiss_unavailable", "reason": "client_not_dismissable"}
             ready = dict(self.view, status="observed", generation=self.generation, visit=self.visit, reception={"can_dismiss": True})
@@ -481,6 +481,20 @@ class CounterFlow(unittest.TestCase):
                   patch("counter.wait_opening", return_value=dict(incoming, stage="ready"))):
                 self.assertEqual(call("next_customer")["visit"], "new")
                 ring.assert_called_once()
+
+            closed_buyer = dict(self.view, stage="not_selling", client_role="buyer", demand={"status": "panel_closed", "interests": []})
+            open_buyer = dict(self.view, stage="not_selling", client_role="buyer", demand={"status": "observed", "interests": ["MATERIAL"]})
+            with (patch("counter.context", side_effect=[closed_buyer, open_buyer]),
+                  patch("counter.command", return_value={"status": "tablet_requested"}) as cmd):
+                opened = counter.wait_opening(self.folder, self.generation, self.visit, timeout=2)
+            self.assertEqual(opened["demand"]["status"], "observed")
+            self.assertEqual(cmd.call_args.args[1], "tablet")
+            self.assertIn("read_id", cmd.call_args.kwargs)
+
+            with (patch("counter.context", return_value=dict(self.view, stage="speaking")),
+                  patch("counter.time.sleep")):
+                timed_out = counter.wait_opening(self.folder, self.generation, self.visit, timeout=0)
+            self.assertEqual(timed_out["status"], "opening_timeout")
 
             services = [{"id": f"svc_{i}", "title": f"Svc {i}", "tab": "water" if i < 5 else "security",
                          "cost": 10, "unlocked": False, "ready": i % 2 == 0} for i in range(10)]

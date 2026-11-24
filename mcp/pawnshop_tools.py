@@ -202,7 +202,7 @@ def register_pawnshop_tools(server, folder, database):
         On subsequent reads pass the last menu_token, even across items, for added/removed verbs and changed labels (null resets to base).
         Choose a displayed enabled verb with its matching item and token. activate is also read/consume depending on the native label.
         An expired or already-used token returns status="stale_menu_token" with the item's fresh menu_token and enabled verbs so you can retry in one step; menu_changed means the item's available options changed.
-        For use, mode=targets checks up to 64 candidate target_ids via native predicates without using the item. Choose with the matching target_id. Water operations return the water_use route. Using a chemical scanner returns scan{components[id,name,ul,ml,percent], total_ml, tested, label, effects}. invoked confirms the native action, not an overnight effect."""
+        For use, mode=targets checks up to 64 candidate target_ids via native predicates without using the item. Choose with the matching target_id. Water operations return the water_use route. Using a chemical scanner returns scan{components[id,name,ul,ml,percent], total_ml, tested, label, effects} and auto-closes a tool-opened scanner panel (panel_closed=True). invoked confirms the native action, not an overnight effect."""
         args = dict(item_id=item_id, mode=mode, menu_token=menu_token)
         if mode == "targets":
             if not menu_token or not target_ids or len(target_ids)>64 or any(i<=0 for i in target_ids):
@@ -478,8 +478,9 @@ def register_pawnshop_tools(server, folder, database):
 
     @server.tool()
     def next_customer(generation: str | None = None, revision: int | None = None, waiting: int | None = None,
-                      verbose: bool = False) -> dict:
-        """One-step guest admission: if counter is idle, ring the bell, wait through opening dialogue and return trade-ready state; if a customer is already at the counter, finish opening and return status="already_present".
+                      verbose: bool = False, timeout: float = 20.0) -> dict:
+        """One-step guest admission: if counter is idle, ring the bell, wait through opening dialogue and tablet opening (up to timeout seconds, default 20, returning opening_timeout if exceeded) and return trade-ready state; if a customer is already at the counter, finish opening and return status="already_present".
+        Auto-closes tool-opened item panels; player-opened panels return item_panel_open with current visit/customer/stage and after_close_next_tool.
         Large (>5 item) supplier offers return a summary unless verbose=True."""
         view = counter.context(folder)
         if view.get("status") != "observed":
@@ -493,7 +494,7 @@ def register_pawnshop_tools(server, folder, database):
                     "can_open_shop": view.get("can_open_shop")}
         if view.get("stage") == "idle" and not view.get("visit"):
             ring_wait = view.get("waiting", 0) if waiting is None else waiting
-            result = counter.ring(folder, view["generation"], view["revision"], ring_wait)
+            result = counter.ring(folder, view["generation"], view["revision"], ring_wait, timeout=timeout)
             if result.get("status") not in {"occupied", "bell_unavailable", "customer_replaced", "customer_left", "queue_changed", "customer_departing"}:
                 return counter.filter_finished_heat(folder, trade_tools.summarize_offer(result, verbose=verbose))
             current = counter.context(folder)
@@ -505,7 +506,7 @@ def register_pawnshop_tools(server, folder, database):
         if view.get("stage") == "customer_departing":
             return {**shopdesk.strip_protocols(view), "status": "customer_departing"}
         if not view.get("visit") and view.get("stage") == "arriving":
-            deadline = time.monotonic() + 5.0
+            deadline = time.monotonic() + min(5.0, max(0.0, timeout))
             while time.monotonic() < deadline:
                 time.sleep(0.15)
                 view = counter.context(folder)
@@ -514,7 +515,7 @@ def register_pawnshop_tools(server, folder, database):
                 if view.get("visit") or view.get("stage") != "arriving":
                     break
         if view.get("visit"):
-            waited = counter.wait_opening(folder, view["generation"], view["visit"])
+            waited = counter.wait_opening(folder, view["generation"], view["visit"], timeout=timeout)
             if waited.get("status") == "observed":
                 waited = {**waited, "status": "already_present", "already_at_counter": True}
             if "reception_token" not in waited and isinstance(waited.get("reception"), dict) and "token" in waited["reception"]:
@@ -550,6 +551,8 @@ def register_pawnshop_tools(server, folder, database):
                               "next_stage": current["stage"], "next_action": "接續新客人的當前狀態。"}
                 elif current.get("stage") == "customer_departing":
                     result = {**result, "next_stage": current["stage"], "next_action": current["next_action"]}
+            if "next_customer" not in result and (result.get("waiting") or 0) > 0:
+                result = {**result, "next_tool": "next_customer"}
         return result
 
     @server.tool()

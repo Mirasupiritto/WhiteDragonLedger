@@ -231,7 +231,7 @@ def with_barter(folder, view):
     return {**view, "revision": result["revision"], "barter": result["barter"]}
 
 
-def wait_opening(folder, generation, visit, timeout=25):
+def wait_opening(folder, generation, visit, timeout=20):
     deadline = time.monotonic() + timeout
     while True:
         view = context(folder)
@@ -242,7 +242,12 @@ def wait_opening(folder, generation, visit, timeout=25):
         if view["visit"] != visit:
             return visit_mismatch_status(view.get("visit"), view.get("customer"))
         stage = view["stage"]
-        if stage not in {"arriving", "awaiting_opening", "speaking", "advance_required", "tablet_closed", "no_goods", "awaiting_information_receipt"}:
+        tablet_pending = (
+            stage == "not_selling"
+            and (view.get("demand") or {}).get("status") == "panel_closed"
+            and view.get("client_role") not in {"dialogue", "service"}
+        )
+        if stage not in {"arriving", "awaiting_opening", "speaking", "advance_required", "tablet_closed", "no_goods", "awaiting_information_receipt"} and not tablet_pending:
             ready_view = wait_choices_ready(folder, view)
             if ready_view.get("status") != "observed":
                 return ready_view
@@ -252,10 +257,10 @@ def wait_opening(folder, generation, visit, timeout=25):
                 return visit_mismatch_status(ready_view.get("visit"), ready_view.get("customer"))
             return strip_protocols(with_barter(folder, ready_view))
         if time.monotonic() >= deadline:
-            return strip_protocols({**view, "status": "still_waiting"})
-        if stage in {"advance_required", "tablet_closed"}:
+            return strip_protocols({**view, "status": "opening_timeout"})
+        if stage in {"advance_required", "tablet_closed"} or tablet_pending:
             action = "advance" if stage == "advance_required" else "tablet"
-            extra = {"page": view["page"]} if action == "advance" else {}
+            extra = {"page": view["page"]} if action == "advance" else {"read_id": uuid4().hex}
             result = command(folder, action, generation, view["revision"], visit=visit, **extra)
             if result["status"] not in {
                 "advanced", "tablet_requested", "page_changed", "stale_observation", "ready", "speaking",
@@ -265,13 +270,13 @@ def wait_opening(folder, generation, visit, timeout=25):
         time.sleep(0.2)
 
 
-def ring(folder, generation, revision, waiting):
+def ring(folder, generation, revision, waiting, timeout=20):
     result = command(folder, "ring", generation, revision, waiting=waiting)
     if result["status"] != "called":
         return {**result, "bell_receipt": result}
-    view = wait_opening(folder, generation, result["visit"])
+    view = wait_opening(folder, generation, result["visit"], timeout=timeout)
     opening_status = view.get("status")
-    status = "called" if opening_status in {"observed", "still_waiting"} else opening_status
+    status = "opening_timeout" if opening_status == "opening_timeout" else "called" if opening_status in {"observed", "still_waiting"} else opening_status
     merged = {**view, "status": status, "opening_status": opening_status, "bell_receipt": result}
     if "reception_token" not in merged:
         token = (merged.get("reception") or {}).get("token") or result.get("reception_token")

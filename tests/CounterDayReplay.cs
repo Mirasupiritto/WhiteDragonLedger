@@ -153,6 +153,24 @@ namespace WhiteDragon.Ledger
             Expect(ActAtCounter(request,reply)=="bill_changed" && summary.submissions==submissions,"equal total and stale bill");
             request["bill_token"]=NightBill()["bill_token"];
             Expect(ActAtCounter(request,reply)=="sleep_submitted" && summary.submissions==submissions+1,"explicit confirmation only");
+            store.storeState=PlayerStore.StoreState.OPEN;
+            phase="OPEN";
+            store.currentClientInstance=new StoreClientInstance();
+            ObserveVisit();
+            lastDemand=new JObject { ["status"]="observed", ["interests"]=new JArray("MATERIAL") };
+            lastDemandVisit=visitId;
+            barterSource=new BarterOffer();
+            merchant.barterOffer=barterSource;
+            lastBarterView=new JObject { ["selected_option"]=1, ["can_accept"]=false };
+            barterToken="bt_speech";
+            DialogUIManager.Instance=new DialogUIManager { current=new object() };
+            var speechView=CounterView();
+            Expect((string)speechView["stage"]=="speaking" && (bool)speechView["stale_during_speech"] &&
+                speechView["demand"]!=null && (string)speechView["barter"]["barter_token"]=="bt_speech",
+                "speaking stage retains last demand and barter with stale_during_speech");
+            DialogUIManager.Instance=new DialogUIManager();
+            store.currentClientInstance=null;
+            ObserveVisit();
             Console.WriteLine("Counter and night bill replay passed: page identity, choices, response items, service changes without sleep.");
         }
     }

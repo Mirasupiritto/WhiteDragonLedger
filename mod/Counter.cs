@@ -83,6 +83,9 @@ namespace WhiteDragon.Ledger
                 store.lockShutterButtonFlag <= 0 && !store.isClientBeingArrested && !store.isHandlingShootout && store.CanStartDay();
         }
 
+        private JObject lastDemand;
+        private string lastDemandVisit;
+
         private string ClientRole()
         {
             if (merchant == null) return null;
@@ -122,8 +125,26 @@ namespace WhiteDragon.Ledger
             if (stage == "customer_departing") view["next_action"] = "上一位客人正在離場，等候即可。";
             if (paperCleanup != null && paperCleanup.Any(row => (string)row["status"] != "moved"))
                 view["document_cleanup"] = new JArray(paperCleanup.Where(row => (string)row["status"] != "moved"));
+            if (lastDemandVisit != visitId) { lastDemand = null; lastDemandVisit = visitId; }
             if (stage == "ready" || stage == "not_selling" || stage == "tablet_closed" || stage == "confirmation_required")
-                view["demand"] = PanelDemand();
+            {
+                var demand = PanelDemand();
+                view["demand"] = demand;
+                if ((string)demand?["status"] != "panel_closed") lastDemand = (JObject)demand.DeepClone();
+            }
+            else if (stage == "speaking")
+            {
+                bool stale = false;
+                if (lastDemand != null) { view["demand"] = lastDemand.DeepClone(); stale = true; }
+                if (merchant?.barterOffer != null && lastBarterView != null && barterSource == merchant.barterOffer)
+                {
+                    var cachedBarter = (JObject)lastBarterView.DeepClone();
+                    if (barterToken != null) cachedBarter["barter_token"] = barterToken;
+                    view["barter"] = cachedBarter;
+                    stale = true;
+                }
+                if (stale) view["stale_during_speech"] = true;
+            }
             if (observedVariety && visitId != null && view["demand"]?["max_per_kind"] == null)
                 view["visit_variety"] = new JObject { ["source"]="trade_panel", ["status"]="last_visible_for_visit",
                     ["visit"]=visitId, ["max_per_kind"]=1, ["allocation_hint"]=VarietyHint,
@@ -309,9 +330,28 @@ namespace WhiteDragon.Ledger
                 if (stage != "tablet_closed" || NegociationUIManager.Instance == null) return stage;
                 if (NativeItemPanels.ActiveKey() is string panel)
                 {
-                    receipt["panel"]=panel;
-                    receipt["next_tool"]="item_panel";
-                    return "item_panel_open";
+                    var closedPanels = new JArray();
+                    foreach (var key in panel.Split(new[]{','}, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (!toolOpenedPanels.Contains(key)) continue;
+                        var p = NativeItemPanels.Current(key);
+                        if (p?.Close == null) continue;
+                        p.Close();
+                        toolOpenedPanels.Remove(key);
+                        closedPanels.Add(key);
+                    }
+                    if (closedPanels.Count > 0) receipt["closed_panels"] = closedPanels;
+                    panel = NativeItemPanels.ActiveKey();
+                    if (panel != null)
+                    {
+                        receipt["panel"]=panel;
+                        receipt["next_tool"]="item_panel";
+                        receipt["after_close_next_tool"]="reopen_trade_tablet";
+                        receipt["visit"]=visitId;
+                        if (merchant != null) receipt["customer"]=merchant.displayName;
+                        receipt["stage"]=CounterStage();
+                        return "item_panel_open";
+                    }
                 }
                 NegociationUIManager.Instance.OpenUI();
                 receipt["visit"]=visitId;
