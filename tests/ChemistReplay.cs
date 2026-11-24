@@ -7,7 +7,7 @@ namespace WhiteDragon.Ledger
     public static class MachineChemFinisher { public static bool CanOutput(GameItem machine,GameSlotInventory slot)=>slot.childItem!=null && slot.childItem.volume>=2000; }
     public static class ChemicalProductHelper {
         public static bool HasChemicalPurity(GameItem item)=>item.waterTags.Contains("CHEMICAL_PRODUCT_PURITY_TAG");
-        public static double GetPurity(GameItem item)=>item.GetTagReadonly("CHEMICAL_PRODUCT_PURITY_TAG").GetDouble()/100.0;
+        public static double GetPurity(GameItem item)=>item.GetTagReadonly("CHEMICAL_PRODUCT_PURITY_TAG").GetDouble();
         public static string GetCurrentChemicalConditionId(GameItem item)=>item.bookTagValue;
     }
     public class Liquid {

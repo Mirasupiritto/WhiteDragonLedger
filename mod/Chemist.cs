@@ -89,7 +89,7 @@ namespace WhiteDragon.Ledger
         private static void AddChemicalPurityFields(GameItem item, JObject row)
         {
             if (item==null || row==null || !ChemicalProductHelper.HasChemicalPurity(item)) return;
-            row["purity"]=Math.Round(ChemicalProductHelper.GetPurity(item)*100.0, 2);
+            row["purity"]=Math.Round(ChemicalProductHelper.GetPurity(item), 2);
             string grade=ChemicalProductHelper.GetCurrentChemicalConditionId(item);
             if (!string.IsNullOrEmpty(grade)) row["grade"]=grade;
         }
