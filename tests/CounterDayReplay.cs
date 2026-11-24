@@ -87,6 +87,8 @@ namespace WhiteDragon.Ledger
             Expect((string)CounterView()["client_role"]=="dialogue","non-trading client reports client_role dialogue");
             merchant.clientIntent=StoreClient.ClientIntent.BARTER;
             Expect((string)CounterView()["client_role"]=="barter","barter client reports client_role barter");
+            merchant.clientIntent=StoreClient.ClientIntent.GUNSMITH;
+            Expect((string)CounterView()["client_role"]=="service","service client reports client_role service");
             merchant.clientIntent=StoreClient.ClientIntent.MERCHANT;
             merchant.isClientSelling=true;
             merchant.isClientBuying=true;

@@ -88,7 +88,19 @@ namespace WhiteDragon.Ledger
             if (merchant == null) return null;
             if (merchant.barterOffer != null || merchant.clientIntent == StoreClient.ClientIntent.BARTER) return "barter";
             if (merchant.clientIntent == StoreClient.ClientIntent.DIALOGUE) return "dialogue";
-            if (merchant.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER) return "service";
+            switch (merchant.clientIntent)
+            {
+                case StoreClient.ClientIntent.INFORMATION_DEALER:
+                case StoreClient.ClientIntent.APPRAISAL_SERVICE:
+                case StoreClient.ClientIntent.EXPEDITION:
+                case StoreClient.ClientIntent.GUNSMITH:
+                case StoreClient.ClientIntent.INSPECTION:
+                case StoreClient.ClientIntent.LOAN_SHARK:
+                case StoreClient.ClientIntent.PROCUREMENT_COLLECT:
+                case StoreClient.ClientIntent.PROCUREMENT_OFFER:
+                case StoreClient.ClientIntent.RENT:
+                    return "service";
+            }
             if (merchant.IsClientSelling()) return "seller";
             if (merchant.IsClientBuying()) return "buyer";
             return "dialogue";

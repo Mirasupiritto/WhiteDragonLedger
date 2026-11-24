@@ -159,7 +159,7 @@ namespace WhiteDragon.Ledger {
         }
     }
     public partial class StoreClient {
-        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER, DIALOGUE }
+        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER, DIALOGUE, APPRAISAL_SERVICE, EXPEDITION, GUNSMITH, INSPECTION, LOAN_SHARK, PROCUREMENT_COLLECT, PROCUREMENT_OFFER, RENT }
         public ClientIntent clientIntent;
         public BarterOffer barterOffer;
         public bool isIntroduced;
