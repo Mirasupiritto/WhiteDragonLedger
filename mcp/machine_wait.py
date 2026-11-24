@@ -5,8 +5,7 @@ from typing import Literal
 from uuid import uuid4
 
 import counter
-from command_transport import exchange
-from receipt_store import read_command_receipt
+from command_transport import exchange, read_command_receipt, submit_command
 from scene import interrupted_shop_call
 
 
@@ -27,7 +26,7 @@ def wait(folder, owner_id, generation, revision, control, direction, threshold, 
     def receipt():
         return read_command_receipt(folder, command, generation, "watch") or interrupted_shop_call(folder)
 
-    return exchange(folder, folder / f"watch-{generation}.json", request, receipt, wait_seconds=timeout+8)
+    return submit_command(folder, "watch", generation, request, read_receipt=receipt, wait_seconds=timeout + 8, transport=exchange)
 
 
 def register(server, folder):

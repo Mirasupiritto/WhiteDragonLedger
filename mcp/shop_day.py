@@ -1,42 +1,14 @@
 """Shop calendar, nightly services and the current contents of the trash bin."""
-import copy
 import json
 import time
 
 import counter
+from command_transport import poll
 from database import transaction
 from ledger import read_head
-from shopdesk import published
 from scene import read_scene
-
-
-class SectionCache:
-    """Remember calendar/trash/sleep snapshots per generation to suppress unchanged repeats."""
-
-    def __init__(self):
-        self._seen = {}
-
-    def filter(self, generation, payload, *, verbose=False):
-        if not generation or payload.get("status") != "observed":
-            return payload
-        state = self._seen.setdefault(generation, {})
-        if len(self._seen) > 4:
-            for old in [k for k in self._seen if k != generation]:
-                del self._seen[old]
-        out = dict(payload)
-        unchanged = []
-        for key in ("calendar", "trash", "sleep", "security", "last_save", "health"):
-            if key not in out:
-                continue
-            val = out[key]
-            if verbose or (key == "health" and out.get("alerts")) or key not in state or state[key] != val:
-                state[key] = copy.deepcopy(val)
-            else:
-                del out[key]
-                unchanged.append(key)
-        if unchanged and not verbose:
-            out["unchanged_sections"] = unchanged
-        return out
+from server_state import SectionCache
+from shopdesk import published
 
 
 def shop_status(folder):
@@ -55,8 +27,6 @@ def trash_contents(folder, database, view):
         return summary
     generation, version, day = view["generation"], summary["version"], view["day"]
     with transaction(database) as db:
-        db.execute("CREATE TABLE IF NOT EXISTS trash_checkpoint (slot INTEGER PRIMARY KEY,generation TEXT,version INTEGER)")
-        db.execute("CREATE TABLE IF NOT EXISTS trash_items (slot INTEGER,id INTEGER,name TEXT,kind TEXT,quantity INTEGER,PRIMARY KEY(slot,id))")
         slot = view["slot"]
         prior = db.execute("SELECT generation,version FROM trash_checkpoint WHERE slot=?", (slot,)).fetchone()
         if prior is None or (prior["generation"], prior["version"]) != (generation,version):
@@ -77,7 +47,8 @@ def trash_contents(folder, database, view):
 
 
 def register_day_tools(server, folder, database, section_cache=None):
-    cache = section_cache if section_cache is not None else getattr(server, "section_cache", None)
+    state = getattr(server, "state", None)
+    cache = section_cache if section_cache is not None else (state.section_cache if state is not None else getattr(server, "section_cache", None))
     if cache is None:
         cache = SectionCache()
     server.section_cache = cache
@@ -127,13 +98,16 @@ def register_day_tools(server, folder, database, section_cache=None):
         result = counter.command(folder, "sleep", generation, revision, **args)
         if result["status"] != "sleep_submitted":
             return result
-        deadline = time.monotonic() + 15
-        for _ in range(200):
+        last_view = {}
+
+        def check_morning():
+            nonlocal result, last_view
             scene = read_scene(folder)
             if scene.get("status") == "game_over":
-                return {**result, **scene, "tool_status":"game_over"}
+                return {**result, **scene, "tool_status": "game_over"}
             view = shop_status(folder)
-            if view.get("generation")==generation and view.get("day")==day+1 and view.get("alerts"):
+            last_view = view
+            if view.get("generation") == generation and view.get("day") == day + 1 and view.get("alerts"):
                 due_today = {alert["due_day"] for alert in view["alerts"] if alert.get("type") == "blackmail_due_today"}
                 before = [alert for alert in result.get("alerts", []) if not
                           (alert.get("type") == "blackmail_due_tomorrow" and alert.get("due_day") in due_today)]
@@ -150,10 +124,13 @@ def register_day_tools(server, folder, database, section_cache=None):
                 return slept
             if view.get("generation") and view["generation"] != generation:
                 return result
-            if time.monotonic() >= deadline:
-                break
-            time.sleep(.15)
-        if (view.get("slot") == result["slot"] and view.get("generation") == generation
-                and view.get("day") == day + 1 and report.get("status") == "awaiting_report"):
-            return {**result, "status": "awaiting_report", "day_after": view["day"], "night_report": report}
+            return None
+
+        slept, timed_out = poll(check_morning, timeout=15, interval=0.15, sleep=time.sleep)
+        if not timed_out:
+            return slept
+        report = last_view.get("night_report", {})
+        if (last_view.get("slot") == result["slot"] and last_view.get("generation") == generation
+                and last_view.get("day") == day + 1 and report.get("status") == "awaiting_report"):
+            return {**result, "status": "awaiting_report", "day_after": last_view["day"], "night_report": report}
         return result

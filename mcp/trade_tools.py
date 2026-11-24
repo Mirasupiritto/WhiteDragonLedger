@@ -13,6 +13,7 @@ import shopdesk
 import shop_day
 from ledger import lookup, same_observation
 from database import transaction
+from server_state import ServerState
 
 
 class BatchLine(BaseModel):
@@ -154,12 +155,17 @@ def wait_event(folder, event, timeout):
 
 
 class Updates:
-    def __init__(self, folder, database):
+    def __init__(self, folder, database, state=None):
         self.folder = folder
         self.database = database
         self.cursor = None
+        self.state = state if state is not None else ServerState()
 
     def report(self, since=None, full=False):
+        with self.state.lock:
+            return self._report_locked(since=since, full=full)
+
+    def _report_locked(self, since=None, full=False):
         view = shopdesk.published(self.folder)
         if view["status"] != "observed":
             return view
@@ -176,7 +182,7 @@ class Updates:
                       latest_line=(desk.get("lines") or [None])[-1], can_ring=desk["reception"].get("can_ring"),
                       can_dismiss=desk["reception"].get("can_dismiss"), can_open_shop=desk.get("can_open_shop"))
         if "heat" in desk:
-            notified = counter.filter_finished_heat(self.database, {"generation":gen, "heat":desk["heat"]})
+            notified = counter.filter_finished_heat(self.database, {"generation": gen, "heat": desk["heat"]})
             if "heat" in notified:
                 fields["heat"] = notified["heat"]
         fields["page"] = desk.get("page")
@@ -196,8 +202,15 @@ class Updates:
                     result["reason"] = "cursor_reset"
             else:
                 old = json.loads(row[0])
-                upsert, remove = book_history.delta(db, gen, base, rev)
-                id_changes = book_history.identity_changes(db, gen, base, rev)
+                item_rows = book_history.changes_between(db, gen, base, rev)
+                upsert, remove = [], []
+                for item, old_p, new_p in item_rows:
+                    if old_p != new_p:
+                        if new_p is None:
+                            remove.append(item)
+                        else:
+                            upsert.append(json.loads(new_p))
+                id_changes = book_history.identity_changes(db, gen, base, rev, item_rows=item_rows)
                 changed = {k:v for k,v in fields.items() if old.get(k)!=v}
                 checkpoints = []
                 last = old["phase"]
@@ -222,8 +235,11 @@ class Updates:
 
 
 def register(server, folder, database):
-    tracker = Updates(folder, database)
+    state = getattr(server, "state", None)
+    tracker = Updates(folder, database, state=state)
     server.updates = tracker
+    if state is not None:
+        state.updates = tracker
 
     @server.tool()
     def report_client(mode: Literal["read","report"] = "read", visit: str | None = None,

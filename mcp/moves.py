@@ -1,12 +1,10 @@
 """One local mailbox per load. Only the Unity game thread may confirm a transfer.
 Trade table (back) moves are allowed during ready, barter, or an unlocked dialogue choice stage for owned goods."""
 import json
-import re
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from command_transport import exchange
-from receipt_store import replayed, read_command_receipt
+from command_transport import exchange, is_hex32, read_command_receipt, replayed, submit_command
 from scene import interrupted_shop_call
 from ledger import read_head
 
@@ -16,7 +14,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     if changed:
         return changed
     command = command_id or uuid4().hex
-    if not re.fullmatch("[a-f0-9]{32}", generation) or not re.fullmatch("[a-f0-9]{32}", command):
+    if not is_hex32(generation) or not is_hex32(command):
         raise ValueError("generation and command_id must be lowercase 32-digit hex values")
     counter_move = source in {"front", "back"} or destination in {"front", "back"}
     collect = source in {"front", "back"} and destination == "inventory"
@@ -24,7 +22,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     if counter_move and not idle_clear:
         other = source if destination == "back" else destination
         if ((not collect and ("back" not in (source, destination) or other not in {"front","inventory","showcase"})) or machine_id is not None
-                or not re.fullmatch("[a-f0-9]{32}", visit or "")):
+                or not is_hex32(visit or "")):
             raise ValueError("Use the current visit and a route to or from the trade table (back)")
     elif idle_clear:
         if machine_id is not None:
@@ -82,8 +80,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         return {"status":"shop_closed", "command_id":command}
     if {source, destination} != {"inventory", "showcase"} and not counter_move and not verify_location and destination != "purifier" and head["phase"] not in ("CLOSED", "MORNING"):
         return {"status": "shop_open", "command_id": command}
-    inbox = folder / f"move-{generation}.json"
-    return exchange(folder, inbox, request, read_receipt, previous_command)
+    return submit_command(folder, "move", generation, request, read_receipt=read_receipt, previous_command=previous_command, transport=exchange)
 
 
 def move_items(folder: Path, item_ids, source, destination, generation, revision, visit=None):

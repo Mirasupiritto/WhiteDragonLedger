@@ -1,11 +1,17 @@
 """Local trade plans and confirmed receipts. Reading and dismissing never post game commands."""
 import json
 import book_history
-import re
 from contextlib import contextmanager
 
-from receipt_store import read_optional_json, read_command_receipt, replayed
-from database import transaction
+from pathlib import Path
+
+from command_transport import is_hex32, read_optional_json, read_command_receipt, replayed
+from database import (
+    ensure_trade_tickets_schema,
+    is_trade_tickets_initialized,
+    mark_trade_tickets_initialized,
+    transaction,
+)
 from ledger import lookup
 
 
@@ -15,13 +21,14 @@ SUCCESS = {"finished", "purchased", "information_purchased"}
 
 @contextmanager
 def ticket_transaction(database):
-    with transaction(database) as db:
-        db.execute("""CREATE TABLE IF NOT EXISTS trade_tickets (
-            id TEXT PRIMARY KEY, slot INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL,
-            customer TEXT, state TEXT NOT NULL, version INTEGER NOT NULL, receipt TEXT, evidence INTEGER NOT NULL DEFAULT 0
-        )""")
-        db.execute("CREATE INDEX IF NOT EXISTS trade_tickets_slot ON trade_tickets(slot,state)")
+    db_path = Path(database)
+    needs_schema = not is_trade_tickets_initialized(db_path)
+    with transaction(db_path) as db:
+        if needs_schema:
+            ensure_trade_tickets_schema(db)
         yield db
+    if needs_schema:
+        mark_trade_tickets_initialized(db_path)
 
 
 def insert(db, tool, request, slot, customer, observation=None):
@@ -165,7 +172,7 @@ def dispatch(database, folder, tool, request, slot, customer, send, *, observati
 def import_inflight(db, folder, slot):
     head = read_optional_json(folder / "head.json") or {}
     gen = head.get("generation", "")
-    if head.get("slot") != slot or not re.fullmatch("[0-9a-f]{32}", gen):
+    if head.get("slot") != slot or not is_hex32(gen):
         return
     # A trade submitted before the journal upgrade can still have a live inbox.
     for prefix in ("sale", "counter"):
@@ -173,7 +180,7 @@ def import_inflight(db, folder, slot):
         if not plan or plan.get("generation") != gen or not plan.get("visit"):
             continue
         tool = plan.get("tool", "sell_order") if prefix == "sale" else TOOLS.get(plan.get("action"))
-        if tool and re.fullmatch("[0-9a-f]{32}", plan.get("command_id", "")):
+        if tool and is_hex32(plan.get("command_id", "")):
             insert(db, tool, plan, slot, None)
 
 
@@ -189,7 +196,6 @@ def ledger(folder, database, slot, ticket_id=None, *, inventory=False, name=None
         updated = [refresh(db, folder, row) for row in rows]
         result = {"status":"observed", "slot":slot, "open_tickets":[describe(row) for row in updated if row["state"]=="open"]}
         if inventory or any(value is not None for value in (name, area, owned)):
-            book_history.schema(db)
             saved = db.execute("SELECT gen,rev FROM book_events WHERE slot=? ORDER BY rowid DESC LIMIT 1", (slot,)).fetchone()
             if saved is None:
                 result["inventory_status"] = "never_observed"
