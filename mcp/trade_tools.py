@@ -38,6 +38,8 @@ def context(view):
                   demand=demand, remaining_budget=remaining, quote=desk.get("quote"),
                   customer_line=f"{desk.get('customer') or '空櫃檯'}｜{summary}｜剩餘 {remaining if remaining is not None else '未顯示'}",
                   next_action="可以報價" if desk.get("quote_ready", desk["stage"] == "ready") else desk["stage"])
+    if desk.get("stage") == "barter_unsupported":
+        result["reason"] = desk["reason"]
     if desk.get("next_action"):
         result["next_action"] = desk["next_action"]
     if desk["stage"] == "wild_network":
@@ -209,6 +211,20 @@ class Updates:
 def register(server, folder, database):
     tracker = Updates(folder, database)
     server.updates = tracker
+
+    @server.tool()
+    def bargain(mode: Literal["read","offer"], generation: str, revision: int, visit: str,
+                type: str | None = None, percent: int | None = None, bargain_token: str | None = None) -> dict:
+        """Read native buttons, chances, budget effects, trade reputation multipliers and the actual table quote. Offer one listed type/percent
+        with its bargain_token. After bargain_pending, read with the same visit and current revision until the dialogue settles."""
+        args = dict(visit=visit, mode=mode)
+        if mode == "read":
+            args["read_id"] = uuid4().hex
+        else:
+            if not type or percent is None or not bargain_token:
+                raise ValueError("Offer needs a listed type, percent and bargain_token")
+            args.update(type=type, percent=percent, bargain_token=bargain_token)
+        return counter.command(folder,"bargain",generation,revision,**args)
 
     @server.tool()
     def get_shop_updates(since: str | None = None, full: bool = False) -> dict:

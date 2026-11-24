@@ -75,7 +75,7 @@ class SceneServer(FastMCP):
                              "set_auto_receive","sleep","transfer_slot_item","transfer_slot_items","press_machine_button","adjust_machine_control","put_purifier_bottle",
                              "take_purifier_bottle","water_use","water_panel","dial_contact","phone_keypad","choose_phone_service",
                              "advance_phone_dialogue","inspect_archive","inspect_item_window","wait_for_opening"}
-                if (name in mutations or (name == "wild_network" and arguments.get("mode", "read") != "read")) and self.updates.cursor is not None:
+                if (name in mutations or (name in {"wild_network", "bargain"} and arguments.get("mode", "read") != "read")) and self.updates.cursor is not None:
                     tool = self._tool_manager.get_tool(name)
                     result = await tool.run(arguments, context=self.get_context())
                     try:

@@ -65,7 +65,8 @@ namespace WhiteDragon.Ledger
             if (NegociationUIManager.IsTradeLocked()) return "trade_locked";
             bool dealer = merchant.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER;
             if (dealer && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
-            bool barter = IsFoodBarter();
+            bool barter = IsPagedBarter();
+            if (merchant.clientIntent==StoreClient.ClientIntent.BARTER && !barter) return "barter_unsupported";
             if (barter && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
             if (!sellingToBuyer && !dealer && !barter && !merchant.IsClientSelling()) return "not_selling";
             var ui = NegociationUIManager.Instance;
@@ -89,6 +90,11 @@ namespace WhiteDragon.Ledger
             var view = new JObject { ["stage"] = stage, ["heat_control_protocol"]=1, ["machine_wait_protocol"]=1, ["chemist_protocol"]=1, ["item_panel_protocol"]=1, ["item_menu_protocol"]=1, ["inventory_sort_protocol"]=1, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (heatRun != null || lastHeat != null) view["heat"] = (heatRun?.Summary ?? lastHeat).DeepClone();
+            if (stage=="barter_unsupported")
+            {
+                view["next_action"]=stage;
+                view["reason"]="unsupported_native_barter_offer";
+            }
             if (stage == "customer_departing") view["next_action"] = "上一位客人正在離場，等候即可。";
             if (paperCleanup != null && paperCleanup.Any(row => (string)row["status"] != "moved"))
                 view["document_cleanup"] = new JArray(paperCleanup.Where(row => (string)row["status"] != "moved"));
@@ -196,6 +202,7 @@ namespace WhiteDragon.Ledger
                 action == "inspect_archive" || action == "close_archive")
                 return WorkstationAction(request, receipt);
             if (action == "visible_windows") return ObserveTradeWindows(receipt);
+            if (action == "bargain") return BargainAction(request,receipt);
             if (action == "barter") return ActOnBarter(request, receipt);
             if (action == "water_use") return WaterUseAction(request, receipt);
             if (action == "water_panel") return WaterPanelAction(request, receipt);
