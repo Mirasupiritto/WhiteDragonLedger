@@ -87,6 +87,9 @@ def _slim_shop_update(tool_name, result, update, arguments=None, last_emitted=No
     return dict(update, upsert=upsert)
 
 
+_slim_purchase_update = _slim_shop_update
+
+
 class SceneServer(FastMCP):
     def __init__(self, folder):
         super().__init__("白龍店帳")

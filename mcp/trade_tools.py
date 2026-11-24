@@ -44,7 +44,7 @@ def context(view):
         result["next_action"] = desk["next_action"]
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
-    for key in ("offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
+    for key in ("client_role", "offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
                 "forced_choice", "forced_choice_reason", "wanted_name_match", "story_branch", "consequence_hint", "consequence", "table_items"):
         if key in desk:
             result[key] = desk[key]

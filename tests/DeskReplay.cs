@@ -174,7 +174,8 @@ namespace WhiteDragon.Ledger {
         public int GetBudget() => budget;
         public object mainDialogue;
         public bool isMainDialogueStarted, isRegularSellDisable, isMultiBuyDisabled;
-        public bool IsClientSelling() => true;
+        public bool isClientSelling = true;
+        public bool IsClientSelling() => isClientSelling;
         public bool IsClientBuying() => true;
     }
     public class StoreClientInstance {
