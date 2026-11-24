@@ -30,7 +30,7 @@ namespace WhiteDragon.Ledger
             if (addictions.Count>0) health["addictions"]=addictions;
             if (penalty>0) alerts.Add(new JObject { ["type"]="addiction_withdrawal", ["trade_penalty_percent"]=penalty });
 
-            var counts=new JObject { ["regular"]=0, ["expired"]=0, ["counterfeit"]=0, ["unidentified"]=0 };
+            var counts=new JObject { ["regular"]=0, ["expired"]=0, ["counterfeit"]=0, ["unusable"]=0, ["unidentified"]=0 };
             bool sentinel=HealthData.IsSentinel();
             if (sentinel)
             {
@@ -77,17 +77,18 @@ namespace WhiteDragon.Ledger
                 if (kind==null || !GeneralHelper.IsItemEffectivelyOwned(item) || GeneralHelper.IsDisplayOnly(item)) continue;
                 var location=StockLocation(item);
                 string area=(string)location?["area"];
-                if ((area!="inventory" && area!="showcase") || !item.MayActivateSlotItem() || !item.CanActivateSlotItem()) continue;
+                if (area!="inventory" && area!="showcase") continue;
                 var row=new JObject { ["item_id"]=pair.Key, ["kind"]=kind, ["name"]=item.GetDisplayName(true) };
                 if (feature!=null)
                 {
                     string id=feature.IsExposed() ? feature.GetCurrentItemCondition()?.identifier : null;
                     string quality=id=="genuineInjector" ? "regular" : id=="expiredInjector" ? "expired" :
-                        id=="counterfeitInjector" ? "counterfeit" : "unidentified";
+                        id=="counterfeitInjector" ? "counterfeit" : id=="unusableInjector" ? "unusable" : "unidentified";
                     counts[quality]=(int)counts[quality]+item.unitCount;
+                    if (quality=="unusable") continue;
                     row["quality"]=quality;
                 }
-                available.Add(row);
+                if (item.MayActivateSlotItem() && item.CanActivateSlotItem()) available.Add(row);
             }
             if (available.Count==0) return;
             health["usable_items"]=available;

@@ -56,7 +56,9 @@ class SceneServer(FastMCP):
 
     async def call_tool(self, name, arguments):
         scene = read_scene(self.folder)
-        if scene.get("status") == "game_over" and name != "get_scene":
+        if scene.get("status") == "game_over":
+            if name == "get_scene" or name in self.ledger_tools:
+                return await super().call_tool(name, arguments)
             return {**scene, "tool_status": "game_over"}
         if name in ACTION_REGIONS:
             # A departure can finish before the client receives its reply. The command

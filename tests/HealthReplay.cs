@@ -73,6 +73,11 @@ namespace WhiteDragon.Ledger
                 Expect((string)health["sentinel"]["stage"]==sample.Item2 &&
                     (int)health["sentinel"]["immunivax_owned"]["counterfeit"]==1,"native stage and revealed injector quality");
             }
+            injector.injector.label.identifier="unusableInjector";
+            health=HealthView(7,new JArray());
+            var owned=health["sentinel"]["immunivax_owned"];
+            Expect((int)owned["unusable"]==1 && (int)owned["unidentified"]==0 &&
+                !(health["usable_items"]?.Any(i=>(int)i["item_id"]==LocalId(injector)) ?? false),"identified unusable injector excluded from activation");
             StoreStation.Instance.dayCounter=savedDay;
             StartingPerk.blackmail=false;
             HealthData.sentinel=false;
