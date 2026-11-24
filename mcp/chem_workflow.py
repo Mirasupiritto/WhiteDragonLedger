@@ -2,6 +2,7 @@
 from uuid import uuid4
 
 import counter
+from flow import Flow
 import ledger
 import shopdesk
 
@@ -10,16 +11,8 @@ LIQUID_RAW_IDS = {"water", "alcohol"}
 
 
 def _next_rev(receipt, folder, generation, fallback):
-    # Unity stamps every counter receipt with the revision it published after the action.
-    if isinstance(receipt.get("revision"), int) and receipt.get("generation") in (None, generation):
-        return receipt["revision"]
-    update = receipt.get("shop_update") or {}
-    if isinstance(update.get("revision"), int):
-        return update["revision"]
-    ctx = counter.context(folder)
-    if ctx.get("status") == "observed" and ctx.get("generation") == generation and isinstance(ctx.get("revision"), int):
-        return ctx["revision"]
-    return fallback
+    flow = Flow(folder, generation, fallback)
+    return flow.advance_rev(receipt)
 
 
 def _find_owned_by_kind(items, kinds):
@@ -93,21 +86,12 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
     if stash_count is not None and stash_count < 0:
         raise ValueError("stash_count must be non-negative")
 
-    rev = revision
-    steps = {}
+    flow = Flow(folder, generation, revision)
+    steps = flow.steps
     vessel_location = {"area": "unknown"}
 
     def stop(step_name, reason, **extra):
-        out = {
-            "status": "stopped",
-            "stopped_at": step_name,
-            "reason": reason,
-            "steps": steps,
-            "vessel_location": vessel_location,
-            "revision": rev,
-        }
-        out.update(extra)
-        return out
+        return flow.stop(step_name, reason, vessel_location=vessel_location, **extra)
 
     stock = ledger.lookup(folder, database, owned=True)
     if stock.get("status") != "observed":
@@ -129,27 +113,23 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         evap = _find_owned_by_kind(items, "evaporator")
         if not evap:
             return stop("retrieve_from_evaporator", "missing_evaporator")
-        evap_inspect = counter.command(
-            folder, "inspect_window", generation, rev, owner_id=evap["id"], open_if_closed=True, read_id=uuid4().hex
-        )
-        rev = _next_rev(evap_inspect, folder, generation, rev)
+        evap_inspect = flow.command("inspect_window", owner_id=evap["id"], open_if_closed=True, read_id=uuid4().hex)
         if evap_inspect.get("status") != "observed":
             return stop("retrieve_from_evaporator", evap_inspect.get("status"), receipt=evap_inspect)
         evap_ctrl, _ = _slot_with_item((evap_inspect.get("window") or {}).get("controls") or [], vessel_id)
         if not evap_ctrl:
             return stop("retrieve_from_evaporator", "vessel_not_in_evaporator", receipt=evap_inspect)
         vessel_location = {"area": "evaporator", "owner_id": evap["id"], "control": evap_ctrl["control"]}
-        take_res = counter.command(
-            folder, "transfer_slot", generation, rev, owner_id=evap["id"], control=evap_ctrl["control"],
+        take_res = flow.command(
+            "transfer_slot", owner_id=evap["id"], control=evap_ctrl["control"],
             window_token=evap_inspect["window_token"], item_id=vessel_id, source="slot",
         )
-        rev = _next_rev(take_res, folder, generation, rev)
         if take_res.get("status") != "moved":
             return stop("retrieve_from_evaporator", take_res.get("status"), receipt=take_res)
         vessel_location = {"area": "inventory"}
         steps["retrieve_from_evaporator"] = {"status": "moved", "evaporator_id": evap["id"]}
 
-    ok, scan_res, rev = _use_scanner(folder, scanner["id"], vessel_id, generation, rev)
+    ok, scan_res, flow.rev = _use_scanner(folder, scanner["id"], vessel_id, generation, flow.rev)
     if not ok:
         return stop("scan_vessel", scan_res.get("status") or "scan_failed", receipt=scan_res)
     scan = scan_res.get("scan") or {}
@@ -167,10 +147,7 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         "remaining_liquids": remaining_raw,
     }
 
-    fin_inspect = counter.command(
-        folder, "inspect_window", generation, rev, owner_id=finisher["id"], open_if_closed=True, read_id=uuid4().hex
-    )
-    rev = _next_rev(fin_inspect, folder, generation, rev)
+    fin_inspect = flow.command("inspect_window", owner_id=finisher["id"], open_if_closed=True, read_id=uuid4().hex)
     if fin_inspect.get("status") != "observed":
         return stop("insert_into_finisher", fin_inspect.get("status"), receipt=fin_inspect)
     win = fin_inspect.get("window") or {}
@@ -187,11 +164,10 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         return stop("insert_into_finisher", "input_slot_occupied", occupant=existing_input[0])
     else:
         src_area = vessel_location["area"]
-        ins_res = counter.command(
-            folder, "transfer_slot", generation, rev, owner_id=finisher["id"], control=input_ctrl["control"],
+        ins_res = flow.command(
+            "transfer_slot", owner_id=finisher["id"], control=input_ctrl["control"],
             window_token=win_token, item_id=vessel_id, source=src_area,
         )
-        rev = _next_rev(ins_res, folder, generation, rev)
         if ins_res.get("status") != "moved":
             return stop("insert_into_finisher", ins_res.get("status"), receipt=ins_res)
         win_token = ins_res.get("window_token") or win_token
@@ -203,17 +179,15 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
     else:
         if not config_btn:
             return stop("select_recipe", "configure_button_unavailable")
-        press_cfg = counter.command(
-            folder, "press_control", generation, rev, owner_id=finisher["id"],
+        press_cfg = flow.command(
+            "press_control", owner_id=finisher["id"],
             control=config_btn["control"], label=config_btn["label"], window_token=win_token,
         )
-        rev = _next_rev(press_cfg, folder, generation, rev)
         if press_cfg.get("status") != "pressed":
             return stop("select_recipe", press_cfg.get("status"), receipt=press_cfg)
-        panel_read = counter.command(
-            folder, "item_panel", generation, rev, mode="read", panel="chemical_finisher", read_id=uuid4().hex
+        panel_read = flow.command(
+            "item_panel", mode="read", panel="chemical_finisher", read_id=uuid4().hex
         )
-        rev = _next_rev(panel_read, folder, generation, rev)
         if panel_read.get("status") != "observed":
             return stop("select_recipe", panel_read.get("status"), receipt=panel_read)
         panel_controls = (panel_read.get("view") or {}).get("controls") or {}
@@ -225,24 +199,21 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
             return stop("select_recipe", "recipe_not_found", recipe_id=recipe_id, available=list(panel_controls.values()))
         if not panel_controls[match_key].get("enabled"):
             return stop("select_recipe", "recipe_disabled", recipe_id=recipe_id, control=panel_controls[match_key])
-        choose_res = counter.command(
-            folder, "item_panel", generation, rev, mode="choose",
+        choose_res = flow.command(
+            "item_panel", mode="choose",
             panel_token=panel_read["panel_token"], control=match_key, panel="chemical_finisher",
         )
-        rev = _next_rev(choose_res, folder, generation, rev)
         if choose_res.get("status") != "applied":
             return stop("select_recipe", choose_res.get("status"), receipt=choose_res)
         after = choose_res.get("after") or {}
         if after.get("status") not in {"panel_closed", None} and after.get("panel_token"):
-            close_res = counter.command(
-                folder, "item_panel", generation, rev, mode="close",
+            flow.command(
+                "item_panel", mode="close",
                 panel_token=after["panel_token"], panel="chemical_finisher",
             )
-            rev = _next_rev(close_res, folder, generation, rev)
-        fin_recheck = counter.command(
-            folder, "inspect_window", generation, rev, owner_id=finisher["id"], open_if_closed=False, read_id=uuid4().hex
+        fin_recheck = flow.command(
+            "inspect_window", owner_id=finisher["id"], open_if_closed=False, read_id=uuid4().hex
         )
-        rev = _next_rev(fin_recheck, folder, generation, rev)
         if fin_recheck.get("status") != "observed":
             return stop("select_recipe", fin_recheck.get("status"), receipt=fin_recheck)
         win = fin_recheck.get("window") or {}
@@ -260,11 +231,10 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
     batch_grade = None
     while True:
         req_qty = quantity if quantity is not None else 64
-        prod_res = counter.command(
-            folder, "press_control", generation, rev, owner_id=finisher["id"],
+        prod_res = flow.command(
+            "press_control", owner_id=finisher["id"],
             control=output_btn["control"], label=output_btn["label"], window_token=win_token, quantity=req_qty,
         )
-        rev = _next_rev(prod_res, folder, generation, rev)
         win_token = prod_res.get("window_token") or win_token
         pstatus = prod_res.get("status")
         if pstatus not in {"produced", "batch_incomplete"}:
@@ -285,10 +255,9 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
 
     steps["produce_batch"] = {"status": "done", "produced": total_produced, "stop_reason": stop_reason}
 
-    fin_after = counter.command(
-        folder, "inspect_window", generation, rev, owner_id=finisher["id"], open_if_closed=False, read_id=uuid4().hex
+    fin_after = flow.command(
+        "inspect_window", owner_id=finisher["id"], open_if_closed=False, read_id=uuid4().hex
     )
-    rev = _next_rev(fin_after, folder, generation, rev)
     if fin_after.get("status") != "observed":
         return stop("collect_output", fin_after.get("status"), produced=total_produced, receipt=fin_after)
     win_after = fin_after.get("window") or {}
@@ -299,11 +268,10 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
 
     collected_ids = []
     if produced_ids:
-        collect_res = counter.command(
-            folder, "transfer_slots", generation, rev, owner_id=finisher["id"],
+        collect_res = flow.command(
+            "transfer_slots", owner_id=finisher["id"],
             control=out_after["control"], window_token=win_token, item_ids=produced_ids, source="slot",
         )
-        rev = _next_rev(collect_res, folder, generation, rev)
         for row in collect_res.get("items") or []:
             if row.get("status") == "moved":
                 collected_ids.append(row["item_id"])
@@ -316,7 +284,7 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
 
     product_scan = None
     if collected_ids:
-        ok, pscan_res, rev = _use_scanner(folder, scanner["id"], collected_ids[0], generation, rev)
+        ok, pscan_res, flow.rev = _use_scanner(folder, scanner["id"], collected_ids[0], generation, flow.rev)
         if ok:
             pscan = pscan_res.get("scan") or {}
             product_scan = {
@@ -346,21 +314,19 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         for bay_id in bay_ids:
             if not pending:
                 break
-            bay_inspect = counter.command(
-                folder, "inspect_window", generation, rev, owner_id=bay_id, open_if_closed=True, read_id=uuid4().hex
+            bay_inspect = flow.command(
+                "inspect_window", owner_id=bay_id, open_if_closed=True, read_id=uuid4().hex
             )
-            rev = _next_rev(bay_inspect, folder, generation, rev)
             if bay_inspect.get("status") != "observed":
                 continue
             bay_slot = next((c for c in (bay_inspect.get("window") or {}).get("controls") or []
                              if c.get("type") == "slot" and c.get("insert_allowed")), None)
             if not bay_slot:
                 continue
-            st_res = counter.command(
-                folder, "transfer_slots", generation, rev, owner_id=bay_id, control=bay_slot["control"],
+            st_res = flow.command(
+                "transfer_slots", owner_id=bay_id, control=bay_slot["control"],
                 window_token=bay_inspect["window_token"], item_ids=pending, source="inventory",
             )
-            rev = _next_rev(st_res, folder, generation, rev)
             moved_here = {r["item_id"] for r in (st_res.get("items") or []) if r.get("status") == "moved"}
             stashed_ids.extend(i for i in pending if i in moved_here)
             pending = [i for i in pending if i not in moved_here]
@@ -381,7 +347,7 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         "stop_reason": stop_reason,
         "vessel_location": vessel_location,
         "steps": steps,
-        "revision": rev,
+        "revision": flow.rev,
     }
 
 

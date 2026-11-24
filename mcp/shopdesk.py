@@ -2,7 +2,7 @@
 import json
 import time
 
-from search_text import search_text
+from stock_query import search_text
 from scene import interrupted_shop_call
 from ledger import lookup, same_observation, read_head
 from server_state import snapshot_cache
