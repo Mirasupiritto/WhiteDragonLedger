@@ -234,15 +234,23 @@ def with_barter(folder, view):
 def wait_opening(folder, generation, visit, timeout=20):
     deadline = time.monotonic() + timeout
     tablet_attempt = uuid4().hex
+    tablet_attempts = 0
     sent_tablet_rev = None
+    last_tablet_at = None
+
+    def with_attempts(payload):
+        if tablet_attempts > 0 and isinstance(payload, dict):
+            return {**payload, "tablet_attempts": tablet_attempts}
+        return payload
+
     while True:
         view = context(folder)
         if view["status"] != "observed":
-            return view
+            return with_attempts(view)
         if view["generation"] != generation:
-            return {"status": "stale_observation"}
+            return with_attempts({"status": "stale_observation"})
         if view["visit"] != visit:
-            return visit_mismatch_status(view.get("visit"), view.get("customer"))
+            return with_attempts(visit_mismatch_status(view.get("visit"), view.get("customer")))
         stage = view["stage"]
         tablet_pending = (
             stage == "not_selling"
@@ -252,29 +260,36 @@ def wait_opening(folder, generation, visit, timeout=20):
         if stage not in {"arriving", "awaiting_opening", "speaking", "advance_required", "tablet_closed", "no_goods", "awaiting_information_receipt"} and not tablet_pending:
             ready_view = wait_choices_ready(folder, view)
             if ready_view.get("status") != "observed":
-                return ready_view
+                return with_attempts(ready_view)
             if ready_view.get("generation") != generation:
-                return {"status": "stale_observation"}
+                return with_attempts({"status": "stale_observation"})
             if ready_view.get("visit") != visit:
-                return visit_mismatch_status(ready_view.get("visit"), ready_view.get("customer"))
-            return strip_protocols(with_barter(folder, ready_view))
-        if time.monotonic() >= deadline:
-            return strip_protocols({**view, "status": "opening_timeout"})
+                return with_attempts(visit_mismatch_status(ready_view.get("visit"), ready_view.get("customer")))
+            return with_attempts(strip_protocols(with_barter(folder, ready_view)))
+        now = time.monotonic()
+        if now >= deadline:
+            return with_attempts(strip_protocols({**view, "status": "opening_timeout"}))
         if stage == "advance_required":
             result = command(folder, "advance", generation, view["revision"], visit=visit, page=view["page"])
             if result["status"] not in {
                 "advanced", "tablet_requested", "page_changed", "stale_observation", "ready", "speaking",
                 "awaiting_opening", "choice_required", "information", "awaiting_information_receipt", "barter",
             }:
-                return result
-        elif (stage == "tablet_closed" or tablet_pending) and sent_tablet_rev != view["revision"]:
+                return with_attempts(result)
+        elif (stage == "tablet_closed" or tablet_pending) and (
+            sent_tablet_rev != view["revision"] or (last_tablet_at is not None and now - last_tablet_at >= 2.0)
+        ):
+            tablet_attempts += 1
             sent_tablet_rev = view["revision"]
-            result = command(folder, "tablet", generation, view["revision"], visit=visit, read_id=tablet_attempt)
+            last_tablet_at = now
+            result = command(
+                folder, "tablet", generation, view["revision"], visit=visit, read_id=f"{tablet_attempt}-{tablet_attempts}"
+            )
             if result["status"] not in {
                 "advanced", "tablet_requested", "page_changed", "stale_observation", "ready", "speaking",
                 "awaiting_opening", "choice_required", "information", "awaiting_information_receipt", "barter",
             }:
-                return result
+                return with_attempts(result)
         time.sleep(0.2)
 
 
