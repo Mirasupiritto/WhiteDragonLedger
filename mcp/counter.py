@@ -10,22 +10,20 @@ import trade_journal
 from shopdesk import published, strip_protocols
 
 
-_seen_finished_heat = set()
+from database import transaction
 
 
-def filter_finished_heat(folder, result):
-    if not isinstance(result, dict):
-        return result
+def filter_finished_heat(database, result):
     heat = result.get("heat")
-    if not isinstance(heat, dict) or heat.get("status") == "running":
+    if not heat or heat.get("status") == "running" or not heat.get("run_id"):
         return result
-    key = (str(folder), result.get("generation"), heat.get("run_id"), heat.get("status"))
-    if key in _seen_finished_heat:
-        filtered = dict(result)
-        filtered.pop("heat", None)
-        return filtered
-    _seen_finished_heat.add(key)
-    return result
+    with transaction(database) as db:
+        db.execute("""CREATE TABLE IF NOT EXISTS notified_heat(
+            generation TEXT, run_id TEXT, PRIMARY KEY(generation, run_id))""")
+        if db.execute("INSERT OR IGNORE INTO notified_heat VALUES(?,?)",
+                      (result["generation"], heat["run_id"])).rowcount:
+            return result
+    return {k:v for k,v in result.items() if k != "heat"}
 
 
 def context(folder):

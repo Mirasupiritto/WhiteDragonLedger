@@ -107,6 +107,10 @@ namespace WhiteDragon.Ledger
             view["page"] = pageToken;
             foreach (string name in new[] { "dialog_choices", "response_choices" })
                 if (decision[name] != null) view[name] = decision[name].DeepClone();
+            // SecurityDialogInspectionLastLine binds this localized label to the inspection choice.
+            if (stage=="choice_required" && decision["dialog_choices"].Any(choice =>
+                (string)choice["text"]==LocHelper.GetLocalizedOrDefault("Dialogue","dialog_sec_inspect_choice_accept","[接受盘查。]")))
+                view["inspection_exposure"]=ContrabandCounts(true);
             // StoreClientListCartel builds faction choices for these clients with Dialogue.AddChoice.
             // Faction membership alone is shared by ordinary paying and trading customers.
             if (stage == "choice_required" && (merchant?.identifier == "cartelSec" ||

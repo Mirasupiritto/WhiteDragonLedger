@@ -104,7 +104,7 @@ namespace WhiteDragon.Ledger
                 case StoreClient.ClientIntent.RENT:
                     return "service";
             }
-            if (merchant.IsClientSelling()) return "seller";
+            if (merchant.IsClientSelling()) return merchant.IsClientBuying() ? "buyer_seller" : "seller";
             if (merchant.IsClientBuying()) return "buyer";
             return "dialogue";
         }
