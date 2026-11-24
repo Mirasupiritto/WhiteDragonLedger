@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 namespace WhiteDragon.Ledger
@@ -9,7 +10,7 @@ namespace WhiteDragon.Ledger
         public string currentPart => GetCurrentPartFromId(identifier);
         public int particleSize, filterVolumeRemoved, filterDurabilityUsage;
         public double filterMinimumPurity;
-        public static Liquid[] Liquids = {
+        public static List<Liquid> Liquids = new List<Liquid> {
             new Liquid { identifier="water", displayName="水" },
             new Liquid { identifier="alcohol", displayName="酒精", particleSize=3, filterVolumeRemoved=500, filterDurabilityUsage=1 }
         };
@@ -69,6 +70,38 @@ namespace WhiteDragon.Ledger
             Expect(!(bool)HeatingView(plate)["target_adjustable"],"basic plate fixed");
             plate.associatedId=2;
             Expect((bool)HeatingView(plate)["target_adjustable"],"upgraded plate adjustable");
+            var evap=Item(8106,"evaporator",1);
+            evap.To(EmporiumEntry.Instance.invElement);
+            var evapBattery=new GameSlotInventory();
+            var evapModule=new GameGridInventory(2,2);
+            var evapContainer=new GameSlotInventory();
+            var evapDistillate=new GameSlotInventory();
+            var cell=Item(8107,"power_cell",1);
+            cell.waterTags.Add(PowerHelper.POWER_SOURCE_ITEM_ENERGY);
+            cell.associatedId=120;
+            cell.To(evapBattery);
+            var beaker=Item(8108,"bottle",1);
+            beaker.volume=5000;
+            beaker.scratchTagReader=tag=>new GameItem { associatedId=tag=="caffeine_part" ? 15000 : 0 };
+            var caffeine=new Liquid { identifier="caffeine", displayName="Caffeine" };
+            Liquid.Liquids.Add(caffeine);
+            beaker.To(evapContainer);
+            MachineHelper.chemistrySlots=new object[]{evapBattery,evapModule,evapContainer,evapDistillate};
+            var evapLayout=new MachineryPanelRow();
+            evapLayout.Panels.Add(new MachineryPanel { role="battery", content=evapBattery });
+            evapLayout.Panels.Add(new MachineryPanel { role="input", content=evapContainer });
+            evapLayout.Panels.Add(new MachineryPanel { role="output", content=evapDistillate });
+            evap.contentWindow=new PixelWindow { visible=true, childElement=evapLayout };
+            var evapView=new JObject();
+            Expect(WorkstationAction(new JObject { ["action"]="inspect_window", ["owner_id"]=LocalId(evap) },evapView)=="observed" &&
+                (int)evapView["window"]["controls"][0]["energy_kj"]==120 &&
+                (double)evapView["window"]["controls"][1]["items"][0]["liquid"]["total_ml"]==20.0 &&
+                (string)evapView["window"]["controls"][1]["items"][0]["liquid"]["primary_id"]=="caffeine" &&
+                !(bool)evapView["window"]["distillate_capture"] &&
+                (string)evapView["window"]["distillate_reason"]=="no_quality_bonus",
+                "evaporator reports battery energy, container liquid summary, and distillate status");
+            Liquid.Liquids.Remove(caffeine);
+            evap.To(null); cell.To(null); beaker.To(null);
             fabric.To(null); pitcher.To(null); plate.To(null);
             machine.To(null); MachineHelper.chemistrySlots=null;
         }

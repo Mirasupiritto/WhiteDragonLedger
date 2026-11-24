@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 
@@ -17,6 +18,59 @@ namespace WhiteDragon.Ledger
                 ["upgrades"]=upgrades, ["target_adjustable"]=upgrades>=2,
                 ["target_hint"]=upgrades>=2 ? "Use the native minus/plus buttons (5 C per press)." :
                     "Fixed target at this upgrade level. Target buttons unlock at upgrade 2." };
+        }
+
+        private static JObject LiquidSummary(GameItem item)
+        {
+            if (item==null) return null;
+            var parts=new List<KeyValuePair<Liquid,int>>();
+            foreach (var liquid in Liquid.Liquids)
+            {
+                if (string.IsNullOrEmpty(liquid?.currentPart)) continue;
+                int amount=item.GetTagReadonly(liquid.currentPart).GetInt();
+                if (amount>0) parts.Add(new KeyValuePair<Liquid,int>(liquid,amount));
+            }
+            long total=parts.Sum(p=>(long)p.Value);
+            var summary=new JObject { ["total_ul"]=total, ["total_ml"]=Math.Round(total/1000.0,3) };
+            if (parts.Count>0)
+            {
+                var main=parts.OrderByDescending(p=>p.Value).First();
+                summary["primary_id"]=main.Key.identifier;
+                summary["primary_name"]=main.Key.displayName;
+                summary["primary_ul"]=main.Value;
+                summary["primary_ml"]=Math.Round(main.Value/1000.0,3);
+                summary["primary_percent"]=total==0 ? 0 : Math.Round(main.Value*100.0/total,2);
+            }
+            return summary;
+        }
+
+        private void DescribeEvaporator(GameItem owner, WindowRead read, JArray rows)
+        {
+            var batterySlot=MachineHelper.GetBodyStorage(owner,0) as GameSlotInventory;
+            var containerSlot=MachineHelper.GetBodyStorage(owner,2) as GameSlotInventory;
+            var distillateSlot=MachineHelper.GetBodyStorage(owner,3) as GameSlotInventory;
+            foreach (JObject row in rows)
+            {
+                var element=read.Controls[(string)row["control"]];
+                if (batterySlot!=null && ReferenceEquals(element,batterySlot) && row["energy_kj"]==null)
+                    AddMachinePower(owner,batterySlot,row);
+                if (containerSlot!=null && ReferenceEquals(element,containerSlot) && containerSlot.childItem!=null &&
+                    row["items"] is JArray items && items.Count>0 && items[0] is JObject entry)
+                    entry["liquid"]=LiquidSummary(containerSlot.childItem);
+            }
+            int qualityBonus=MachineryHelper.GetCurrentQualityBonus(owner);
+            read.View["quality_bonus"]=qualityBonus;
+            if (qualityBonus<=0)
+            {
+                read.View["distillate_capture"]=false;
+                read.View["distillate_reason"]="no_quality_bonus";
+            }
+            else if (distillateSlot?.childItem==null)
+            {
+                read.View["distillate_capture"]=false;
+                read.View["distillate_reason"]="no_receiving_container";
+            }
+            else read.View["distillate_capture"]=true;
         }
 
         private JObject FilterView(GameItem vessel)

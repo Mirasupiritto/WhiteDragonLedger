@@ -293,13 +293,16 @@ namespace WhiteDragon.Ledger {
         public static bool IsHazardousWaste(GameItem item) =>
             item != null && (item.identifier == "nuclear_waste" || item.IsTag("HAZARDOUS_WASTE_TAG"));
     }
-    public static class MachineryHelper { public static int GetMachinePowerUsage(GameItem machine) => 4; }
+    public static class MachineryHelper {
+        public static int GetMachinePowerUsage(GameItem machine) => 4;
+        public static int GetCurrentQualityBonus(GameItem machine) => machine.associatedId;
+    }
     public static class MachineHelper {
         public const string STANDARD_MACHINE_TAG="standard_machine";
         public static GameSlotInventory container=new GameSlotInventory(), battery=new GameSlotInventory();
         public static object[] furnaceSlots, chemistrySlots;
         public static object GetBodyStorage(GameItem item,int index) =>
-            (item.identifier=="chem_finisher" || item.identifier=="heating_plate") && chemistrySlots!=null ? chemistrySlots[index] : item.identifier=="furnace" && furnaceSlots!=null ? furnaceSlots[index] : index==2 ? container : null;
+            (item.identifier=="chem_finisher" || item.identifier=="heating_plate" || item.identifier=="evaporator") && chemistrySlots!=null ? chemistrySlots[index] : item.identifier=="furnace" && furnaceSlots!=null ? furnaceSlots[index] : index==2 ? container : null;
         public static GameSlotInventory GetBatterySlot(GameItem item) => battery;
         public static bool CanPower(GameItem item,GameSlotInventory power) => power.childItem!=null;
     }

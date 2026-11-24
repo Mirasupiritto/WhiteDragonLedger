@@ -136,6 +136,7 @@ namespace WhiteDragon.Ledger
                 ["title"]=read.Window.titleString, ["locked"]=read.Window.isLocked, ["controls"]=rows };
             if (owner.identifier=="chem_finisher" && owner.IsTag("SELECTED_CHEM_ID_TAG"))
                 read.View["recipe_id"]=owner.GetTagReadonly("SELECTED_CHEM_ID_TAG").GetString();
+            if (owner.identifier=="evaporator") DescribeEvaporator(owner,read,rows);
             if (owner.identifier=="heating_plate") read.View["heating"]=HeatingView(owner);
             if (owner.IsTag("FILTER_CONTAINER_TAG")) read.View["pour_filter"]=FilterView(owner);
             return read;
