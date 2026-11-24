@@ -7,6 +7,7 @@ import counter
 from database import transaction
 from ledger import read_head
 from shopdesk import published
+from scene import read_scene
 
 
 class SectionCache:
@@ -24,11 +25,11 @@ class SectionCache:
                 del self._seen[old]
         out = dict(payload)
         unchanged = []
-        for key in ("calendar", "trash", "sleep", "security", "last_save"):
+        for key in ("calendar", "trash", "sleep", "security", "last_save", "health"):
             if key not in out:
                 continue
             val = out[key]
-            if verbose or key not in state or state[key] != val:
+            if verbose or (key == "health" and out.get("alerts")) or key not in state or state[key] != val:
                 state[key] = copy.deepcopy(val)
             else:
                 del out[key]
@@ -84,7 +85,7 @@ def register_day_tools(server, folder, database, section_cache=None):
     @server.tool()
     def get_shop_status(verbose: bool = False) -> dict:
         """Current cash, calendar events, rent, trash contents, night report, shop appeal, status summary (including injury), nuclear_waste counts and sleep costs inside the pawnshop.
-        Includes security evidence, contraband counts and last_save. verbose=True includes the wanted poster roster and base bounties.
+        Includes health, addiction penalties, sentinel deadlines, weekly obligations and active alerts. Includes security evidence, contraband counts and last_save. verbose=True includes the wanted poster roster and base bounties.
         Unchanged calendar/trash/sleep/security/save sections are omitted after the first read on this connection unless verbose=True."""
         view = shop_status(folder)
         if view["status"] == "observed":
@@ -105,7 +106,7 @@ def register_day_tools(server, folder, database, section_cache=None):
 
     @server.tool()
     def prepare_sleep(generation: str, revision: int, day: int, bill_token: str) -> dict:
-        """Open the night bill from get_shop_status.sleep.bill and list services. Leaves the day running."""
+        """Open the night bill from get_shop_status.sleep.bill and list services. Includes active health and payment alerts before sleep. Leaves the day running."""
         return counter.command(folder,"prepare_sleep",generation,revision,day=day,bill_token=bill_token)
 
     @server.tool()
@@ -117,7 +118,7 @@ def register_day_tools(server, folder, database, section_cache=None):
 
     @server.tool()
     def sleep(generation: str, revision: int, day: int, service_cost: int, bill_token: str | None = None) -> dict:
-        """Confirm sleep with the day and exact nightly cost. Pass the reviewed bill_token to bind its service selection."""
+        """Confirm sleep with the day and exact nightly cost. Returns pre-sleep and newly observed morning alerts. Pass the reviewed bill_token to bind its service selection."""
         if day < 1 or service_cost < 0:
             raise ValueError("Use day and service_cost from get_shop_status")
         args = {"day": day, "service_cost": service_cost}
@@ -128,7 +129,13 @@ def register_day_tools(server, folder, database, section_cache=None):
             return result
         deadline = time.monotonic() + 15
         for _ in range(200):
+            scene = read_scene(folder)
+            if scene.get("status") == "game_over":
+                return {**result, **scene, "tool_status":"game_over"}
             view = shop_status(folder)
+            if view.get("generation")==generation and view.get("day")==day+1 and view.get("alerts"):
+                before = result.get("alerts", [])
+                result = {**result, "alerts": before + [alert for alert in view["alerts"] if alert not in before]}
             report = view.get("night_report", {})
             if (view.get("slot") == result["slot"] and view.get("generation") == generation
                     and view.get("day") == day + 1 and view.get("phase") == "MORNING"

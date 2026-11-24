@@ -55,12 +55,14 @@ class SceneServer(FastMCP):
         return region == "pawnshop" or (region == "offline" and name in self.ledger_tools)
 
     async def call_tool(self, name, arguments):
+        scene = read_scene(self.folder)
+        if scene.get("status") == "game_over" and name != "get_scene":
+            return {**scene, "tool_status": "game_over"}
         if name in ACTION_REGIONS:
             # A departure can finish before the client receives its reply. The command
             # layer can recover an existing receipt across regions, then gates new work.
             return await super().call_tool(name, arguments)
         if name not in self.global_tools:
-            scene = read_scene(self.folder)
             region = tool_region(scene)
             if not self.available(name, region):
                 return {**scene, "tool_status": "unavailable_in_scene"}

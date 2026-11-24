@@ -5,6 +5,7 @@ namespace WhiteDragon.Ledger
 {
     public sealed partial class InventoryObserver
     {
+        private string lastEndingReason;
         private const string ShopScene = "pawnshop";
         private string sceneSession, sceneStatus, currentLocation, destination;
         private string currentTitle, destinationTitle;
@@ -30,7 +31,7 @@ namespace WhiteDragon.Ledger
             PublishScene("waiting_for_load");
         }
 
-        private void PublishScene(string status)
+        private void PublishScene(string status,string reason=null)
         {
             journeyToken = null;
             sceneStatus = status;
@@ -49,6 +50,7 @@ namespace WhiteDragon.Ledger
                 ["message"] = status == DifficultyPicker ? "新遊戲：選擇難度" : status == PerkPicker ? "新遊戲：選擇初始特性" : status == SpecializationPicker ? "新遊戲：選擇專精" : status == Picker ? "正在選擇夜間目的地" : status == "ready" ? "目前位於" + currentTitle :
                     status == "transitioning" ? (destinationTitle == null ? "正在轉場" : "前往" + destinationTitle) : "等待讀檔"
             };
+            if (status=="game_over") { receipt["reason"]=reason; receipt["message"]=reason; }
             if (status == Picker) receipt["travel_options"] = travelOptions;
             Write("scene.json", receipt);
         }
@@ -78,6 +80,14 @@ namespace WhiteDragon.Ledger
         // Run before any store observer, inventory read or command dispatch.
         private bool CanObserveStore()
         {
+            var ending=GameOverUIManager.Instance;
+            if (ending?.uiPanel!=null && ending.uiPanel.activeInHierarchy)
+            {
+                string reason=ending.reason?.text;
+                if (sceneStatus!="game_over" || lastEndingReason!=reason) PublishScene("game_over",reason);
+                lastEndingReason=reason;
+                return false;
+            }
             string setup = NewGameDifficultyUI.IsOpen ? DifficultyPicker : NewGamePerksUI.IsOpen ? PerkPicker : NewGameSpecializationUI.IsOpen ? SpecializationPicker : null;
             if (setup != null)
             {

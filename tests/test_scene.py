@@ -154,6 +154,12 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                     session="reloaded_sess", status="ready", location="pawnshop", revision=2)), encoding="utf-8")
                 settled = json.loads((await load_waiter).content[0].text)
                 self.assertEqual((settled["wait_result"], settled["session"]), ("new_session", "reloaded_sess"))
+                publish(10, "game_over", "pawnshop", reason="Native ending")
+                self.assertEqual((await read("get_scene"))["reason"], "Native ending")
+                for name, args in (("get_shop_status", {}), ("travel_menu", {"mode":"read"}),
+                                   ("wait_for_scene", {"session":"test","after_revision":9})):
+                    self.assertEqual((await read(name, **args))["tool_status"], "game_over")
+                self.assertFalse((folder / "journey-test.json").exists())
                 self.assertTrue(changes.empty())
 
     async def test_explore_abandon_ground_and_scratch_card_close(self):

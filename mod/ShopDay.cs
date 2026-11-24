@@ -332,12 +332,16 @@ namespace WhiteDragon.Ledger
             var sleep = new JObject { ["service_cost"]=cost, ["available"]=phase=="CLOSED" &&
                 sleepSubmittedDay!=day && PlayerStore.Instance.playerCash >= cost };
             if (phase == "CLOSED") sleep["bill"] = NightBill();
-            return new JObject {
-                ["security"]=SecurityView(), ["wanted"]=WantedRows(), ["last_save"]=LastSave(PlayerStore.Instance.saveSlotId),
+            var alerts=new JArray();
+            var health=HealthView(day,alerts);
+            var result=new JObject {
+                ["health"]=health, ["security"]=SecurityView(), ["wanted"]=WantedRows(), ["last_save"]=LastSave(PlayerStore.Instance.saveSlotId),
                 ["calendar"]=CalendarView(day), ["trash"]=TrashSummary(day), ["sleep"]=sleep,
                 ["night_report"]=NightReportView(), ["appeal"]=AppealView(), ["status_summary"]=StatusSummaryView(),
                 ["nuclear_waste"]=NuclearWasteSummary(), ["capacities"]=ShopCapacities()
             };
+            if (alerts.Count>0) result["alerts"]=alerts;
+            return result;
         }
 
         private string SubmitSleep(JObject request, JObject reply)
@@ -348,6 +352,7 @@ namespace WhiteDragon.Ledger
             int day = StoreStation.Instance.dayCounter;
             if (day != (int)request["day"] || sleepSubmittedDay == day) return "day_changed_or_pending";
             int cost = ServiceCost();
+            AttachHealthAlerts(day,reply);
             reply["day_before"] = day;
             reply["service_cost"] = cost;
             reply["bill_token"] = (string)NightBill()["bill_token"];
