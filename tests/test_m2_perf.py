@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import book_history
-from database import ensure_schema
+from database import ensure_schema, transaction
 from mcp_helpers import ScriptedGame
 import pawnshop_tools
 import scene_server
@@ -80,6 +80,19 @@ class M2PerfTests(unittest.TestCase):
             "to_kind": "purified_water",
         }])
 
+    def test_transaction_rollback_does_not_poison_schema_cache(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            db_path = Path(temp) / "rollback_test.sqlite"
+            with self.assertRaises(RuntimeError):
+                with transaction(db_path):
+                    raise RuntimeError("boom before commit")
+
+            # Subsequent transaction must re-run ensure_schema and succeed.
+            with transaction(db_path) as db:
+                tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            self.assertIn("stock", tables)
+            self.assertIn("book_events", tables)
+
 
 class M2AsyncServerTests(unittest.IsolatedAsyncioTestCase):
     async def test_readonly_submodes_skip_updates_report(self):
@@ -136,3 +149,27 @@ class M2AsyncServerTests(unittest.IsolatedAsyncioTestCase):
             await hb
             self.assertGreaterEqual(ticks, 5)
             await call_task
+
+    async def test_report_client_read_attaches_shop_update_only_on_arrest_finished(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            root = Path(temp)
+            db = root / "ledger.sqlite"
+            game = ScriptedGame(root)
+            game.publish_scene(status="ready", location="pawnshop", revision=1)
+            game.publish_desk(revision=1, phase="OPEN")
+
+            server = scene_server.SceneServer(root)
+            pawnshop_tools.register_pawnshop_tools(server, root, db)
+            server.updates.cursor = "a" * 32 + ":1:0"
+
+            with (patch.object(server.updates, "report", return_value={"status": "unchanged", "revision": 1, "cursor": "c"}) as report_mock,
+                  patch("counter.command", side_effect=[{"status": "observed"}, {"status": "arrest_finished"}])):
+                waiting = await server.call_tool("report_client", {"mode": "read"})
+                self.assertEqual(json.loads(waiting[0].text), {"status": "observed"})
+                report_mock.assert_not_called()
+
+                arrested = await server.call_tool("report_client", {"mode": "read"})
+                payload = json.loads(arrested[0].text)
+                self.assertEqual(payload["status"], "arrest_finished")
+                self.assertIn("shop_update", payload)
+                report_mock.assert_called_once()

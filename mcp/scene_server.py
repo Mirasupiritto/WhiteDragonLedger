@@ -16,7 +16,7 @@ from server_state import ServerState
 # Tools that can change shop state; their replies carry the shop_update delta.
 # Values are either True (always mutating) or a predicate(arguments) -> bool.
 TOOL_MUTATION_RULES = {
-    "report_client": lambda args: args.get("mode", "read") != "read",
+    "report_client": True,
     "move_item": True,
     "move_items": True,
     "sell_order": True,

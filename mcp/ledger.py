@@ -12,15 +12,6 @@ from server_state import snapshot_cache
 from stock_query import STOCK_DETAIL_COLUMNS, row_to_item, select_stock
 
 
-_EXTRA_STOCK_COLUMNS = (
-    ("size_w", "INTEGER"), ("size_h", "INTEGER"), ("slot_x", "INTEGER"), ("slot_y", "INTEGER"),
-    ("rotatable", "INTEGER"), ("water_ml", "INTEGER"), ("liquid_ml", "INTEGER"), ("capacity_ml", "INTEGER"),
-    ("empty", "INTEGER"), ("water_container", "INTEGER"), ("contains_water", "INTEGER"), ("liquid_main", "TEXT"),
-    ("charge_remaining", "INTEGER"), ("charge_max", "INTEGER"), ("liters_remaining", "REAL"),
-    ("estimated_value", "INTEGER"), ("parent_id", "INTEGER"), ("container_path", "TEXT"), ("access", "TEXT"),
-)
-
-
 def _db_stock_row(row):
     size = row.get("size") or {}
     slot = row.get("slot") or {}

@@ -3,8 +3,15 @@ import json
 import book_history
 from contextlib import contextmanager
 
+from pathlib import Path
+
 from command_transport import is_hex32, read_optional_json, read_command_receipt, replayed
-from database import ensure_trade_tickets_schema, transaction
+from database import (
+    ensure_trade_tickets_schema,
+    is_trade_tickets_initialized,
+    mark_trade_tickets_initialized,
+    transaction,
+)
 from ledger import lookup
 
 
@@ -14,9 +21,14 @@ SUCCESS = {"finished", "purchased", "information_purchased"}
 
 @contextmanager
 def ticket_transaction(database):
-    with transaction(database) as db:
-        ensure_trade_tickets_schema(db, database)
+    db_path = Path(database)
+    needs_schema = not is_trade_tickets_initialized(db_path)
+    with transaction(db_path) as db:
+        if needs_schema:
+            ensure_trade_tickets_schema(db)
         yield db
+    if needs_schema:
+        mark_trade_tickets_initialized(db_path)
 
 
 def insert(db, tool, request, slot, customer, observation=None):
@@ -184,7 +196,6 @@ def ledger(folder, database, slot, ticket_id=None, *, inventory=False, name=None
         updated = [refresh(db, folder, row) for row in rows]
         result = {"status":"observed", "slot":slot, "open_tickets":[describe(row) for row in updated if row["state"]=="open"]}
         if inventory or any(value is not None for value in (name, area, owned)):
-            book_history.schema(db)
             saved = db.execute("SELECT gen,rev FROM book_events WHERE slot=? ORDER BY rowid DESC LIMIT 1", (slot,)).fetchone()
             if saved is None:
                 result["inventory_status"] = "never_observed"

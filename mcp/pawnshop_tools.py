@@ -79,6 +79,7 @@ def _summarize_wild_network(result, *, verbose=False):
 
 def register_pawnshop_tools(server, folder, database):
     state = getattr(server, "state", None)
+    heat_state = state if state is not None else counter.default_state
     section_cache = state.section_cache if state is not None else (getattr(server, "section_cache", None) or shop_day.SectionCache())
     server.section_cache = section_cache
     heat_control.register(server, folder)
@@ -470,13 +471,13 @@ def register_pawnshop_tools(server, folder, database):
         if isinstance(result.get("reception"), dict) and "token" in result["reception"]:
             result["reception_token"] = result["reception"]["token"]
         result = shopdesk.strip_protocols(counter.with_barter(folder, result))
-        return counter.filter_finished_heat(folder, trade_tools.summarize_offer(result, verbose=verbose))
+        return heat_state.filter_finished_heat(folder, trade_tools.summarize_offer(result, verbose=verbose))
 
     @server.tool()
     def ring_customer(generation: str, revision: int, waiting: int, verbose: bool = False) -> dict:
         """Ring once at an empty open counter, wait for the greeting (stopping at choices), and return status="called" with trade state.
         Large (>5 item) supplier offers return a summary unless verbose=True."""
-        return counter.filter_finished_heat(folder, trade_tools.summarize_offer(counter.ring(folder, generation, revision, waiting), verbose=verbose))
+        return heat_state.filter_finished_heat(folder, trade_tools.summarize_offer(counter.ring(folder, generation, revision, waiting), verbose=verbose))
 
     @server.tool()
     def next_customer(generation: str | None = None, revision: int | None = None, waiting: int | None = None,
@@ -498,7 +499,7 @@ def register_pawnshop_tools(server, folder, database):
             ring_wait = view.get("waiting", 0) if waiting is None else waiting
             result = counter.ring(folder, view["generation"], view["revision"], ring_wait, timeout=timeout)
             if result.get("status") not in {"occupied", "bell_unavailable", "customer_replaced", "customer_left", "queue_changed", "customer_departing"}:
-                return counter.filter_finished_heat(folder, trade_tools.summarize_offer(result, verbose=verbose))
+                return heat_state.filter_finished_heat(folder, trade_tools.summarize_offer(result, verbose=verbose))
             current = counter.context(folder)
             if current.get("generation") != view["generation"] or current.get("phase") != "OPEN":
                 return result
@@ -525,11 +526,11 @@ def register_pawnshop_tools(server, folder, database):
                 waited = {**waited, "status": "already_present", "already_at_counter": True}
             if "reception_token" not in waited and isinstance(waited.get("reception"), dict) and "token" in waited["reception"]:
                 waited["reception_token"] = waited["reception"]["token"]
-            return counter.filter_finished_heat(folder, trade_tools.summarize_offer(waited, verbose=verbose))
+            return heat_state.filter_finished_heat(folder, trade_tools.summarize_offer(waited, verbose=verbose))
         cleaned = shopdesk.strip_protocols(dict(view))
         if "reception_token" not in cleaned and isinstance(cleaned.get("reception"), dict) and "token" in cleaned["reception"]:
             cleaned["reception_token"] = cleaned["reception"]["token"]
-        return counter.filter_finished_heat(folder, trade_tools.summarize_offer(cleaned, verbose=verbose))
+        return heat_state.filter_finished_heat(folder, trade_tools.summarize_offer(cleaned, verbose=verbose))
 
     @server.tool()
     def finish_customer(generation: str, revision: int, visit: str) -> dict:

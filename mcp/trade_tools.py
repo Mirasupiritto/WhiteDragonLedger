@@ -151,6 +151,10 @@ class Updates:
         self.state = state if state is not None else ServerState()
 
     def report(self, since=None, full=False):
+        with self.state.lock:
+            return self._report_locked(since=since, full=full)
+
+    def _report_locked(self, since=None, full=False):
         view = shopdesk.published(self.folder)
         if view["status"] != "observed":
             return view
@@ -222,6 +226,7 @@ class Updates:
 def register(server, folder, database):
     state = getattr(server, "state", None)
     tracker = Updates(folder, database, state=state)
+    heat_state = state if state is not None else counter.default_state
     server.updates = tracker
     if state is not None:
         state.updates = tracker
@@ -272,7 +277,7 @@ def register(server, folder, database):
         if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
             counter.wait_choices_ready(folder, ctx)
             ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
-        return counter.filter_finished_heat(folder, summarize_offer(ctx, verbose=verbose))
+        return heat_state.filter_finished_heat(folder, summarize_offer(ctx, verbose=verbose))
 
     @server.tool()
     def wait_for_shop_event(event: Literal["goods_offered","next_customer_available","opening_finished"],

@@ -72,6 +72,7 @@ def wait_choices_ready(folder, view, timeout=1.5):
 class ActionSpec:
     channel: str = "counter"
     phone: bool = False
+    phone_protocol: str | None = None
     requires_open: bool = True
     required_phase: str | None = None
     phase_error: str | None = None
@@ -84,20 +85,8 @@ class ActionSpec:
     check: Callable[[dict, dict, int], dict | None] | None = None
 
 
-def _check_phone_keypad(view, args, _rev):
-    if not view.get("keypad_protocol"):
-        return {"status": "reload_updated_mod"}
-    return None
-
-
 def _check_report_client(view, args, _rev):
     if not view.get("report_protocol"):
-        return {"status": "reload_updated_mod"}
-    return None
-
-
-def _check_dialogue(view, args, _rev):
-    if not view.get("dialogue_protocol") == 1:
         return {"status": "reload_updated_mod"}
     return None
 
@@ -210,15 +199,15 @@ ACTION_SPECS: dict[str, ActionSpec] = {
     "dial": ActionSpec(phone=True, requires_open=False),
     "phone_choice": ActionSpec(phone=True, requires_open=False),
     "phone_advance": ActionSpec(phone=True, requires_open=False),
-    "phone_keypad": ActionSpec(phone=True, requires_open=False, check=_check_phone_keypad),
+    "phone_keypad": ActionSpec(phone=True, phone_protocol="keypad_protocol", requires_open=False),
     "report_client": ActionSpec(channel="report", requires_open=False, check=_check_report_client),
     "heat_control": ActionSpec(
         requires_open=False,
         protocol="heat_control_protocol",
         protocol_error={"status": "reload_updated_mod", "need": "mod", "required_protocol": "heat_control_protocol"},
     ),
-    "choose_dialogue": ActionSpec(requires_open=False, requires_visit=True, requires_page=True, check=_check_dialogue),
-    "response_choice": ActionSpec(requires_open=False, requires_visit=True, requires_page=True, check=_check_dialogue),
+    "choose_dialogue": ActionSpec(requires_open=False, protocol="dialogue_protocol", requires_visit=True, requires_page=True),
+    "response_choice": ActionSpec(requires_open=False, protocol="dialogue_protocol", requires_visit=True, requires_page=True),
     "advance": ActionSpec(requires_open=False, requires_visit=True, requires_page=True),
     "prepare_sleep": ActionSpec(requires_open=False, required_phase="CLOSED", phase_error="sleep_requires_closed_shop", protocol="night_bill_protocol"),
     "night_service": ActionSpec(requires_open=False, required_phase="CLOSED", phase_error="sleep_requires_closed_shop", protocol="night_bill_protocol"),
@@ -292,6 +281,8 @@ def command(folder, action, generation, revision, *, database=None, **args):
     visit_guarded = action == "dismiss" and view.get("dismiss_recheck_protocol") == 1
     if view["generation"] != generation or (view["revision"] != revision and not visit_guarded):
         return {"status": "stale_observation"}
+    if spec.phone_protocol and not view.get(spec.phone_protocol):
+        return {"status": "reload_updated_mod"}
     if spec.phone and view["phone_token"] != args["phone_token"]:
         return {"status": "phone_changed"}
     needs_chemist = ((action=="item_panel" and (args.get("panel") or args.get("mode") in {"focus","close"}))

@@ -18,21 +18,25 @@ _INITIALIZED_DBS: set[Path] = set()
 _INITIALIZED_TICKET_DBS: set[Path] = set()
 
 
-def ensure_trade_tickets_schema(db, db_path: Path | None = None):
-    """Ensure trade_tickets table and index exist once per resolved database path."""
-    resolved = db_path.resolve() if db_path is not None else None
-    if resolved is not None:
-        with _SCHEMA_LOCK:
-            if resolved in _INITIALIZED_TICKET_DBS:
-                return
+def ensure_trade_tickets_schema(db):
+    """Ensure trade_tickets table and index exist on the given SQLite connection."""
     db.execute("""CREATE TABLE IF NOT EXISTS trade_tickets (
         id TEXT PRIMARY KEY, slot INTEGER NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL,
         customer TEXT, state TEXT NOT NULL, version INTEGER NOT NULL, receipt TEXT, evidence INTEGER NOT NULL DEFAULT 0
     )""")
     db.execute("CREATE INDEX IF NOT EXISTS trade_tickets_slot ON trade_tickets(slot,state)")
-    if resolved is not None:
-        with _SCHEMA_LOCK:
-            _INITIALIZED_TICKET_DBS.add(resolved)
+
+
+def is_trade_tickets_initialized(db_path: Path) -> bool:
+    resolved = db_path.resolve()
+    with _SCHEMA_LOCK:
+        return db_path.exists() and resolved in _INITIALIZED_TICKET_DBS
+
+
+def mark_trade_tickets_initialized(db_path: Path):
+    resolved = db_path.resolve()
+    with _SCHEMA_LOCK:
+        _INITIALIZED_TICKET_DBS.add(resolved)
 
 
 def ensure_schema(db):
@@ -95,6 +99,7 @@ def transaction(database):
         db.execute("BEGIN IMMEDIATE")
         if needs_schema:
             ensure_schema(db)
-            with _SCHEMA_LOCK:
-                _INITIALIZED_DBS.add(resolved)
         yield db
+    if needs_schema:
+        with _SCHEMA_LOCK:
+            _INITIALIZED_DBS.add(resolved)
