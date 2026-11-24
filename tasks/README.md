@@ -34,6 +34,9 @@
 | [D](D-化學家流程.md) | 成型機按名稱選配方、蒸發器狀態、純度估價、`chem_finish` | 大白龍 | `task/d-chem` |
 | [E](E-回執精簡與錯誤原因.md) | 回執減重、舊 token 與錯誤附原因 | 第二輪 | `task/e-receipts` |
 | [F](F-健康與致命義務.md) | 成癮、哨兵注射、勒索封口費、遊戲結束偵測 | Codex | `task/f-health` |
+| [K](K-櫃檯回執與接客.md) | 盤查前違禁品提醒、離場後一次叫到下一位、heat 摘要只附一次、client_role、議價回執精簡 | 待分派 | `task/k-counter` |
+| [L](L-搬貨到貨與環境.md) | move_items 放不下就略過、電話到貨來源、DLL 與 MCP 版本不一致警告 | 待分派 | `task/l-stock` |
+| [M](M-改造體與自衛-研究.md) | 改造體與開槍流程研究（只寫文件） | 待分派 | `task/m-aug-research` |
 
 C 和 E 都會動到 `mod/Counter.cs`，不要同時做這兩包。C 和 F 都會動到 `mod/ShopDay.cs`，同一個人依序做，後做的從先做的分支接著開。
 
