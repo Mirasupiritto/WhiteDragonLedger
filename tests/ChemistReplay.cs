@@ -27,12 +27,30 @@ namespace WhiteDragon.Ledger
             source.volume=4500;
             var output=new GameGridInventory(6,4);
             MachineHelper.chemistrySlots=new object[]{null,slot,output};
+            machine.waterTags.Add("SELECTED_CHEM_ID_TAG");
             machine.bookTagValue="test_product";
             var button=new MachineryButton { text=LocHelper.GetLocalizedMechanic("mech_chem_finisher_btn_output") };
             button.onPress=()=>{source.volume-=2000;new GameItem{identifier="test_product"}.To(output);};
             var receipt=new JObject();
             Expect(ProduceBatch(machine,button,3,receipt)=="batch_incomplete" && (int)receipt["produced"]==2 &&
                 source.volume==500 && (string)receipt["reason"]=="recipe_not_ready","production stops at the real input limit");
+            machine.To(EmporiumEntry.Instance.invElement);
+            machine.contentWindow=new PixelWindow { visible=true, childElement=slot };
+            var finisherPanel=new ItemPanelView { Key="chemical_finisher", Identity="finisher/1" };
+            finisherPanel.Controls["-57964"]=new JObject { ["type"]="button", ["label"]="Select", ["recipe_id"]="dream_dust", ["enabled"]=true };
+            finisherPanel.Actions["-57964"]=_=>{ machine.bookTagValue="dream_dust"; return "applied"; };
+            NativeItemPanels.panel=finisherPanel;
+            var pickRecipe=new JObject();
+            ActAtCounter(new JObject { ["action"]="item_panel", ["generation"]=generation, ["revision"]=sequence,
+                ["expires_ms"]=long.MaxValue, ["mode"]="read" },pickRecipe);
+            var pickResult=new JObject();
+            Expect(ActAtCounter(new JObject { ["action"]="item_panel", ["generation"]=generation, ["revision"]=sequence,
+                ["expires_ms"]=long.MaxValue, ["mode"]="choose", ["panel_token"]=pickRecipe["panel_token"],
+                ["control"]="-57964" },pickResult)=="applied","select recipe by recipe_id button");
+            var inspectFinisher=new JObject();
+            Expect(WorkstationAction(new JObject { ["action"]="inspect_window", ["owner_id"]=LocalId(machine) },inspectFinisher)=="observed" &&
+                (string)inspectFinisher["window"]["recipe_id"]=="dream_dust","chem_finisher window reports selected recipe_id");
+            NativeItemPanels.panel=null;
             Expect(BottleLabel(source)!=null,"water has label");
             source.waterTags.Add("replay_solvent");
             Expect(BottleLabel(source)==null && !HasWater(source),"pure solvent has no water label");

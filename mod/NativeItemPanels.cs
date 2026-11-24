@@ -230,6 +230,22 @@ namespace WhiteDragon.Ledger
             else if (control is Button button)
             {
                 row["type"]="button";
+                if (view.Key=="chemical_finisher")
+                {
+                    var chem=button.GetComponentInParent<ChemFinishElement>();
+                    if (chem!=null && !string.IsNullOrEmpty(chem.identifier))
+                    {
+                        row["recipe_id"]=chem.identifier;
+                        var recipe=ChemFinisherRecipe.GetRecipeById(chem.identifier);
+                        row["recipe_name"]=recipe?.displayName ?? chem.displayTMP?.text;
+                        if (recipe!=null)
+                        {
+                            row["required_ul"]=recipe.requiredVolume;
+                            row["required_ml"]=Math.Round(recipe.requiredVolume/1000.0,3);
+                            row["requires_dry"]=recipe.isRequireDry;
+                        }
+                    }
+                }
                 action=value=>{ if (value!=null && value.Type!=JTokenType.Null) return "unexpected_value"; button.onClick.Invoke(); return "applied"; };
             }
             else if (control is Scrollbar scroll)
