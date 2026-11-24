@@ -73,6 +73,7 @@ namespace WhiteDragon.Ledger
                 (int)receipt["window"]["controls"][0]["items"][0]["id"]==LocalId(strip),"open kit returns selectable strip");
             var staleReply=new JObject();
             Expect(ActAtCounter(Request(smoke,"choose",token,"activate"),staleReply)=="stale_menu_token" &&
+                (string)staleReply["reason"]=="token_expired" &&
                 staleReply["menu_token"]!=null && staleReply["enabled"]!=null,"stale read returns stale_menu_token with fresh token");
             receipt=new JObject();
             ActAtCounter(Request(smoke),receipt);
@@ -81,6 +82,7 @@ namespace WhiteDragon.Ledger
                 smoke.responseClicks==1,"activate calls native action once");
             var spentReply=new JObject();
             Expect(ActAtCounter(Request(smoke,"choose",token,"activate"),spentReply)=="stale_menu_token" &&
+                (string)spentReply["reason"]=="token_already_used" &&
                 spentReply["menu_token"]!=null && smoke.responseClicks==1,"spent menu cannot consume twice and returns fresh token");
             Expect(ActAtCounter(Request(smoke,"choose",(string)spentReply["menu_token"],"activate"),new JObject())=="invoked" &&
                 smoke.responseClicks==2,"retry with returned fresh menu_token succeeds in one step");

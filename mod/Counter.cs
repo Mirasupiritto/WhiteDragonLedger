@@ -86,9 +86,12 @@ namespace WhiteDragon.Ledger
         private string ClientRole()
         {
             if (merchant == null) return null;
-            if (IsFoodBarter()) return "barter";
+            if (merchant.barterOffer != null || merchant.clientIntent == StoreClient.ClientIntent.BARTER) return "barter";
+            if (merchant.clientIntent == StoreClient.ClientIntent.DIALOGUE) return "dialogue";
             if (merchant.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER) return "service";
-            return merchant.IsClientSelling() ? "seller" : "buyer";
+            if (merchant.IsClientSelling()) return "seller";
+            if (merchant.IsClientBuying()) return "buyer";
+            return "dialogue";
         }
 
         private JObject CounterView()
@@ -304,7 +307,7 @@ namespace WhiteDragon.Ledger
                 return (bool)receipt["tablet_open"] ? "tablet_requested" : "tablet_unavailable";
             }
             if (action != "buy") return "invalid_action";
-            var view = CounterView(consumeHeat: true);
+            var view = CounterView();
             if ((string)view["stage"] != "ready") return (string)view["stage"];
             if (view["offer_token"] == null || (string)request["offer_token"] != offerToken) return "offer_changed";
             long total = (long)view["offer"]["total"];

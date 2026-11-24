@@ -147,6 +147,7 @@ class Updates:
         self.folder = folder
         self.database = database
         self.cursor = None
+        self._seen_finished_heat = set()
 
     def report(self, since=None, full=False):
         view = shopdesk.published(self.folder)
@@ -170,9 +171,9 @@ class Updates:
                 fields["heat"] = h
             else:
                 key = (str(self.folder), gen, h.get("run_id"), h.get("status"))
-                if key not in counter._seen_finished_heat:
+                if key not in self._seen_finished_heat:
                     fields["heat"] = h
-                    counter._seen_finished_heat.add(key)
+                    self._seen_finished_heat.add(key)
         fields["page"] = desk.get("page")
         encoded = json.dumps(fields, sort_keys=True, ensure_ascii=False)
         token = f"{gen}:{rev}:{hashlib.sha256(encoded.encode()).hexdigest()[:24]}"

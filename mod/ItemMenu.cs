@@ -70,16 +70,17 @@ namespace WhiteDragon.Ledger
             if (seen && same && !itemMenuUsed) return null;
             bool optionsChanged = seen && !itemMenuUsed && previousItemMenu != null &&
                 !JToken.DeepEquals(previousItemMenu["options"], options);
+            string reason = optionsChanged ? "options_changed"
+                : !seen ? "token_expired"
+                : itemMenuUsed ? "token_already_used"
+                : "state_changed";
             itemMenuToken = Guid.NewGuid().ToString("N");
             itemMenuUsed = false;
             previousItemMenu = view;
             receipt["menu_token"] = itemMenuToken;
             receipt["enabled"] = options["enabled"];
             receipt["labels"] = options["labels"];
-            receipt["reason"] = optionsChanged ? "options_changed"
-                : !seen ? "token_expired"
-                : itemMenuUsed ? "token_already_used"
-                : "state_changed";
+            receipt["reason"] = reason;
             return optionsChanged ? "menu_changed" : "stale_menu_token";
         }
 

@@ -64,7 +64,6 @@ namespace WhiteDragon.Ledger
 
         private HeatRun heatRun;
         private JObject lastHeat;
-        private bool heatNoticePending;
         private float nextHeatCheck;
 
         // Let a caller see whether the vessel ever reached the requested range, not just that time ran out.
@@ -89,7 +88,6 @@ namespace WhiteDragon.Ledger
             HeatStats(run);
             if (!run.Reached && reason == "finished") run.Summary["warning"] = "range_not_reached";
             lastHeat = run.Summary;
-            heatNoticePending = true;
             heatRun = null;
             nextView = 0;
         }
@@ -133,7 +131,6 @@ namespace WhiteDragon.Ledger
                 var summary = heatRun?.Summary ?? lastHeat;
                 if (summary == null) return "no_heat_run";
                 if (mode == "stop" && (string)summary["run_id"] != (string)request["run_id"]) return "run_changed";
-                if (mode == "stop" && heatRun == null) heatNoticePending = false;
                 receipt["heat"] = summary.DeepClone();
                 if (heatRun != null)
                 {
@@ -171,7 +168,6 @@ namespace WhiteDragon.Ledger
             heatRun = run;
             nextHeatCheck = 0;
             TickHeat();
-            if (heatRun == null) heatNoticePending = false;
             receipt["heat"] = (heatRun?.Summary ?? lastHeat).DeepClone();
             return heatRun == null ? (string)lastHeat["status"] : "started";
         }
