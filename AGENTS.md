@@ -30,6 +30,7 @@
 
 | 交易 | 操作與核對 |
 |---|---|
+| 議價 | 用 `bargain(mode="read")` 核對選項、聲望和離場機率，再用 `offer` 提交同頁的類型、百分比和 token。成交金額看上櫃報價。 |
 | 整批採購 | 用 `quoted_total` 評估，取本次 `offer_token` 呼叫 `buy_merchant_batch`。例如最多花 90 就帶 `max_total=90`，成交後看實付和買進的 `items`，再看 `shop_update` 的附帶異動。 |
 | 單件採購 | 用 `request_supplier_quote` 帶本次 `visit` 和商品 `item_id`，取上櫃報價並核對原件已回到前櫃，再決定上限。可在 `trade_batch` 帶單筆買入。 |
 | 賣貨 | 帳面 `estimated_value` 用於估值，實際上櫃看 `quote.price`。用 `sell_order` 的 `lines` 設逐件底價，如 `[{"item_id": 42, "min_price": 18}]`。想按整批合計底價成交時可帶 `bundle=True`。 |

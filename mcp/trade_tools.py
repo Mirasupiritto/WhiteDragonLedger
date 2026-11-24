@@ -211,6 +211,20 @@ def register(server, folder, database):
     server.updates = tracker
 
     @server.tool()
+    def bargain(mode: Literal["read","offer"], generation: str, revision: int, visit: str,
+                type: str | None = None, percent: int | None = None, bargain_token: str | None = None) -> dict:
+        """Read native haggle options, probability, faction and multipliers. Offer one listed type/percent
+        with its bargain_token. Read again after the customer's dialogue before further trading."""
+        args = dict(visit=visit, mode=mode)
+        if mode == "read":
+            args["read_id"] = uuid4().hex
+        else:
+            if not type or percent is None or not bargain_token:
+                raise ValueError("Offer needs a listed type, percent and bargain_token")
+            args.update(type=type, percent=percent, bargain_token=bargain_token)
+        return counter.command(folder,"bargain",generation,revision,**args)
+
+    @server.tool()
     def get_shop_updates(since: str | None = None, full: bool = False) -> dict:
         """Start with a baseline, then return changed fields, item upserts/removals and shutter checkpoints.
         Save the returned cursor for explicit replay. Mutations on this connection also receive deltas."""

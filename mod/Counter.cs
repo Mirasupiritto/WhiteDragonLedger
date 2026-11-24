@@ -65,7 +65,7 @@ namespace WhiteDragon.Ledger
             if (NegociationUIManager.IsTradeLocked()) return "trade_locked";
             bool dealer = merchant.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER;
             if (dealer && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
-            bool barter = IsFoodBarter();
+            bool barter = IsPagedBarter();
             if (barter && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
             if (!sellingToBuyer && !dealer && !barter && !merchant.IsClientSelling()) return "not_selling";
             var ui = NegociationUIManager.Instance;
@@ -196,6 +196,7 @@ namespace WhiteDragon.Ledger
                 action == "inspect_archive" || action == "close_archive")
                 return WorkstationAction(request, receipt);
             if (action == "visible_windows") return ObserveTradeWindows(receipt);
+            if (action == "bargain") return BargainAction(request,receipt);
             if (action == "barter") return ActOnBarter(request, receipt);
             if (action == "water_use") return WaterUseAction(request, receipt);
             if (action == "water_panel") return WaterPanelAction(request, receipt);

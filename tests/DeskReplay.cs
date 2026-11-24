@@ -158,8 +158,8 @@ namespace WhiteDragon.Ledger {
             if (target is GameSlotInventory newSlot) newSlot.childItem = this;
         }
     }
-    public class StoreClient {
-        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER }
+    public partial class StoreClient {
+        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER, DIALOGUE }
         public ClientIntent clientIntent;
         public BarterOffer barterOffer;
         public bool isIntroduced;
@@ -519,6 +519,8 @@ namespace WhiteDragon.Ledger {
             new InventoryObserver().ReplayBagStock();
             ReplayInformation();
             ReplayBarter();
+            ReplayBarter(true);
+            ReplayBargain();
             ReplayPhone();
             ReplayScenes();
             ReplayScratchCard();
