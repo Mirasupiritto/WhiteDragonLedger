@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 from receipt_store import read_optional_json, read_command_receipt, replayed
 from database import transaction
+from ledger import lookup
 
 
 TOOLS = {"buy": "buy_merchant_batch", "pay_info": "pay_info_receipt"}
@@ -119,12 +120,25 @@ def finished_sale(db, folder, request, slot):
                 any(bool(args.get(k)) != bool(request.get(k)) for k in ("bundle", "stop_same_kind_on_budget"))):
             continue
         row = refresh(db, folder, row)
-        if row["state"] == "complete":
-            return replayed(json.loads(row["receipt"]))
-        if row["receipt"]:
-            receipt = json.loads(row["receipt"])
-            if receipt["status"] == "sale_pending":
-                return replayed(receipt)
+        if not row["receipt"]:
+            continue
+        receipt = json.loads(row["receipt"])
+        if receipt["status"] == "sale_pending":
+            return replayed(receipt)
+        if receipt["status"] != "finished":
+            continue
+        sold = {item["item_id"] for item in receipt.get("items", []) if item.get("status") == "sold"}
+        unsold = [line["item_id"] for line in request["lines"] if line["item_id"] not in sold]
+        if unsold:
+            # Use the same SQLite transaction for the stock observation and ticket decision.
+            head = lookup(folder, db, sync_only=True)
+            if (head.get("status") != "observed" or head["slot"] != slot or head["generation"] != args["generation"]
+                    or head["revision"] < max(request["revision"], receipt.get("revision", args["revision"]))):
+                return None
+            if db.execute("""SELECT 1 FROM stock WHERE owned=1
+                             AND id IN (SELECT value FROM json_each(?)) LIMIT 1""", (json.dumps(unsold),)).fetchone():
+                return None
+        return replayed(receipt)
     return None
 
 

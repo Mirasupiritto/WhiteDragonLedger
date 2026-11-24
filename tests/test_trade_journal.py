@@ -47,13 +47,54 @@ class TradeJournal(unittest.TestCase):
             shopdesk.sell_order(self.folder, lines, generation, 91, visit, database=self.database)
             self.assertEqual(send.call_args.args[2]["command_id"], original)
             self.write("receipt-"+original+".json", dict(status="finished", command_id=original,
-                       generation=generation, revision=107, visit=visit, slot=13))
+                       generation=generation, revision=107, visit=visit, slot=13,
+                       items=[dict(item_id=line["item_id"], status="sold") for line in lines]))
             view["revision"] = 107
             result = shopdesk.sell_order(self.folder, lines, generation, 107, visit, database=self.database)
             self.assertEqual((result["status"], result["command_id"], result["replayed"]), ("finished", original, True))
             self.assertEqual(self.tickets(13), [])
             self.assertEqual(journal.ledger(self.folder,self.database,13,duplicate)["status"], "ticket_not_found")
             send.assert_called_once()
+
+    def test_partial_return_starts_new_sale_at_new_revision(self):
+        # Slot 13 receipt 1a61e5cd: three sold, seven dream dust bottles returned over budget.
+        generation = "cc0ce363910e49eeaa4640d8b0f6f1de"
+        visit = "4c1a784cc9b34679957a8d69b9a72720"
+        original = "1a61e5cde9065670aeae7e6fa833931b"
+        ids = [147, 148, *range(103, 111)]
+        lines = [dict(item_id=i, min_price=30 if i in (147, 148) else 20) for i in ids]
+        items = [dict(item_id=i, status="sold" if i in ids[:3] else "returned_over_budget") for i in ids]
+        stock = [dict(id=i, kind="dream_dust", name="一小瓶“梦尘”", area="inventory", quantity=1, owned=True)
+                 for i in ids[3:]]
+        self.write(generation+"-1.json", dict(op="baseline", items=[]))
+        for rev in range(2, 254):
+            self.write(f"{generation}-{rev}.json", dict(op="delta", remove=[], upsert=stock if rev == 253 else []))
+        head = dict(status="observed", generation=generation, slot=13, revision=253)
+        self.write("head.json", head)
+        view = dict(head, phase="OPEN", revision=233, customer=dict(visit=visit))
+        def order():
+            return shopdesk.sell_order(self.folder, lines, generation, view["revision"], visit, database=self.database)
+        with patch("shopdesk.buyer", return_value=view), patch("shopdesk.exchange") as send:
+            send.side_effect = lambda folder, inbox, req, receipt: dict(status="unconfirmed", command_id=req["command_id"])
+            self.assertEqual(order()["command_id"], original)
+            self.write("receipt-"+original+".json", dict(status="finished", command_id=original,
+                       generation=generation, visit=visit, revision=253, slot=13, items=items))
+            self.assertTrue(order()["replayed"])  # Same revision still recovers the original command.
+            view["revision"] = 253
+            new = order()
+            self.assertNotEqual(new["command_id"], original)
+            self.assertEqual([ticket["ticket_id"] for ticket in self.tickets(13)], [new["command_id"]])
+            self.assertEqual(send.call_count, 2)
+            # Once the returned items also leave owned stock, the finished sale is sufficient.
+            self.write("receipt-"+new["command_id"]+".json", dict(status="finished", command_id=new["command_id"],
+                       generation=generation, visit=visit, revision=253, slot=13, items=items))
+            self.write(generation+"-254.json", dict(op="delta", remove=ids[3:], upsert=[]))
+            self.write("head.json", dict(head, revision=254))
+            view["revision"] = 254
+            settled = order()
+            self.assertTrue(settled["replayed"])
+            self.assertEqual(settled["command_id"], new["command_id"])
+            self.assertEqual(send.call_count, 2)
 
     def test_sale_recovery_new_evidence_and_local_close(self):
         view = dict(status="observed", slot=4, phase="OPEN", generation=self.generation,

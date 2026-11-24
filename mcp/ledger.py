@@ -2,6 +2,8 @@
 import json
 import re
 import time
+from contextlib import nullcontext
+from sqlite3 import Connection
 import book_history
 from pathlib import Path
 
@@ -60,8 +62,8 @@ def read_head(folder):
             time.sleep(0.025)
 
 
-def lookup(folder: Path, database: Path, name=None, area=None, owned=None, *, save_ids=None, stock_query=None, sync_only=False):
-    with transaction(database) as db:
+def lookup(folder: Path, database: Path | Connection, name=None, area=None, owned=None, *, save_ids=None, stock_query=None, sync_only=False):
+    with (nullcontext(database) if isinstance(database, Connection) else transaction(database)) as db:
         head = read_head(folder)
         if head["status"] == "waiting_for_load":
             return {"status": "waiting_for_load", "items": []}

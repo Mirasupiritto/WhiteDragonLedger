@@ -441,7 +441,8 @@ def register_pawnshop_tools(server, folder, database):
         Set bundle=True to stage all listed
         items onto the trade table together and settle in one click (rolling all items back to their original
         areas if any item is declined, below minimum, duplicate variety, or the combined quote exceeds budget).
-        Repeating a finished plan at a new revision of the same visit retrieves the original receipt.
+        At a new revision of the same visit, a finished plan can be retried if any unsold item is still owned.
+        If every item sold or left owned stock, the original finished receipt is returned.
         With bundle=False (default), sells one item at a time and can opt in to stop_same_kind_on_budget.
         A staged item waits through dialogue and a closed tablet. Reuse identical arguments (including the original
         revision) to read sale_pending or the final receipt with actual received and remaining_budget."""
