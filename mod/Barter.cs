@@ -11,7 +11,7 @@ namespace WhiteDragon.Ledger
         private JObject lastBarterView;
         private string barterToken, submittedBarterVisit;
 
-        // These offers expose one payment condition and native reward pages.
+        // StoreClientListBarter.CreateBasicFoodBarterTutorial, CreateNormalFoodBarter, CreateAddictGeneral and CreateAddict.
         private bool IsPagedBarter() => merchant.clientIntent == StoreClient.ClientIntent.BARTER &&
             (merchant.identifier == "storyFoodBarter" || merchant.identifier == "normalFoodBarter" ||
              merchant.identifier == "addictGeneralBarter" || merchant.identifier == "addictBarter");

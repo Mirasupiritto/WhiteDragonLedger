@@ -15,35 +15,55 @@ namespace WhiteDragon.Ledger
         private static object NativeBargain(string name, params object[] args) =>
             typeof(BargainUIManager).GetMethod(name,BargainMembers).Invoke(BargainUIManager.Instance,args);
 
-        private static int AppliedPercent(BargainType type)
+        private string pendingBargainVisit;
+        private BargainType pendingBargainType;
+
+        private static object BargainField(string name) =>
+            typeof(BargainUIManager).GetField(name,BargainMembers).GetValue(BargainUIManager.Instance);
+
+        private static int[] ButtonPercents(BargainType type)
         {
-            string prefix = char.ToLowerInvariant(type.ToString()[0]) + type.ToString().Substring(1);
-            bool gift = type == BargainType.Discount || type == BargainType.BuyingMarkup;
-            var manager = typeof(BargainUIManager);
-            if (!(bool)manager.GetField(prefix + (gift ? "Offered" : "Applied"),BargainMembers).GetValue(BargainUIManager.Instance)) return 0;
-            return type == BargainType.Blackmail || type == BargainType.Threaten ? 20 :
-                (int)manager.GetField(prefix+"Percent",BargainMembers).GetValue(BargainUIManager.Instance);
+            if (type==BargainType.Blackmail) return new[]{(int)BargainField("BLACKMAIL_PERCENT")};
+            if (type==BargainType.Threaten) return new[]{(int)BargainField("THREATEN_PERCENT")};
+            return (int[])BargainField("PRICE_PERCENTS");
         }
 
-        private JObject PriceMultipliers(BargainType? preview = null, int percent = 0)
+        private static bool WasApplied(BargainType type)
         {
-            double sell = 1, buy = 1;
-            foreach (BargainType type in Enum.GetValues(typeof(BargainType)))
+            // Gifts always succeed. For rolled offers the Offered getters also include rejections.
+            switch (type)
             {
-                double p = (preview == type ? percent : AppliedPercent(type)) / 100.0;
-                switch (type)
-                {
-                    case BargainType.Discount: sell *= 1-p; break;
-                    case BargainType.Markup: sell *= 1+p; break;
-                    case BargainType.BuyingMarkup: buy *= 1+p; break;
-                    case BargainType.BuyingDiscount: buy *= 1-p; break;
-                    default:
-                        if (merchant.IsClientBuying()) sell *= 1+p;
-                        if (merchant.IsClientSelling()) buy *= 1-p;
-                        break;
-                }
+                case BargainType.Discount: return BargainUIManager.Instance.DiscountOffered;
+                case BargainType.BuyingMarkup: return BargainUIManager.Instance.BuyingMarkupOffered;
+                case BargainType.Markup: return (bool)BargainField("markupApplied");
+                case BargainType.BuyingDiscount: return (bool)BargainField("buyingDiscountApplied");
+                case BargainType.Blackmail: return (bool)BargainField("blackmailApplied");
+                case BargainType.Threaten: return (bool)BargainField("threatenApplied");
+                default: throw new ArgumentOutOfRangeException(nameof(type));
             }
-            return new JObject { ["sell"]=sell, ["buy"]=buy };
+        }
+
+        // Preview the price feature this button would add. Existing modifiers and rounding belong to the table quote.
+        private JObject OfferPriceFactors(BargainType type,int percent)
+        {
+            ItemFeature sell=null, buy=null;
+            switch (type)
+            {
+                case BargainType.Discount: sell=ItemFeatureList.BargainDiscount(percent); break;
+                case BargainType.Markup: sell=ItemFeatureList.BargainMarkup(percent); break;
+                case BargainType.BuyingDiscount: buy=ItemFeatureList.BargainBuyingDiscount(percent); break;
+                case BargainType.BuyingMarkup: buy=ItemFeatureList.BargainBuyingMarkup(percent); break;
+                case BargainType.Blackmail:
+                    if (merchant.IsClientBuying()) sell=ItemFeatureList.BlackmailMarkup(percent);
+                    if (merchant.IsClientSelling()) buy=ItemFeatureList.BlackmailDiscount(percent);
+                    break;
+                case BargainType.Threaten:
+                    if (merchant.IsClientBuying()) sell=ItemFeatureList.ThreatenMarkup(percent);
+                    if (merchant.IsClientSelling()) buy=ItemFeatureList.ThreatenDiscount(percent);
+                    break;
+            }
+            return new JObject { ["sell"]=1+(sell?.GetCurrentValueMod() ?? 0)/100.0,
+                ["buy"]=1+(buy?.GetCurrentValueMod() ?? 0)/100.0 };
         }
 
         private JObject BargainView()
@@ -55,29 +75,64 @@ namespace WhiteDragon.Ledger
                 if (!(bool)NativeBargain("CanOffer",type) ||
                     (type == BargainType.Threaten && !PlayerStore.Instance.isAugIntroduced)) continue;
                 bool crime = type == BargainType.Threaten || type == BargainType.Blackmail;
-                foreach (int percent in crime ? new[]{20} : new[]{10,25,50,75})
+                foreach (int percent in ButtonPercents(type))
                 {
                     var rep = ((double sell,double buy))NativeBargain("ComputePreviewMultipliers",type,percent);
                     var option = new JObject { ["type"]=type.ToString(), ["percent"]=percent,
                         ["uses_roll"]=(bool)NativeBargain("BargainUsesRoll",type),
                         ["leave_chance"]=ui.GetBargainLeaveChance(type,percent), ["success_chance"]=ui.GetBargainSuccessChance(type,percent),
-                        ["price_multipliers"]=PriceMultipliers(type,percent), ["crime"]=crime,
+                        ["offer_price_factors"]=OfferPriceFactors(type,percent),
+                        ["reputation_multipliers"]=new JObject { ["sell"]=rep.sell, ["buy"]=rep.buy }, ["crime"]=crime,
+                        ["budget_cut_percent"]=merchant.useClientBudget && type==BargainType.Markup ?
+                            (int)NativeBargain("GetMarkupBudgetCutPercent",percent) : 0,
                         ["reputation_faction"]=merchant.clientFaction,
                         ["reputation_hint"]=$"{merchant.clientFaction} ×{rep.sell:0.##}（賣）／×{rep.buy:0.##}（買）" };
+                    if (merchant.useClientBudget && type==BargainType.Discount)
+                        option["budget_increase_percent"]=percent*(float)BargainField("DISCOUNT_BUDGET_FACTOR");
                     options.Add(option);
                 }
             }
             return new JObject { ["visit"]=visitId, ["revision"]=sequence, ["options"]=options,
-                ["price_multipliers"]=PriceMultipliers() };
+                ["table_quote"]=TableQuote(), ["remaining_budget"]=merchant.useClientBudget ? (JToken)merchant.GetBudget() : null,
+                ["reputation_multipliers"]=new JObject { ["sell"]=merchant.GetTradeRepMultiplier(true), ["buy"]=merchant.GetTradeRepMultiplier(false) } };
         }
 
         private string BargainAction(JObject request, JObject receipt)
         {
             ObserveVisit();
-            if (visitId == null || visitId != (string)request["visit"]) return VisitMismatchStatus(receipt);
+            string requested=(string)request["visit"];
+            bool read=(string)request["mode"]=="read";
+            bool settling=read && pendingBargainVisit!=null && requested==pendingBargainVisit;
+            if (visitId == null || visitId != requested)
+            {
+                if (settling)
+                {
+                    receipt["reaction"]="left";
+                    receipt["customer_present"]=false;
+                    pendingBargainVisit=null;
+                }
+                return VisitMismatchStatus(receipt);
+            }
             string stage = CounterStage(true);
-            if (stage != "ready" || BargainUIManager.Instance == null || Interactable.isPaused ||
-                (bool)NativeBargain("IsClientMoving") || (bool)NativeBargain("IsDialoguePlaying") || StoreUIManager.Instance.isAboutToStartMainDialog)
+            bool busy=BargainUIManager.Instance==null || Interactable.isPaused ||
+                (bool)NativeBargain("IsClientMoving") || (bool)NativeBargain("IsDialoguePlaying") ||
+                StoreUIManager.Instance.isAboutToStartMainDialog;
+            if (settling)
+            {
+                if (busy || stage=="speaking" || stage=="advance_required" || stage=="conversation_paused")
+                {
+                    receipt["stage"]=stage;
+                    receipt["next_tool"]=stage=="advance_required" ? "get_trade_context" : "bargain";
+                    return "bargain_pending";
+                }
+                receipt["customer_present"]=true;
+                receipt["reaction"]=!WasApplied(pendingBargainType) ? "rejected" :
+                    pendingBargainType==BargainType.Discount || pendingBargainType==BargainType.BuyingMarkup ?
+                    "accepted" : "reluctantly_accepted";
+                pendingBargainVisit=null;
+                if (stage!="ready") { receipt["stage"]=stage; return "bargain_settled"; }
+            }
+            if (stage != "ready" || busy)
             {
                 receipt["reason"]=stage == "ready" ? "panel_unavailable" : stage;
                 return "bargain_unavailable";
@@ -109,14 +164,13 @@ namespace WhiteDragon.Ledger
                 case BargainType.Blackmail: ui.Blackmail(); break;
                 case BargainType.Threaten: ui.ThreatenAug(); break;
             }
-            bool leaving=merchant.clientIntent == StoreClient.ClientIntent.DIALOGUE;
-            receipt["customer_present"]=PlayerStore.Instance.currentClientInstance?.GetClientBlueprint()==merchant;
+            pendingBargainVisit=visitId;
+            pendingBargainType=type;
+            receipt["visit"]=visitId;
             receipt["crime"]=choice["crime"];
             receipt["reputation_faction"]=merchant.clientFaction;
-            receipt["reaction"]=leaving ? "leaving" : AppliedPercent(type)==0 ? "rejected" :
-                type==BargainType.Discount || type==BargainType.BuyingMarkup ? "accepted" : "reluctantly_accepted";
-            receipt["price_multipliers"]=PriceMultipliers();
-            return leaving || !(bool)receipt["customer_present"] ? "customer_left" : "bargain_offered";
+            receipt["next_tool"]="bargain";
+            return "bargain_pending";
         }
     }
 }

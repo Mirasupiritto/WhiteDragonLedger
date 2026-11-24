@@ -106,7 +106,7 @@ namespace WhiteDragon.Ledger {
         public GameItem trashcan;
     }
     public class ItemCondition { public string display; }
-    public class ItemFeature {
+    public partial class ItemFeature {
         public ItemCondition label;
         public ItemCondition GetCurrentItemCondition() => label;
     }

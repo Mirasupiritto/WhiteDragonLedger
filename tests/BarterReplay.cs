@@ -125,6 +125,12 @@ namespace WhiteDragon.Ledger
             Expect(ActAtCounter(req,reply)=="business_complete" && ui.barterClicks-initialClicks==1,"duplicate cannot accept again");
             store.currentClientInstance=new StoreClientInstance();ObserveVisit();
             Expect(ActAtCounter(req,reply)=="customer_replaced","new visit rejects old choice");
+            merchant.identifier="lowerLevelChemistBarter";
+            merchant.clientIntent=StoreClient.ClientIntent.BARTER;
+            var unsupported=CounterView();
+            Expect((string)unsupported["next_action"]=="barter_unsupported" && unsupported["reason"]!=null &&
+                !(bool)unsupported["quote_ready"],"unsupported native barter stops ordinary trades");
+            merchant.clientIntent=StoreClient.ClientIntent.MERCHANT;
             food.To(shop.invElement);
             foreach(var item in front) item.To(shop.frontInvinvElement);
             foreach(var item in back) item.To(shop.backInvinvElement);

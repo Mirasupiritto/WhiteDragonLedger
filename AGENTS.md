@@ -30,12 +30,12 @@
 
 | 交易 | 操作與核對 |
 |---|---|
-| 議價 | 用 `bargain(mode="read")` 核對選項、聲望和離場機率，再用 `offer` 提交同頁的類型、百分比和 token。成交金額看上櫃報價。 |
+| 議價 | 用 `bargain(mode="read")` 核對選項、聲望和離場機率，再用 `offer` 提交同頁的類型、百分比和 token。先看抬價成功後的預算削減率。送出後若回 `bargain_pending`，等對話結束，用同一來訪編號及最新版本重讀反應。聲望倍率影響聲望，成交金額看實際上櫃報價。 |
 | 整批採購 | 用 `quoted_total` 評估，取本次 `offer_token` 呼叫 `buy_merchant_batch`。例如最多花 90 就帶 `max_total=90`，成交後看實付和買進的 `items`，再看 `shop_update` 的附帶異動。 |
 | 單件採購 | 用 `request_supplier_quote` 帶本次 `visit` 和商品 `item_id`，取上櫃報價並核對原件已回到前櫃，再決定上限。可在 `trade_batch` 帶單筆買入。 |
 | 賣貨 | 帳面 `estimated_value` 用於估值，實際上櫃看 `quote.price`。用 `sell_order` 的 `lines` 設逐件底價，如 `[{"item_id": 42, "min_price": 18}]`。想按整批合計底價成交時可帶 `bundle=True`。 |
 | 同客混合買賣 | 用 `trade_batch` 的 `orders`，每筆帶 `item_id`、`side` 和 `price_limit`。例如 `{"item_id": 63, "side": "buy", "price_limit": 25}` 是買入上限；`side="sell"` 時同欄位是最低售價。逐筆查成交結果。 |
-| 以物易物 | 先看各方案 `give`（店家付出）和 `receive`（店家取得）。用 `barter_offer(mode="select")` 選方案，按要求將付款物移到交易檯。重讀報價，帶新 `barter_token`、同一方案的 `option` 及 `payment_item_id` 接受。 |
+| 以物易物 | 遇 `barter_unsupported` 表示這位客人的原生交換流程尚未接入。可交換時先看各方案 `give`（店家付出）和 `receive`（店家取得）。用 `barter_offer(mode="select")` 選方案，按要求將付款物移到交易檯。重讀報價，帶新 `barter_token`、同一方案的 `option` 及 `payment_item_id` 接受。 |
 | 購買情報 | 先讀 `info_receipt`。決定購買時用 `pay_info_receipt` 帶當頁 `receipt_token` 和顯示的 `price`。核對現金及情報紙條。 |
 
 4. 成交後核對實收、實付、餘額、剩餘預算及各件去向。若回執列出 `identity_changed`，用新的身分和名稱記帳。用 `finish_customer` 帶該客人的 `visit` 送客。客人正在離場就等；`customer_left` 或 `customer_replaced` 表示原客已離開或換人，回執帶新客時從新 `visit` 和 `stage` 接手。
