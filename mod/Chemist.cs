@@ -23,18 +23,12 @@ namespace WhiteDragon.Ledger
         private static JObject LiquidSummary(GameItem item)
         {
             if (item==null) return null;
-            var parts=new List<KeyValuePair<Liquid,int>>();
-            foreach (var liquid in Liquid.Liquids)
-            {
-                if (string.IsNullOrEmpty(liquid?.currentPart)) continue;
-                int amount=item.GetTagReadonly(liquid.currentPart).GetInt();
-                if (amount>0) parts.Add(new KeyValuePair<Liquid,int>(liquid,amount));
-            }
+            var parts=LiquidParts.Read(item);
             long total=parts.Sum(p=>(long)p.Value);
             var summary=new JObject { ["total_ul"]=total, ["total_ml"]=Math.Round(total/1000.0,3) };
             if (parts.Count>0)
             {
-                var main=parts.OrderByDescending(p=>p.Value).First();
+                var main=parts[0];
                 summary["primary_id"]=main.Key.identifier;
                 summary["primary_name"]=main.Key.displayName;
                 summary["primary_ul"]=main.Value;
