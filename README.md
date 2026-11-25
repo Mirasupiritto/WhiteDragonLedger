@@ -1,14 +1,60 @@
 # 白龍店帳 · White Dragon Ledger
 
-白龍店帳讓你和 AI 助手一起經營《深空當鋪》（Probably Stolen）。你可以請它接一位客人、替一批貨設買入上限，也可以把整天的店務交給它。助手透過本機 MCP 讀取遊戲提供的台詞、交易平板和庫存。遇到通緝照、可疑包裝或需要看外觀鑑定的物品，再由你幫忙認。
+**0.30.0 · 適用遊戲版本：0.46D · Windows · MIT License**
 
-**0.30.0 · Windows · 適用遊戲版本 0.46D · MIT**
+白龍店帳是一套為《深空當鋪》（Probably Stolen）打造的本機 Mod + stdio MCP 橋接工具，讓 **AI 智能體直接作為店主／玩家遊玩整款遊戲**。你不必一步步代操作，可以坐在旁邊看畫面、一起討論吐槽，只在需要「人眼看圖」或「手動點 UI」時搭把手。
 
-助手支援本機 stdio MCP 即可使用，Computer Use 為選配。
+---
 
-## 安裝與第一次連線
+## 核心亮點
 
-需要已安裝的遊戲、Windows、.NET SDK、Python 3.11 以上，以及支援 stdio 的 MCP 宿主。在倉庫根目錄開啟 PowerShell，將 `$game` 改成自己的 Steam 安裝路徑。下例把編譯產物和 Python 環境放在倉庫旁邊。
+- **本機 SQLite 帳本：一次建置基準，多次增量查詢**
+  讀檔時由 Mod 盤點一次庫存並同步進本機 SQLite（預設位於 `%LOCALAPPDATA%/WhiteDragonLedger/account.sqlite3`），後續透過 `cursor` 追蹤增量變動（`shop_update`），純讀取子模式不重複附帶庫存快照。交易票據、歷史異動、垃圾桶與已通知的加熱紀錄皆持久化在 SQLite，大幅降低上下文負擔與 token 消耗，斷線重連也能安全續接。
+- **不依賴 Computer Use 與圖像識別，換取高快取命中率**
+  雖然現在多數智能體都已具備圖像識別能力，但頻繁截圖與圖片輸入會迅速消耗上下文、顯著拉低 Prompt Cache（提示詞快取）命中率。白龍店帳刻意走**純結構化資料路線**——對智能體來說，就像攤開一本條理清楚的對摺帳本與店務表格在玩遊戲，能穩定長程連跑十幾天。
+- **完整店務覆蓋（78 個 MCP 工具）**
+  涵蓋開新局（專精／特性／難度）、接客與自動等候門鈴冷卻、議價分組預覽、單件／整批／混合買賣、走私暗格直賣直搬、海報隱藏格開關、批次裝水淨化、化學蒸發後段自動化與純度把關（`chem_finish`）、背景加熱控溫（`control_heat`）、電話人脈與派系聲望、過夜帳單與夜間外出拾荒。
+- **版本防呆與防重複交易**
+  編譯 DLL 時自動嵌入 git commit，MCP 啟動時與本機倉庫比對，不一致即在 `get_scene` 附 `version_mismatch` 警告（不阻擋操作）；寫入型交易具確定性 `command_id` 與重播保護，避免網路抖動重複下單。
+
+---
+
+## 使用前須知與目前限制
+
+- **智能體看不到遊戲畫面（歡迎 Fork 二次開發）**
+  為了維持高快取率與低上下文成本，本工具**不截圖、不傳畫面**。所有依賴視覺判斷的情境都需要旁邊看畫面的人協助：
+  - 僅姓名相符時的通緝照比對（`wanted_name_match`）
+  - 改造體外觀鑑別與開槍自衛（異常瞳孔、詭異表情、外露晶片等）
+  - 可疑包裝驗偽、未鑑定針劑、純圖片圖鑑或需看外觀估價的物品（`player_visual_check`、`image_only_guide`）
+  - 少數未接入工具的 UI 操作（難度頁按「開始遊戲」、關閉手動開出的面板）
+  > 如果你覺得「看不到畫面」的限制較大，或想結合截圖／Computer Use，歡迎直接 **Fork 本倉庫進行二次開發**。
+- **不同智能體的能力與專注度差異**
+  實測上不同模型的表現差異明顯：有的非常專注嚴謹，有的則比較發散隨性、幻覺較高，容易「想當然」忽略限制（例如忘記先過濾就蒸發、沒看暗格外違禁品就叫治安部）。
+  **強烈建議遊玩時載入 [AGENTS.md](AGENTS.md)**，或將其封裝為 Skill／寫入系統提示詞，明確約束工具用法與檢查習慣，能顯著降低失誤與腦補。
+- **尚未實作的系統**
+  櫃檯自衛開槍工具目前處於研究階段（見 [docs/augs-research.md](docs/augs-research.md)），尚未開放給 MCP 操作。
+
+---
+
+## 安裝與配置
+
+### 環境需求
+
+- Windows 10 / 11
+- 已安裝《深空當鋪》（Probably Stolen，適用版本 **0.46D**）
+- [.NET SDK](https://dotnet.microsoft.com/)（編譯 Mod DLL 用）
+- Python **3.11 以上**
+- 支援本機 **stdio MCP** 的智能體宿主（如 Claude Code、Codex、Antigravity 、Deepseek Harness 等）
+
+### 方式一：直接交給編程智能體幫你安裝（推薦）
+
+如果你手邊已有具終端權限的編程智能體，可以直接把倉庫交給它下載、編譯、建環境並寫入設定，例如：
+
+> 請幫我 clone `https://github.com/Mirasupiritto/WhiteDragonLedger.git`，照 `README.md` 的步驟把編譯產物和 Python venv 建在倉庫外的 `WhiteDragonLedger-products` 資料夾。我的遊戲安裝路徑是 `E:/SteamLibrary/steamapps/common/Probably Stolen`，建完後把 `white_dragon_ledger` 複製到遊戲的 `Mods` 資料夾，並幫我配好 stdio MCP 服務 `white-dragon-ledger`。
+
+### 方式二：手動安裝與配置
+
+在倉庫根目錄開啟 PowerShell，將 `$game` 改為自己的 Steam 遊戲路徑（編譯產物與 Python 虛擬環境會放在倉庫外的 `WhiteDragonLedger-products`，避免污染倉庫）：
 
 ```powershell
 $game = 'E:/SteamLibrary/steamapps/common/Probably Stolen'
@@ -19,9 +65,9 @@ $python = "$work/venv/Scripts/python.exe"
 & $python -m pip --cache-dir "$work/pip-cache" install -r requirements.txt
 ```
 
-1. 將 `$work/build/white_dragon_ledger` 資料夾複製到遊戲的 `Mods` 裡。確認 `Mods/white_dragon_ledger/` 直接包含 `manifest.xml` 和 `WhiteDragonLedger.dll`。
-2. 啟動遊戲，啟用「白龍店帳 · White Dragon Ledger」。要接手舊店就載入存檔，要配新角色就從主選單點「新遊戲」。升級模組後請重啟遊戲再讀檔。
-3. 在 MCP 宿主新增 stdio 服務。以下為採用 `mcpServers` 格式的設定範例，請替換兩個絕對路徑。其他宿主使用相同的命令和參數。
+1. **安裝 Mod**：將 `$work/build/white_dragon_ledger` 資料夾複製到 `<遊戲目錄>/Mods/` 下，確認 `Mods/white_dragon_ledger/` 內直接包含 `manifest.xml` 與 `WhiteDragonLedger.dll`。
+2. **啟用 Mod**：啟動遊戲，在模組選單啟用「白龍店帳 · White Dragon Ledger」並授權。升級 DLL 後需重啟遊戲再讀檔。
+3. **設定 stdio MCP**：在你的 MCP 宿主設定檔加入以下項目（替換成實際的絕對路徑）：
 
 ```json
 {
@@ -34,38 +80,29 @@ $python = "$work/venv/Scripts/python.exe"
 }
 ```
 
-第一次連線先呼叫 `get_scene()`。看到 `location=pawnshop` 和預期的 `slot` 後，用 `get_shop_status()` 查店況。SQLite 預設路徑是 `%LOCALAPPDATA%/WhiteDragonLedger/account.sqlite3`；服務參數 `--database` 可指定帳本，`--journal` 可指定遊戲觀察目錄。
+> 可選參數：`--database <路徑>` 指定 SQLite 帳本位置；`--journal <路徑>` 指定遊戲 `ModData/white_dragon_ledger` 目錄。
 
-## 第一次讓助手接手
+4. **驗證連線**：載入存檔（或停在新遊戲專精頁）後，讓智能體呼叫 `get_scene()`；確認 `location=pawnshop`、無 `version_mismatch` 後，再呼叫 `get_shop_updates()` 建立基準與 `get_shop_status()` 查看店況即可開玩。
 
-**已經有店**，先載入想玩的存檔，再告訴助手停在哪一步。例如：
+---
 
-> 先不開門。看一下我在哪個欄位、手上多少現金、下次哪天交租，再找找昨晚帶回來的零件。
+## 開始讓智能體玩
 
-讀檔時模組會盤點一次，把庫存記進本機 SQLite 帳本。之後搬貨、增減數量會更新帳本。換一個助手接班時，可以讓它先核對存檔和未完交易。
+- **接手既有存檔**：載入存檔後直接交給智能體即可，例如：「這局交給你經營，先看看店況跟手頭庫存，今天打算怎麼開局？」
+- **從頭開新局**：在主選單點「新遊戲」停在專精頁，讓智能體自己看 [專精](docs/specializations.md)、[特性](docs/starting-perks.md)、[難度](docs/difficulties.md) 挑路線；選完難度卡後由你按「開始遊戲」進店。
+- **一起討論或設節奏**：平時可以讓它自由營業、加工、拾荒，也可以隨時插話吐槽，或交代「這客送完先停一下」「今天先別睡，我們討論一下要不要買這批貨」。
 
-**想開新店**，在主選單點「新遊戲」，停在專精頁就能交給助手。請它比較起始設備與玩法、挑特性、說說為什麼選這個難度。到難度頁選好後，由你按「開始遊戲」。想先自己比較，可以看[專精](docs/specializations.md)、[特性](docs/starting-perks.md)和[難度](docs/difficulties.md)。
+---
 
-## 想讓助手做什麼？
+## 文件導覽
 
-| 你可以這樣說 | 助手會用到的資訊 |
-|---|---|
-| 「等商人說完，問濾水器實際賣多少。最多花 25。」 | 貨單估值、上櫃後的實際報價、你的買入上限，以及成交後實付多少。 |
-| 「按平板配貨。這位想要種類多樣，每種只拿一件。」 | 平板列出的需求、限制和剩餘預算，以及這位客人已買過的物品種類。 |
-| 「找找我自己的槍械零件，連腰包裡的也算。告訴我去哪拿。」 | 物品編號、數量、整個包所在的貨區、從外到內的包名和格位。若貨在展示櫃的腰包裡，助手會先辨認包和格位，要出貨時再取出。 |
-| 「幫我看加熱板上的容器，維持 45 到 50 °C 一分鐘，這段時間繼續接客。」 | 容器、溫度與機台等級。啟動後由模組控溫，到時關火；固定火力機型可能短暫超過設定溫區。 |
-| 「打電話給喬，看人情和現金各要付多少，選好先別買。」 | 人脈網路的服務、所選項目的價格和餘額。歇業時可以打電話。 |
-| 「打烊後帶腰包去拾荒，裝好找到的東西就回店，先別睡。」 | 背包容量、目的地、當地可搜的物品及返店位置。返店後可以接著查包裡的貨。 |
+- [AGENTS.md](AGENTS.md)：給智能體讀的完整操作手冊（遊玩定位、工具規則與目視求助邊界）
+- [docs/specializations.md](docs/specializations.md) · [docs/starting-perks.md](docs/starting-perks.md) · [docs/difficulties.md](docs/difficulties.md)：開局專精、特性與難度參考
+- [docs/augs-research.md](docs/augs-research.md)：改造體危機與櫃檯自衛原生機制研究
+- [docs/native-api.md](docs/native-api.md) · [docs/acceptance.md](docs/acceptance.md)：開發用原生 API 索引與實機驗收表
 
-## 店裡常用的操作
-
-- **收貨與整理**可以一次把空櫃檯後方的多件自有貨收回庫存，也能對同一容器批次存取。主庫存有空格卻放不下大件時，請助手整理一次，再看最大的連續空位。「MCP 主庫存整理」預設為 `auto`，偵測到支援的整理模組時會讓該模組接手。
-- **文件與物品**可以請助手讀報紙、採購單、便條或多頁手冊。只有圖的頁面由你看。刮刮卡可以指定只刮左、中、右其中一格，助手只報揭開的符號。
-- **機台與耗材**可以先請助手查看當前機台的槽位、按鈕與讀值，再決定是否操作。例如查淨水器裡是哪一瓶和剩多少電、核對全店試紙數量，或先看成型機能產出什麼。
-- **睡前與隔天早晨**可以請助手核對房租、垃圾與夜間服務費，再決定是否睡覺。隔天可讀夜報，查看傷勢、警告和昨晚的費用。
-
-想知道助手怎麼對單、查包、操作機台或從中斷處接手，可看[助手操作指南](AGENTS.md)。開發用的資料另見[原生 API 索引](docs/native-api.md)與[驗收表](docs/acceptance.md)。
+---
 
 ## 來源與授權
 
-用 MCP 操作當鋪的構想受 Yideng 與貢獻者的 *Probably Stolen MCP Bridge* 啟發。白龍店帳依店務需求及本機遊戲介面獨立撰寫，建置時引用玩家已安裝的遊戲程序集。原始碼與文件採用 [MIT License](LICENSE)。
+用 MCP 操作當鋪的構想受 Yideng 與貢獻者的 *Probably Stolen MCP Bridge* 啟發。白龍店帳依店務需求與本機遊戲介面獨立撰寫，建置時引用玩家已安裝的遊戲程序集。原始碼與文件採用 [MIT License](LICENSE)。
