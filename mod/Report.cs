@@ -8,6 +8,9 @@ namespace WhiteDragon.Ledger
         private readonly CommandMailbox reportMailbox = new CommandMailbox();
         private string reportGeneration, reportedVisit, reportStatus;
         private int cashAtReport;
+        // Bumped on every native alarm press, so a token read after an interception differs from the
+        // first one even when the published revision and the light stay the same.
+        private int reportPresses;
         private StoreClient reportCustomer;
         private bool sawGuard, augSequence;
         private readonly JArray reportLines = new JArray();
@@ -77,7 +80,7 @@ namespace WhiteDragon.Ledger
             bool present = store.IsClientPresent();
             bool reported = present && customer.reported;
             bool light = ReportLight(present,present && button.IsClientArrestable(),store.isClientBeingArrested,reported,store.isHandlingShootout);
-            string token = generation + "/" + sequence + "/" + visit + "/" + light;
+            string token = generation + "/" + sequence + "/" + visit + "/" + light + "/" + reportPresses;
             if (read)
             {
                 receipt["light"] = light;
@@ -99,6 +102,7 @@ namespace WhiteDragon.Ledger
             cashAtReport = store.playerCash;
             lastReportDialogue = DialogUIManager.Instance?.GetCurrentDialog();
             button.OnClick();
+            reportPresses++;
             reportedVisit = visit;
             reportGeneration = generation;
             reportLines.Clear();

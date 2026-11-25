@@ -115,6 +115,28 @@ class CounterFlow(unittest.TestCase):
         self.view = dict(status="observed", phase="OPEN", generation=self.generation,
                          revision=2, visit=self.visit)
 
+    @patch("counter.read_command_receipt")
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_report_after_interception_needs_the_new_token(self, context, exchange, read):
+        # Day 14 playtest: revision stayed at 53 from the interception until the guest left.
+        context.return_value = dict(self.view, revision=53, report_protocol=1)
+        first = f"{self.generation}/53/{self.visit}/True/0"
+        intercepted = counter.deterministic_id("white-dragon/counter/", dict(
+            action="report_client", generation=self.generation, revision=53,
+            mode="report", visit=self.visit, report_token=first))
+        read.side_effect = lambda folder, token, *_: (
+            {"status": "report_intercepted", "command_id": token} if token == intercepted else None)
+        again = counter.command(self.folder, "report_client", self.generation, 53,
+                                mode="report", visit=self.visit, report_token=first)
+        self.assertEqual((again["status"], again.get("replayed")), ("report_intercepted", True))
+        exchange.assert_not_called()
+        exchange.return_value = {"status": "reported"}
+        fresh = counter.command(self.folder, "report_client", self.generation, 53,
+                                mode="report", visit=self.visit, report_token=f"{self.generation}/53/{self.visit}/True/1")
+        self.assertEqual(fresh["status"], "reported")
+        exchange.assert_called_once()
+
     @patch("counter.exchange")
     @patch("counter.context")
     def test_network_load_gate_and_closed_shop_phone_visit(self, context, exchange):

@@ -61,6 +61,7 @@ namespace WhiteDragon.Ledger
             var receipt=new JObject();
             Expect(ReportAction(req,receipt)=="observed","read alarm");
             req["report_token"]=receipt["report_token"];
+            var firstToken=(string)receipt["report_token"];
             req["mode"]="report";
             merchant.tryInterceptReport=()=>true;
             receipt=new JObject();
@@ -80,7 +81,13 @@ namespace WhiteDragon.Ledger
                 (bool)receipt["intercepted_before"] && receipt["report_token"]!=null &&
                 receipt["choice_hint"]!=null,
                 "after interception speech ends, read returns fresh light and token");
+            // The published revision did not move (day 14, Arthur Lafleur stayed at revision 53), so the
+            // token itself must change or the MCP's deterministic command ID replays the intercepted receipt.
+            Expect((int)receipt["revision"]==(int)req["revision"] && (string)receipt["report_token"]!=firstToken,
+                "token changes after an interception at the same revision");
             req["mode"]="report";
+            req["report_token"]=firstToken;
+            Expect(ReportAction(req,new JObject())=="stale_observation","pre-interception token cannot press again");
             req["report_token"]=receipt["report_token"];
             Expect(ReportAction(req,new JObject())=="reported","second report after interception succeeds");
             var guard=StoreUIManager.Instance.secGameObject.gameObject;
