@@ -89,18 +89,28 @@ def tool_region(scene):
 
 
 def repository_commit():
+    root = Path(__file__).resolve().parents[1]
     try:
-        result = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=Path(__file__).resolve().parent,
-                                capture_output=True, text=True, check=True, timeout=3)
+        result = subprocess.run(
+            ["git", "-C", str(root), "log", "-1", "--format=%h", "--", "mod", "scripts/build.ps1"],
+            capture_output=True, text=True, check=True, timeout=3,
+        )
     except (OSError, subprocess.SubprocessError):
         return None
-    return result.stdout.strip()
+    commit = result.stdout.strip()
+    return commit or None
 
 
 def scene_version(scene, commit):
+    if not commit:
+        return scene
     dll = scene.get("dll_commit")
-    if dll and commit and dll != commit:
-        return {**scene, "version_mismatch":{"dll":dll,"mcp":commit}}
+    if dll:
+        if dll != commit:
+            return {**scene, "version_mismatch": {"dll": dll, "mcp": commit}}
+        return scene
+    if scene.get("status") == "ready":
+        return {**scene, "version_mismatch": {"dll": None, "mcp": commit, "reason": "dll_without_commit"}}
     return scene
 
 

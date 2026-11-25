@@ -79,35 +79,10 @@ class SectionCache:
 
 
 class ServerState:
-    """Per-connection server state with generation-scoped heat deduplication."""
+    """Per-connection server state."""
 
     def __init__(self):
         self.lock = threading.RLock()
         self.section_cache = SectionCache()
         self.updates = None
         self.last_emitted_items = {}
-        self._heat_generation = None
-        self._heat_seen = set()
-
-    def is_finished_heat_seen(self, folder, generation, heat):
-        if not isinstance(heat, dict) or heat.get("status") == "running":
-            return False
-        with self.lock:
-            if generation != self._heat_generation:
-                self._heat_seen.clear()
-                self._heat_generation = generation
-            key = (str(folder), generation, heat.get("run_id"), heat.get("status"))
-            if key in self._heat_seen:
-                return True
-            self._heat_seen.add(key)
-            return False
-
-    def filter_finished_heat(self, folder, result):
-        if not isinstance(result, dict):
-            return result
-        heat = result.get("heat")
-        if self.is_finished_heat_seen(folder, result.get("generation"), heat):
-            filtered = dict(result)
-            filtered.pop("heat", None)
-            return filtered
-        return result

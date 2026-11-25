@@ -50,6 +50,23 @@ class TradeTools(unittest.TestCase):
         group, = trade_tools.group_bargain_options(options)
         self.assertEqual((group["percents"],group["buy_factor"],group["reputation_buy"]),([10,25],[0.9,0.75],[-0.5,-1.5]))
 
+    def test_group_bargain_missing_fields_falls_back_per_type(self):
+        buying = [dict(type="BuyingDiscount", percent=p, uses_roll=True, crime=False, reputation_faction="FACTION_LOWER_LEVEL",
+                       leave_chance=leave, success_chance=success, offer_price_factors=dict(buy=buy, sell=1),
+                       reputation_multipliers=dict(buy=rep, sell=1)) for p, leave, success, buy, rep in
+                  [(10, 0, 95, 0.9, -0.5), (25, 15, 65, 0.75, -1.5)]]
+        selling_incomplete = dict(
+            type="SellingMarkup", percent=15, uses_roll=True, crime=False, reputation_faction="FACTION_LOWER_LEVEL",
+            leave_chance=5, success_chance=80, reputation_multipliers=dict(buy=1, sell=-0.5),
+        )
+        grouped = trade_tools.group_bargain_options([*buying, selling_incomplete])
+        self.assertEqual(len(grouped), 2)
+        self.assertEqual(grouped[0]["type"], "BuyingDiscount")
+        self.assertEqual(grouped[0]["percents"], [10, 25])
+        self.assertEqual(grouped[1]["type"], "SellingMarkup")
+        self.assertIs(grouped[1]["grouped"], False)
+        self.assertEqual(grouped[1]["percent"], 15)
+
     def test_background_heat_returns_only_transitions_at_same_revision(self):
         updates = trade_tools.Updates(self.folder, self.db)
         updates.report()

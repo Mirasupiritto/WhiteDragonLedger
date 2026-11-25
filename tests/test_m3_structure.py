@@ -15,7 +15,6 @@ import journey
 import pawnshop_tools
 import scene
 import scene_server
-from server_state import ServerState
 import stock_query
 
 
@@ -89,7 +88,6 @@ class M3StructureTests(unittest.IsolatedAsyncioTestCase):
             "extra": 1,
         })
 
-        state = ServerState()
         view = {
             "status": "observed",
             "generation": gen,
@@ -97,14 +95,16 @@ class M3StructureTests(unittest.IsolatedAsyncioTestCase):
             "reception": {"token": "rt-1"},
             "heat": {"run_id": "r1", "status": "finished"},
         }
-        first = present_counter(view, folder=Path("."), heat_state=state,
-                                summarize_offer=lambda x, verbose=False: x, strip=True)
-        self.assertEqual(first["reception_token"], "rt-1")
-        self.assertNotIn("some_protocol", first)
-        self.assertIn("heat", first)
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            db = Path(temp) / "ledger.sqlite"
+            first = present_counter(view, folder=Path("."), database=db,
+                                    summarize_offer=lambda x, verbose=False: x, strip=True)
+            self.assertEqual(first["reception_token"], "rt-1")
+            self.assertNotIn("some_protocol", first)
+            self.assertIn("heat", first)
 
-        second = present_counter(view, folder=Path("."), heat_state=state,
-                                 summarize_offer=lambda x, verbose=False: x, strip=True)
-        self.assertNotIn("heat", second)
+            second = present_counter(view, folder=Path("."), database=db,
+                                     summarize_offer=lambda x, verbose=False: x, strip=True)
+            self.assertNotIn("heat", second)
 
         self.assertEqual(stock_query.search_text("ABC"), "abc")

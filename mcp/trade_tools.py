@@ -57,19 +57,44 @@ def context(view):
     return result
 
 
+def _has_group_fields(opt):
+    factors = opt.get("offer_price_factors")
+    rep = opt.get("reputation_multipliers")
+    return (
+        isinstance(opt, dict)
+        and opt.get("type") is not None
+        and "percent" in opt
+        and "leave_chance" in opt
+        and "success_chance" in opt
+        and isinstance(factors, dict) and "buy" in factors and "sell" in factors
+        and isinstance(rep, dict) and "buy" in rep and "sell" in rep
+    )
+
+
 def group_bargain_options(options):
-    groups = {}
+    by_type = {}
     for opt in options:
-        group = groups.setdefault(opt["type"], {k:opt[k] for k in ("type","uses_roll","crime","reputation_faction")})
-        for key, value in (("percents", opt["percent"]), ("leave_chance", opt["leave_chance"]),
-                           ("success_chance", opt["success_chance"]), ("buy_factor", opt["offer_price_factors"]["buy"]),
-                           ("sell_factor", opt["offer_price_factors"]["sell"]), ("reputation_buy", opt["reputation_multipliers"]["buy"]),
-                           ("reputation_sell", opt["reputation_multipliers"]["sell"])):
-            group.setdefault(key, []).append(value)
-        for key in ("budget_cut_percent","budget_increase_percent"):
-            if key in opt:
-                group.setdefault(key, []).append(opt[key])
-    return list(groups.values())
+        by_type.setdefault(opt.get("type"), []).append(opt)
+    result = []
+    for bucket in by_type.values():
+        if not all(_has_group_fields(opt) for opt in bucket):
+            result.extend({**opt, "grouped": False} for opt in bucket)
+            continue
+        first = bucket[0]
+        group = {k: first.get(k) for k in ("type", "uses_roll", "crime", "reputation_faction")}
+        for opt in bucket:
+            factors = opt.get("offer_price_factors") or {}
+            rep = opt.get("reputation_multipliers") or {}
+            for key, value in (("percents", opt.get("percent")), ("leave_chance", opt.get("leave_chance")),
+                               ("success_chance", opt.get("success_chance")), ("buy_factor", factors.get("buy")),
+                               ("sell_factor", factors.get("sell")), ("reputation_buy", rep.get("buy")),
+                               ("reputation_sell", rep.get("sell"))):
+                group.setdefault(key, []).append(value)
+            for key in ("budget_cut_percent", "budget_increase_percent"):
+                if key in opt:
+                    group.setdefault(key, []).append(opt[key])
+        result.append(group)
+    return result
 
 
 def summarize_offer(payload, *, verbose=False):
@@ -238,7 +263,6 @@ class Updates:
 def register(server, folder, database):
     state = getattr(server, "state", None)
     tracker = Updates(folder, database, state=state)
-    heat_state = state if state is not None else counter.default_state
     server.updates = tracker
     if state is not None:
         state.updates = tracker
@@ -292,7 +316,7 @@ def register(server, folder, database):
         if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
             counter.wait_choices_ready(folder, ctx)
             ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
-        return present_counter(ctx, folder=folder, database=database, heat_state=heat_state,
+        return present_counter(ctx, folder=folder, database=database,
                                summarize_offer=summarize_offer, verbose=verbose)
 
     @server.tool()

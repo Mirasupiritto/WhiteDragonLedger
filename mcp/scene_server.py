@@ -101,7 +101,7 @@ def _slim_shop_update(tool_name, result, update, arguments=None, last_emitted=No
         if last_emitted is not None:
             last_emitted.clear()
         fields = update.get("fields") or {}
-        return {
+        summary = {
             "status": update["status"],
             "mode": "baseline_summary",
             "reason": "cursor_reset",
@@ -115,6 +115,9 @@ def _slim_shop_update(tool_name, result, update, arguments=None, last_emitted=No
             "phase": fields.get("phase"),
             "next_tool": "get_shop_updates",
         }
+        if "heat" in fields:
+            summary["heat"] = fields["heat"]
+        return summary
     if update.get("mode") != "delta" or not isinstance(result, dict):
         if last_emitted is not None and update.get("mode") == "baseline":
             last_emitted.clear()

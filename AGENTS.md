@@ -15,7 +15,7 @@
 
 ## 接手店面與查帳
 
-- 用 `get_scene` 核對場景與存檔欄位。若附 `version_mismatch`（`dll` 與 `mcp` commit 不同），工具仍可執行，但應提醒玩家更新或重載以免欄位不一致。若回 `tool_status="unavailable_in_scene"`，確認目前畫面及轉場進度；若回 `tool_status="game_over"`，僅剩 `get_scene` 與離線帳本工具可用。
+- 用 `get_scene` 核對場景與存檔欄位。若附 `version_mismatch`（`dll` 與 `mcp` commit 不同，或舊版 DLL 未帶 `dll_commit` 而附 `reason="dll_without_commit"`），工具仍可執行，但應提醒玩家更新或重載以免欄位不一致。若回 `tool_status="unavailable_in_scene"`，確認目前畫面及轉場進度；若回 `tool_status="game_over"`，僅剩 `get_scene` 與離線帳本工具可用。
 - 當鋪內先讀一次 `get_shop_updates` 建立庫存基準並記下 `cursor`，之後寫入型操作回執會附 `shop_update` 變動（純讀取子模式如 `item_menu(read/targets)`、`item_panel(read)`、`water_use(preview)`、`water_panel(read)`、`control_heat(status)`、`inspect_item_window(open_if_closed=False)`、`inspect_archive(read)` 不會重複附帶；`report_client(read)` 僅在 `arrest_finished` 時補附）。重連可帶 `since=cursor`；重新讀檔後以新的 `generation` 和當局物品編號為準。遇 `cursor_reset` 時，`shop_update` 只回件數、現金與日數摘要，需要完整基準時再呼叫 `get_shop_updates`。
 - 用 `get_shop_status` 看日數、營業、房租、垃圾、夜間服務、傷勢與店鋪狀況。店況、`get_counter` 或 `query_inventory` 會省略未變動的日曆、垃圾與睡眠欄位，要看完整資訊就帶 `verbose=True`。用 `query_inventory` 依名稱、位置和所有權找貨，`find_stock` 依原生分類、種類、限制和瓶貼配貨，`get_stock_items` 查一批當局物品編號。
 - 用 `get_shop_ledger(slot=目前欄位)` 接手舊局。帶 `inventory=True` 可讀該欄位最後入帳的庫存，即使遊戲已關閉。實際出貨以前用遊戲當前位置與所有權核對。

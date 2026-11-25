@@ -15,13 +15,12 @@ __all__ = ["SaleLine", "register_pawnshop_tools"]
 
 def register_pawnshop_tools(server, folder, database):
     state = getattr(server, "state", None)
-    heat_state = state if state is not None else counter.default_state
     section_cache = state.section_cache if state is not None else (getattr(server, "section_cache", None) or shop_day.SectionCache())
     server.section_cache = section_cache
 
     trade_tools.register(server, folder, database)
     shop_day.register_day_tools(server, folder, database, section_cache=section_cache)
-    counter_tools.register(server, folder, database, heat_state=heat_state, section_cache=section_cache)
+    counter_tools.register(server, folder, database, section_cache=section_cache)
     stock_tools.register(server, folder, database, section_cache=section_cache)
     workstation_tools.register(server, folder)
     water_tools.register(server, folder)
