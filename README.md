@@ -97,6 +97,7 @@ $python = "$work/venv/Scripts/python.exe"
 ## 文件導覽
 
 - [AGENTS.md](AGENTS.md)：給智能體讀的完整操作手冊（遊玩定位、工具規則與目視求助邊界）
+- [skills/probably-stolen/SKILL.md](skills/probably-stolen/SKILL.md)：內附的《深空當鋪》遊戲攻略 Skill 與 Wiki 參考資料（職業特性、議價定價、機台合成、違禁品與事件等）
 - [docs/specializations.md](docs/specializations.md) · [docs/starting-perks.md](docs/starting-perks.md) · [docs/difficulties.md](docs/difficulties.md)：開局專精、特性與難度參考
 - [docs/augs-research.md](docs/augs-research.md)：改造體危機與櫃檯自衛原生機制研究
 - [docs/native-api.md](docs/native-api.md) · [docs/acceptance.md](docs/acceptance.md)：開發用原生 API 索引與實機驗收表
