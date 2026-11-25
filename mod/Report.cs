@@ -8,6 +8,9 @@ namespace WhiteDragon.Ledger
         private readonly CommandMailbox reportMailbox = new CommandMailbox();
         private string reportGeneration, reportedVisit, reportStatus;
         private int cashAtReport;
+        // Bumped on every native alarm press, so a token read after an interception differs from the
+        // first one even when the published revision and the light stay the same.
+        private int reportPresses;
         private StoreClient reportCustomer;
         private bool sawGuard, augSequence;
         private readonly JArray reportLines = new JArray();
@@ -64,9 +67,12 @@ namespace WhiteDragon.Ledger
             bool read = (string)request["mode"] == "read";
             if (read && visit != null && visit == reportedVisit && reportGeneration == generation)
             {
-                receipt["next_tool"] = ReportNextTool();
-                if (completedReport != null) receipt.Merge(completedReport);
-                return reportStatus;
+                if (!(reportStatus == "report_intercepted" && CounterStage() != "speaking"))
+                {
+                    receipt["next_tool"] = ReportNextTool();
+                    if (completedReport != null) receipt.Merge(completedReport);
+                    return reportStatus;
+                }
             }
             if (visit != visitId || (!read && visit == null)) return VisitMismatchStatus(receipt);
             if (button == null) return "report_unavailable";
@@ -74,7 +80,7 @@ namespace WhiteDragon.Ledger
             bool present = store.IsClientPresent();
             bool reported = present && customer.reported;
             bool light = ReportLight(present,present && button.IsClientArrestable(),store.isClientBeingArrested,reported,store.isHandlingShootout);
-            string token = generation + "/" + sequence + "/" + visit + "/" + light;
+            string token = generation + "/" + sequence + "/" + visit + "/" + light + "/" + reportPresses;
             if (read)
             {
                 receipt["light"] = light;
@@ -82,6 +88,11 @@ namespace WhiteDragon.Ledger
                 receipt["tooltip"] = button.GetTooltip();
                 receipt["requires_hold"] = button.ShouldRequireHold();
                 receipt["report_token"] = token;
+                if (reportStatus == "report_intercepted" && visit == reportedVisit && reportGeneration == generation)
+                {
+                    receipt["intercepted_before"] = true;
+                    receipt["choice_hint"] = "再按一次即舉報；送客即放走";
+                }
                 return "observed";
             }
             if ((string)request["mode"] != "report") return "invalid_mode";
@@ -91,6 +102,7 @@ namespace WhiteDragon.Ledger
             cashAtReport = store.playerCash;
             lastReportDialogue = DialogUIManager.Instance?.GetCurrentDialog();
             button.OnClick();
+            reportPresses++;
             reportedVisit = visit;
             reportGeneration = generation;
             reportLines.Clear();

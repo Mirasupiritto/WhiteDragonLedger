@@ -115,6 +115,28 @@ class CounterFlow(unittest.TestCase):
         self.view = dict(status="observed", phase="OPEN", generation=self.generation,
                          revision=2, visit=self.visit)
 
+    @patch("counter.read_command_receipt")
+    @patch("counter.exchange")
+    @patch("counter.context")
+    def test_report_after_interception_needs_the_new_token(self, context, exchange, read):
+        # Day 14 playtest: revision stayed at 53 from the interception until the guest left.
+        context.return_value = dict(self.view, revision=53, report_protocol=1)
+        first = f"{self.generation}/53/{self.visit}/True/0"
+        intercepted = counter.deterministic_id("white-dragon/counter/", dict(
+            action="report_client", generation=self.generation, revision=53,
+            mode="report", visit=self.visit, report_token=first))
+        read.side_effect = lambda folder, token, *_: (
+            {"status": "report_intercepted", "command_id": token} if token == intercepted else None)
+        again = counter.command(self.folder, "report_client", self.generation, 53,
+                                mode="report", visit=self.visit, report_token=first)
+        self.assertEqual((again["status"], again.get("replayed")), ("report_intercepted", True))
+        exchange.assert_not_called()
+        exchange.return_value = {"status": "reported"}
+        fresh = counter.command(self.folder, "report_client", self.generation, 53,
+                                mode="report", visit=self.visit, report_token=f"{self.generation}/53/{self.visit}/True/1")
+        self.assertEqual(fresh["status"], "reported")
+        exchange.assert_called_once()
+
     @patch("counter.exchange")
     @patch("counter.context")
     def test_network_load_gate_and_closed_shop_phone_visit(self, context, exchange):
@@ -480,6 +502,18 @@ class CounterFlow(unittest.TestCase):
             with (patch("counter.context", side_effect=[leaving, dict(leaving, stage="idle", waiting=1)]),
                   patch("counter.ring", return_value={"status":"called","visit":self.visit}) as ring):
                 self.assertEqual(call("next_customer")["status"], "called")
+                ring.assert_called_once()
+            cooldown = dict(self.view, stage="idle", visit=None, waiting=6,
+                            reception={"waiting": 6, "can_ring": False, "can_close_shop": False, "can_dismiss": False})
+            ringable = dict(cooldown, reception={"waiting": 6, "can_ring": True, "can_close_shop": True, "can_dismiss": False})
+            with (patch("counter.context", side_effect=[leaving, cooldown, ringable]),
+                  patch("counter.ring", return_value={"status": "called", "visit": self.visit}) as ring):
+                self.assertEqual(call("next_customer")["status"], "called")
+                ring.assert_called_once()
+            empty_cooldown = dict(cooldown, waiting=0, reception={"waiting": 0, "can_ring": False})
+            with (patch("counter.context", return_value=empty_cooldown),
+                  patch("counter.ring", return_value={"status": "bell_unavailable"}) as ring):
+                self.assertEqual(call("next_customer")["status"], "bell_unavailable")
                 ring.assert_called_once()
             heated = dict(leaving, heat={"run_id":"344261ba","status":"stopped"})
             with patch("counter.context",return_value=heated), patch("counter.ring",return_value=heated):

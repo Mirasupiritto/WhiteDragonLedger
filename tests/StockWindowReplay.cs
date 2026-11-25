@@ -320,6 +320,67 @@ namespace WhiteDragon.Ledger
             panel["mode"]="notice_close"; panel["panel_token"]=reply["panel_token"];
             Expect(WaterPanelAction(panel,reply)=="notice_closed" && notice.clicks==clicks+1 &&
                 WaterPanelAction(panel,reply)=="panel_changed","one notice acknowledgement");
+
+            // O5: visitor_gift contraband arrival vs trade purchase
+            phase = "OPEN";
+            store.storeState = PlayerStore.StoreState.OPEN;
+            store.isClientArrived = true;
+            store.currentClientInstance = new StoreClientInstance();
+            store.currentClientInstance.client.identifier = "cartelHandlerWeekly";
+            store.currentClientInstance.client.displayName = "卡特爾接頭人";
+            var gift1 = new GameItem { identifier = "dreamshroom", owned = true, unitCount = 3 };
+            gift1.waterTags.Add(TypeHelper.CONTRABAND);
+            gift1.To(shop.invElement);
+            ObservePhoneArrival(gift1, shop.invElement, null);
+            var giftUpsert = new JArray(new JObject { ["id"] = LocalId(gift1), ["owned"] = true });
+            var giftRec = new JObject();
+            AttachPhoneArrivals(giftRec, giftUpsert);
+            Expect(giftRec["arrivals"] != null &&
+                (string)giftRec["arrivals"][0]["source"] == "visitor_gift" &&
+                (string)giftRec["arrivals"][0]["contact"] == "卡特爾接頭人" &&
+                (int)giftRec["contraband_outside_bay"] == 3,
+                "visitor_gift contraband arrival attaches arrivals and contraband_outside_bay");
+            var tradeItem = new GameItem { identifier = "dreamshroom", owned = true, unitCount = 1 };
+            received.Add(tradeItem);
+            ObservePhoneArrival(tradeItem, shop.invElement, null);
+            var tradeRec = new JObject();
+            AttachPhoneArrivals(tradeRec, new JArray(new JObject { ["id"] = LocalId(tradeItem), ["owned"] = true }));
+            Expect(tradeRec["arrivals"] == null, "trade-received item is not tagged as visitor_gift");
+            received.Remove(tradeItem);
+
+            // O6: hidden grid move & inspection_exposure
+            phase = "CLOSED";
+            store.storeState = PlayerStore.StoreState.CLOSED;
+            if (!areas.ContainsKey(shop.hiddenElement)) areas[shop.hiddenElement] = "hidden";
+            var hiddenItem = Item(63501, "dreamshroom", 5);
+            hiddenItem.unitCount = 2;
+            hiddenItem.waterTags.Add(TypeHelper.CONTRABAND);
+            hiddenItem.To(shop.invElement);
+            StorePoster.Instance.isPulled = false;
+            var hiddenReq = new JObject {
+                ["generation"] = generation,
+                ["expires_ms"] = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds(),
+                ["item_id"] = LocalId(hiddenItem),
+                ["command_id"] = "hidden_move",
+                ["source"] = "inventory",
+                ["destination"] = "hidden",
+                ["revision"] = sequence,
+            };
+            var downRes = ExecuteMove(hiddenReq);
+            Expect((string)downRes["status"] == "transfer_blocked" && (string)downRes["reason"] == "poster_down",
+                "hidden move blocked when poster is down");
+            StorePoster.Instance.isPulled = true;
+            hiddenReq["revision"] = sequence;
+            var upRes = ExecuteMove(hiddenReq);
+            Expect((string)upRes["status"] == "moved" && (string)upRes["actual_area"] == "hidden",
+                "hidden move succeeds when poster is pulled");
+            Expect((int)ContrabandCounts(true, true)["hidden_grid_exposed"] == 2,
+                "inspection_exposure counts hidden_grid_exposed when poster is pulled");
+            StorePoster.Instance.isPulled = false;
+            Expect((int)ContrabandCounts(true, true)["hidden_grid_exposed"] == 0,
+                "inspection_exposure excludes hidden_grid_exposed when poster is down");
+            Expect((bool)SecurityView()["poster"]["pulled"] == false, "security.poster.pulled reflects poster state");
+
             Console.WriteLine("Stock replay passed: counter staging, nested ownership, furnace roles, power, fermentation and notices.");
         }
     }

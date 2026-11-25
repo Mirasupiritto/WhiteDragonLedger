@@ -26,8 +26,8 @@
 ## 一位客人從進門到離店
 
 1. 到約定的營業時間，用 `open_shop` 開門，`next_customer` 會等前一位離場、叫鈴並等開場與平板打開（共用最多 20 秒上限，逾時回 `opening_timeout` 或 `customer_departing`），同時自動關閉工具開出的物品面板（玩家手動開啟的面板會回 `item_panel_open` 與 `after_close_next_tool`）。客人已在場時，沿用回執的 `visit` 和 `stage`。
-2. 若有 `poster_match` 且 `arrested=false`，預設舉報。若 `get_shop_status` 的 `security.contraband` 顯示走私艙外有違禁品、對方給過名片或屬劇情人物，或玩家交代過不要報，先停下問玩家。舉報前先結清或取消交易並收回留貨，用 `feedback_box` 記下聲望，再讀 `report_client` 的燈號，以本次憑證舉報。用原 `visit` 重讀至 `arrest_finished`，核對台詞、現金與聲望變化並記入日報。只有 `wanted_name_match` 時請玩家比對通緝照；遇 `story_branch` 請玩家依選項決定，`consequence="unknown"` 表示後果未確認。需要細讀開場、選項或平板時，用 `get_trade_context`；大貨單帶 `verbose=True` 取逐項明細，賣水客的 `seller_water` 只列 `count` 與 `ids`（明細看 `offer.items`），客人說話中（`stage="speaking"`）會保留上次需求並標 `stale_during_speech=True`。對話用目前的 `page` 和回執提供的選項 ID；台詞要求把貨放到櫃檯上時，先用 `move_items` 把貨放上 `back`，核對 `counter_request.table_items` 的件數和種類，再選選項；若標示 `forced_choice: true`，先看後果，再按本局安排處理。
-3. 盤查選項若帶 `inspection_exposure`，先看暗格外的自有貨物件數。`client_role="buyer_seller"` 表示同時買貨與賣貨，買水客自帶空瓶時也要看需求。按平板顯示的需求、限制及剩餘預算配貨。買家沒有顯示標籤時仍要看限制，例如 `exclude_contraband`。用 `find_stock(owned=True, ...)` 找合條件的貨。遇「種類多樣」，按 `kind_groups` **每個原生 `kind` 只放一件**，同一位客人買過的種類先收起來。查 `WATER` 會含空容器，配水選 `contains_water=true`（水占比至少一半）。`water_ml` 是實際水量，`liquid_main` 顯示主成分。
+2. 若有 `poster_match` 且 `arrested=false`，預設舉報。若 `get_shop_status` 的 `security.contraband` 顯示走私艙外有違禁品、對方給過名片或屬劇情人物，或玩家交代過不要報，先停下問玩家。舉報前先結清或取消交易並收回留貨，用 `feedback_box` 記下聲望，再讀 `report_client` 的燈號，以本次憑證舉報。若回 `report_intercepted`，用 `get_trade_context` 等攔截台詞結束後，再重讀 `report_client(mode="read")` 取得新憑證與 `choice_hint`，由玩家或依約定決定要再按一次舉報還是送客放走；舉報成功則用原 `visit` 重讀至 `arrest_finished`，核對台詞、現金與聲望變化並記入日報。只有 `wanted_name_match` 時請玩家比對通緝照；遇 `story_branch` 請玩家依選項決定，`consequence="unknown"` 表示後果未確認。需要細讀開場、選項或平板時，用 `get_trade_context`；大貨單帶 `verbose=True` 取逐項明細，賣水客的 `seller_water` 只列 `count` 與 `ids`（明細看 `offer.items`），客人說話中（`stage="speaking"`）會保留上次需求並標 `stale_during_speech=True`。對話用目前的 `page` 和回執提供的選項 ID；台詞要求把貨放到櫃檯上時，先用 `move_items` 把貨放上 `back`，核對 `counter_request.table_items` 的件數和種類，再選選項；若標示 `forced_choice: true`，先看後果，再按本局安排處理。
+3. 盤查選項若帶 `inspection_exposure`，先看暗格外的自有貨物件數；若 `get_shop_status` 的 `security.poster.pulled` 為 `true`（海報拉起），提醒玩家在盤查前放下海報以藏好隱藏格物品。`client_role="buyer_seller"` 表示同時買貨與賣貨，買水客自帶空瓶時也要看需求。按平板顯示的需求、限制及剩餘預算配貨。買家沒有顯示標籤時仍要看限制，例如 `exclude_contraband`。用 `find_stock(owned=True, ...)` 找合條件的貨。遇「種類多樣」，按 `kind_groups` **每個原生 `kind` 只放一件**，同一位客人買過的種類先收起來。查 `WATER` 會含空容器，配水選 `contains_water=true`（水占比至少一半）。`water_ml` 是實際水量，`liquid_main` 顯示主成分。
 4. 按當次交易類型下單，並以實際回執核算成本與庫存。
 
 | 交易 | 操作與核對 |
@@ -74,7 +74,7 @@
 
 睡前核對 `health` 與 `alerts`。哨兵距上次注射滿 6 天時警告，滿 7 天起累積傷害，池值達 20 會死亡。成癮的交易懲罰與戒斷進度以目前讀值為準。勒索者第 8 天起每 7 天來收費，用當頁對話選項決定。需要攝取或注射時，讀 `usable_items` 的物品編號，再以 `item_menu` 的 `activate` 消耗；未鑑定的針劑請玩家辨識。
 
-用 `get_shop_status(verbose=True)` 查看證據、違禁品分區件數、通緝名單和 `last_save`。過夜後遊戲先進入次日早晨才存檔。
+用 `get_shop_status(verbose=True)` 查看證據、違禁品分區件數、海報狀態（`poster.pulled`）、通緝名單和 `last_save`（`security.evidence_display` 在打烊後等時段可能依遊戲原生顯示「不適用」）。過夜後遊戲先進入次日早晨才存檔。
 
 - 打烊前看剩餘客數及檯上留貨，用目前的 `reception_token` 呼叫 `close_shop`。若需要提前打烊，按回執核對剩餘客數和玩家交代，再以 `confirm_remaining` 確認。歇業後可以留店收貨、外出或睡覺。
 - 要過夜時，用當天 `bill_token` 呼叫 `prepare_sleep` 查帳單；需要時用 `night_service` 調整服務。沿用最新憑證和帳單的 `service_cost` 呼叫 `sleep`。回 `awaiting_report` 時等當晚報告，改查店況及日數確認進度。收到報告，核對租金、垃圾、服務費、餘額與 `alerts`，並留意下次到期日、傷勢及保險。若通緝警示關係到來客身分，交給玩家鑑定。

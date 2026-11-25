@@ -34,7 +34,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
             ("purifier", "inventory"), ("inventory", "purifier"), ("showcase", "purifier")
         }:
             raise ValueError("Expected a stock area and a purifier slot")
-    elif {source, destination} != {"inventory", "showcase"}:
+    elif {source, destination} not in ({"inventory", "showcase"}, {"inventory", "hidden"}):
         raise ValueError("Expected two different stock areas")
     if item_id < 1 or revision < 1:
         raise ValueError("Expected a positive item ID, revision and two different stock areas")
@@ -78,7 +78,9 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         return {"status": "reload_updated_mod", "command_id": command}
     if counter_move and not idle_clear and not (verify_location and destination in {"inventory", "showcase"}) and head["phase"] != "OPEN":
         return {"status":"shop_closed", "command_id":command}
-    if {source, destination} != {"inventory", "showcase"} and not counter_move and not verify_location and destination != "purifier" and head["phase"] not in ("CLOSED", "MORNING"):
+    if {source, destination} not in ({"inventory", "showcase"}, {"inventory", "hidden"}) and not counter_move and not verify_location and destination != "purifier" and head["phase"] not in ("CLOSED", "MORNING"):
+        return {"status": "shop_open", "command_id": command}
+    if {source, destination} == {"inventory", "hidden"} and head["phase"] != "CLOSED":
         return {"status": "shop_open", "command_id": command}
     return submit_command(folder, "move", generation, request, read_receipt=read_receipt, previous_command=previous_command, transport=exchange)
 
@@ -87,6 +89,8 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
     """Execute one ordered plan. An identical plan reuses its native receipts."""
     if source in {"front", "back"} and destination != "inventory":
         raise ValueError("A batch from the counter can only go to inventory")
+    if destination == "back" and not visit:
+        return {"status": "invalid_route", "reason": "visit_required", "source": source, "destination": destination}
     if not item_ids or any(item_id < 1 for item_id in item_ids):
         raise ValueError("Expected a nonempty list of positive item IDs")
     if len(set(item_ids)) != len(item_ids):

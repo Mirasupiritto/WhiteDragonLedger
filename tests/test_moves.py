@@ -297,6 +297,20 @@ class MoveMailbox(unittest.TestCase):
         self.assertEqual(res["already_count"], 2)
         self.assertEqual([r["status"] for r in res["items"]], ["already_in_destination", "already_in_destination"])
 
+    def test_move_items_to_back_requires_visit_and_stages_batch(self):
+        missing = move_items(self.folder, [25, 26, 27], "inventory", "back", self.generation, 2)
+        self.assertEqual((missing["status"], missing["reason"]), ("invalid_route", "visit_required"))
+
+        self.head.update(revision=2, counter_move_protocol=1, phase="OPEN")
+        self.publish_head()
+        visit = "c" * 32
+        moved = lambda rev: dict(status="moved", actual_area="back", revision=rev, load_scans=1, full_scans=1, phase="OPEN", slot=4)
+        with patch("moves.move_item", side_effect=[moved(3), moved(4), moved(5)]) as call:
+            res = move_items(self.folder, [25, 26, 27], "inventory", "back", self.generation, 2, visit=visit)
+        self.assertEqual((res["status"], res["moved_count"]), ("moved", 3))
+        self.assertEqual([r["actual_area"] for r in res["items"]], ["back", "back", "back"])
+        self.assertEqual(call.call_count, 3)
+
 
 if __name__ == "__main__":
     unittest.main()

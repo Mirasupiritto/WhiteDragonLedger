@@ -105,6 +105,11 @@ namespace WhiteDragon.Ledger {
         }
         public GameItem trashcan;
     }
+    public class StorePoster
+    {
+        public static StorePoster Instance = new StorePoster();
+        public bool isPulled;
+    }
     public class ItemCondition { public string identifier, display; }
     public partial class ItemFeature {
         public ItemCondition label;
