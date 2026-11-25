@@ -60,11 +60,12 @@ namespace WhiteDragon.Ledger
             int id = (int)request["item_id"];
             string source = (string)request["source"], destination = (string)request["destination"];
             bool stockMove=(source=="inventory" && destination=="showcase") || (source=="showcase" && destination=="inventory");
+            bool hiddenMove=(source=="inventory" && destination=="hidden") || (source=="hidden" && destination=="inventory");
             if (stockMove && request["visit"]!=null && (string)request["visit"]!=visitId)
                 return Receipt(request, visitId==null ? "customer_left" : "customer_replaced");
             itemsById.TryGetValue(id, out var item);
-            bool validArea = source == "inventory" || source == "showcase" || source == "front" || source == "back";
-            bool allowAlreadyAtDest = destination == "inventory" || destination == "showcase" ||
+            bool validArea = source == "inventory" || source == "showcase" || source == "front" || source == "back" || source == "hidden";
+            bool allowAlreadyAtDest = destination == "inventory" || destination == "showcase" || destination == "hidden" ||
                 (destination == "back" && request["visit"] != null && (string)request["visit"] == visitId);
             if (validArea && allowAlreadyAtDest && source != destination && (int)request["revision"] <= sequence &&
                 item?.parentInventory != null &&
@@ -92,12 +93,22 @@ namespace WhiteDragon.Ledger
             }
             if (phase != "CLOSED" && phase != "MORNING")
             {
-                if (!stockMove || phase!="OPEN") return Receipt(request,"shop_open");
+                if (hiddenMove || !stockMove || phase!="OPEN") return Receipt(request,"shop_open");
                 var entry=EmporiumEntry.Instance;
                 if (!entry.showcaseWindow.IsVisible() || !entry.invWindow.IsVisible() || Interactable.isPaused)
                 {
                     var blocked=Receipt(request,"transfer_blocked");
                     blocked["reason"]=Interactable.isPaused ? "paused" : "stock_window_hidden";
+                    return blocked;
+                }
+            }
+            if (hiddenMove)
+            {
+                if (phase != "CLOSED") return Receipt(request, "shop_open");
+                if (StorePoster.Instance == null || !StorePoster.Instance.isPulled)
+                {
+                    var blocked = Receipt(request, "transfer_blocked");
+                    blocked["reason"] = "poster_down";
                     return blocked;
                 }
             }
@@ -133,8 +144,9 @@ namespace WhiteDragon.Ledger
             }
             else
             {
-                if (source == destination || (source != "inventory" && source != "showcase") ||
-                    (destination != "inventory" && destination != "showcase"))
+                if (source == destination ||
+                    (!hiddenMove && ((source != "inventory" && source != "showcase") ||
+                    (destination != "inventory" && destination != "showcase"))))
                     return Receipt(request, "invalid_route");
                 if (!areas.TryGetValue(item.parentInventory, out var actual) || actual != source)
                     return Receipt(request, "source_changed");
@@ -142,14 +154,16 @@ namespace WhiteDragon.Ledger
             if (!GeneralHelper.IsItemOwned(item)) return Receipt(request, "not_owned");
             var shop = EmporiumEntry.Instance;
             GameInventory target = loading ? (GameInventory)container :
+                destination == "hidden" ? shop.hiddenElement :
                 destination == "showcase" ? shop.showcaseElement : shop.invElement;
             if (item.parentInventory.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove())
                 return Receipt(request, "locked");
 
-            if (destination == "showcase" && !GraphUtils.CanAccept(target, item))
+            if ((destination == "showcase" || destination == "hidden") && !GraphUtils.CanAccept(target, item))
             {
-                var full = Receipt(request, "showcase_full");
-                full["reason"] = "showcase_full";
+                string fullCode = destination == "showcase" ? "showcase_full" : "no_space";
+                var full = Receipt(request, fullCode);
+                full["reason"] = destination == "showcase" ? "showcase_full" : "hidden_full";
                 full["actual_area"] = source;
                 AttachSpaceFailure(item, target, full);
                 return full;
@@ -166,10 +180,10 @@ namespace WhiteDragon.Ledger
 
             // The native placement routine enforces available space and slot rules.
             int quantityBefore = item.unitCount;
-            if (loading)
+            if (loading || destination == "hidden")
             {
-                if (!GraphUtils.CanAccept(container, item)) return Receipt(request, "slot_rejected");
-                GraphUtils.TryAcceptOnce(container, item);
+                if (!GraphUtils.CanAccept(container ?? target, item)) return Receipt(request, loading ? "slot_rejected" : "no_space");
+                GraphUtils.TryAcceptOnce(container ?? target, item);
             }
             else if (destination == "showcase") ModHelper.MoveItemToDisplayCase(item);
             else ModHelper.MoveItemToInventory(item);

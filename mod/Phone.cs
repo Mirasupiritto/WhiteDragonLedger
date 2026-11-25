@@ -14,60 +14,79 @@ namespace WhiteDragon.Ledger
 
         // PhoneDialogList queues these suppliers. Their dialogue puts these specific
         // goods directly on the front counter; free samples are already player-owned.
-        private readonly Dictionary<GameItem,string> phoneArrivals=new Dictionary<GameItem,string>();
-        private void ObservePhoneArrival(GameItem item,GameInventory inventory,SlotMarker marker)
+        private readonly Dictionary<GameItem, (string source, string contact)> phoneArrivals =
+            new Dictionary<GameItem, (string source, string contact)>();
+
+        private bool IsTradeSettledItem(GameItem item) =>
+            order != null || completedOrder != null || staged != null || stagedBundle.Count > 0 ||
+            item == observedSale || received.Contains(item);
+
+        private void ObservePhoneArrival(GameItem item, GameInventory inventory, SlotMarker marker)
         {
-            if (item==null || ids.ContainsKey(item)) return;
-            var client=PlayerStore.Instance.currentClientInstance?.GetClientBlueprint();
-            long number;
-            switch (client?.identifier)
+            if (item == null || ids.ContainsKey(item)) return;
+            var store = PlayerStore.Instance;
+            var shop = EmporiumEntry.Instance;
+            var client = store.currentClientInstance?.GetClientBlueprint();
+            if (inventory == shop?.frontInvinvElement)
             {
-                case "courrierChem": case "courrierChemFree":
-                    if (item.identifier!="dream_dust") return;
-                    number=StorePhoneClient.CHEM_NUMBER; break;
-                case "courrierMining": case "courrierMiningFree":
-                    if (item.identifier!="common_ore") return;
-                    number=StorePhoneClient.MINING_NUMBER; break;
-                case "courrierPharma": case "courrierPharmaFree":
-                    if (item.identifier!="pink_injector") return;
-                    number=StorePhoneClient.PHARMA_NUMBER; break;
-                case "courrierRedImp": case "courrierRedImpFree":
-                    if (item.identifier!="beerCase") return;
-                    number=StorePhoneClient.RED_IMP_REP_NUMBER; break;
-                default: return;
+                long number = 0;
+                switch (client?.identifier)
+                {
+                    case "courrierChem": case "courrierChemFree":
+                        if (item.identifier == "dream_dust") number = StorePhoneClient.CHEM_NUMBER;
+                        break;
+                    case "courrierMining": case "courrierMiningFree":
+                        if (item.identifier == "common_ore") number = StorePhoneClient.MINING_NUMBER;
+                        break;
+                    case "courrierPharma": case "courrierPharmaFree":
+                        if (item.identifier == "pink_injector") number = StorePhoneClient.PHARMA_NUMBER;
+                        break;
+                    case "courrierRedImp": case "courrierRedImpFree":
+                        if (item.identifier == "beerCase") number = StorePhoneClient.RED_IMP_REP_NUMBER;
+                        break;
+                }
+                if (number != 0)
+                {
+                    phoneArrivals[item] = ("phone_delivery", store.PhoneClientDict.TryGetValue(number, out var contact)
+                        ? contact.GetLocalizedDisplayName() : null);
+                    return;
+                }
             }
-            phoneArrivals[item]=PlayerStore.Instance.PhoneClientDict.TryGetValue(number,out var contact)
-                ? contact.GetLocalizedDisplayName() : null;
+            if ((inventory == shop?.invElement || inventory == shop?.frontInvinvElement) &&
+                store.IsClientPresent() && client != null && GeneralHelper.IsItemOwned(item) && !IsTradeSettledItem(item))
+            {
+                phoneArrivals[item] = ("visitor_gift", string.IsNullOrEmpty(client.displayName) ? null : client.displayName);
+            }
         }
 
-        private void AttachPhoneArrivals(JObject record,JArray upsert)
+        private void AttachPhoneArrivals(JObject record, JArray upsert)
         {
-            if (phoneArrivals.Count==0) return;
-            var contacts=phoneArrivals.ToLookup(entry=>entry.Value,entry=>entry.Key);
-            int outside=0;
-            var arrivals=new JArray();
-            foreach (var contact in contacts)
+            if (phoneArrivals.Count == 0) return;
+            var groups = phoneArrivals.ToLookup(entry => entry.Value, entry => entry.Key);
+            int outside = 0;
+            var arrivals = new JArray();
+            foreach (var group in groups)
             {
-                var delivered=new JArray();
-                foreach (var item in contact)
+                var delivered = new JArray();
+                foreach (var item in group)
                 {
-                    if (!ids.TryGetValue(item,out var id)) continue;
-                    var row=upsert.FirstOrDefault(r=>(int)r["id"]==id);
-                    if (row==null) continue;
+                    if (!ids.TryGetValue(item, out var id)) continue;
+                    var row = upsert.FirstOrDefault(r => (int)r["id"] == id);
+                    if (row == null) continue;
                     delivered.Add(id);
                     if ((bool)row["owned"] && ContrabandHelper.IsContraband(item) &&
-                        !((JArray)row["container_path"] ?? new JArray()).Any(bag=>
-                            itemsById.TryGetValue((int)bag["id"],out var parent) && ContrabandHelper.IsSmugglerBay(parent)))
-                        outside+=item.unitCount;
+                        !((JArray)row["container_path"] ?? new JArray()).Any(bag =>
+                            itemsById.TryGetValue((int)bag["id"], out var parent) && ContrabandHelper.IsSmugglerBay(parent)))
+                        outside += item.unitCount;
                 }
-                if (delivered.Count==0) continue;
-                var arrival=new JObject { ["ids"]=delivered, ["source"]="phone_delivery" };
-                if (contact.Key!=null) arrival["contact"]=contact.Key;
+                if (delivered.Count == 0) continue;
+                var arrival = new JObject { ["ids"] = delivered, ["source"] = group.Key.source };
+                if (group.Key.contact != null) arrival["contact"] = group.Key.contact;
                 arrivals.Add(arrival);
             }
             phoneArrivals.Clear();
-            if (arrivals.Count>0) record["arrivals"]=arrivals;
-            if (outside>0) record["contraband_outside_bay"]=outside;
+            if (arrivals.Count > 0) record["arrivals"] = arrivals;
+            if (outside > 0) record["contraband_outside_bay"] = outside;
         }
 
         private static long CardNumber(string kind)

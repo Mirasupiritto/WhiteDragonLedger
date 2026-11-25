@@ -70,10 +70,12 @@ namespace WhiteDragon.Ledger
             }
         }
 
-        private static JObject ContrabandCounts(bool includeCounter=false)
+        private static bool IsPosterPulled() => StorePoster.Instance != null && StorePoster.Instance.isPulled;
+
+        private static JObject ContrabandCounts(bool includeCounter=false, bool forInspection=false)
         {
             var shop=EmporiumEntry.Instance;
-            var counts=new JObject { ["inventory"]=0, ["showcase"]=0, ["smuggler_bay"]=0 };
+            var counts=new JObject { ["inventory"]=0, ["showcase"]=0, ["smuggler_bay"]=0, ["hidden_grid"]=0 };
             void Count(GameInventory inventory,string area, bool ownedOnly=false)
             {
                 if (inventory==null) return;
@@ -93,19 +95,25 @@ namespace WhiteDragon.Ledger
             }
             Count(shop.invElement,"inventory");
             Count(shop.showcaseElement,"showcase");
+            Count(shop.hiddenElement,"hidden_grid");
             if (includeCounter)
             {
                 counts["on_counter"]=0;
                 Count(shop.frontInvinvElement,"on_counter",true);
                 Count(shop.backInvinvElement,"on_counter",true);
             }
+            if (forInspection)
+                counts["hidden_grid_exposed"]=IsPosterPulled() ? (int)counts["hidden_grid"] : 0;
             return counts;
         }
 
         private static JObject SecurityView()
         {
             var sec=PlayerStore.Instance.secData;
-            var result=new JObject { ["contraband"]=ContrabandCounts() };
+            var result=new JObject {
+                ["contraband"]=ContrabandCounts(),
+                ["poster"]=new JObject { ["pulled"]=IsPosterPulled() }
+            };
             if (sec!=null)
             {
                 result["evidence_level"]=sec.evidenceLevel;

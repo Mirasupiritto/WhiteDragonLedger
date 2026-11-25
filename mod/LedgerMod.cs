@@ -154,11 +154,10 @@ namespace WhiteDragon.Ledger
         private void Track(GameInventory area, string name)
         {
             areas.Add(area, name);
-            if (name == "front")
-            {
+            if (name == "front" || name == "inventory")
                 area.onSlotAddItemLateFunc += ObservePhoneArrival;
+            if (name == "front")
                 area.onSlotAddItemLateFunc += QueueFrontPaper;
-            }
             area.onSlotAddItemLateFunc += Changed;
             area.onSlotRemoveItemLateFunc += Changed;
             area.onSlotChangeAmountItemFunc += Changed;
@@ -207,6 +206,7 @@ namespace WhiteDragon.Ledger
             Track(shop.showcaseElement, "showcase");
             Track(shop.frontInvinvElement, "front");
             Track(shop.backInvinvElement, "back");
+            if (shop.hiddenElement != null) Track(shop.hiddenElement, "hidden");
             var rows = new JArray();
             var categoryNames = new JObject();
             foreach (string code in TypeHelper.ALL_TYPES_LIST)

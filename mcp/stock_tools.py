@@ -31,7 +31,7 @@ def register(server, folder, database, *, section_cache=None):
 
     @server.tool()
     def query_inventory(name: str | None = None,
-                        area: Literal["inventory", "showcase", "front", "back"] | None = None,
+                        area: Literal["inventory", "showcase", "front", "back", "hidden"] | None = None,
                         owned: bool | None = None,
                         verbose: bool = False) -> dict:
         """Query the most recently published inventory by literal name substring, area or owner.
@@ -60,7 +60,7 @@ def register(server, folder, database, *, section_cache=None):
     @server.tool()
     def find_stock(bottle_label: str | None = None, categories: list[str] | None = None,
                    exclude_categories: list[str] | None = None, owned: bool | None = None,
-                   area: Literal["inventory", "showcase", "front", "back", "purifier"] | None = None,
+                   area: Literal["inventory", "showcase", "front", "back", "purifier", "hidden"] | None = None,
                    exclude_contraband: bool = False, kinds: list[str] | None = None, exclude_kinds: list[str] | None = None) -> dict:
         """Pick stock by exact visible label, area, ownership and native item categories.
         Match any requested category or kind, then apply all exclusions. Searching category WATER also matches empty water containers categorized as HOUSEHOLD_GOOD and filled water containers with at least 50% water.
@@ -77,8 +77,8 @@ def register(server, folder, database, *, section_cache=None):
         return lookup(folder, database, stock_query=dict(item_ids=item_ids, generation=generation))
 
     @server.tool()
-    def move_item(item_id: int, source: Literal["inventory", "showcase", "front", "back"],
-                  destination: Literal["inventory", "showcase", "front", "back"], generation: str,
+    def move_item(item_id: int, source: Literal["inventory", "showcase", "front", "back", "hidden"],
+                  destination: Literal["inventory", "showcase", "front", "back", "hidden"], generation: str,
                   revision: int, command_id: str | None = None, visit: str | None = None) -> dict:
         """Pass item_id, source, destination, generation and revision. While closed, move owned stock between inventory and showcase. During trade pass the observed visit
         to stage items on the trade table (back), or return them (multiple owned items may be staged together
@@ -88,8 +88,8 @@ def register(server, folder, database, *, section_cache=None):
         return submit_move(folder, item_id, source, destination, generation, revision, command_id, visit=visit)
 
     @server.tool()
-    def move_items(item_ids: list[int], source: Literal["inventory", "showcase", "front", "back"],
-                   destination: Literal["inventory", "showcase", "back"], generation: str, revision: int, visit: str | None = None) -> dict:
+    def move_items(item_ids: list[int], source: Literal["inventory", "showcase", "front", "back", "hidden"],
+                   destination: Literal["inventory", "showcase", "back", "hidden"], generation: str, revision: int, visit: str | None = None) -> dict:
         """Move owned stock between visible inventory and showcase windows, including while open, stage owned goods onto the trade table (back) with visit (including dialogue choice_required/counter_request stages), or collect owned front/back items to inventory.
         Pass the current visit during any arrived customer visit without an active order (including ready, barter, seller-only or dialogue), or omit it at an empty counter (destination="back" always requires visit). Pass the generation and
         starting revision from query_inventory. When space is insufficient, returns no_space or showcase_full with item_size and target_capacity and skips that item into skipped_ids.
