@@ -109,6 +109,7 @@ namespace WhiteDragon.Ledger
                 {
                     var blocked = Receipt(request, "transfer_blocked");
                     blocked["reason"] = "poster_down";
+                    blocked["next_tool"] = "toggle_poster";
                     return blocked;
                 }
             }

@@ -367,19 +367,38 @@ namespace WhiteDragon.Ledger
                 ["revision"] = sequence,
             };
             var downRes = ExecuteMove(hiddenReq);
-            Expect((string)downRes["status"] == "transfer_blocked" && (string)downRes["reason"] == "poster_down",
+            Expect((string)downRes["status"] == "transfer_blocked" && (string)downRes["reason"] == "poster_down" &&
+                (string)downRes["next_tool"] == "toggle_poster",
                 "hidden move blocked when poster is down");
-            StorePoster.Instance.isPulled = true;
+            var posterUpReq = new JObject { ["action"] = "toggle_poster", ["mode"] = "up",
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue };
+            var posterUpRes = new JObject();
+            Expect(ActAtCounter(posterUpReq, posterUpRes) == "poster_up" && (bool)posterUpRes["poster"]["pulled"],
+                "toggle_poster pulls poster up");
             hiddenReq["revision"] = sequence;
             var upRes = ExecuteMove(hiddenReq);
             Expect((string)upRes["status"] == "moved" && (string)upRes["actual_area"] == "hidden",
                 "hidden move succeeds when poster is pulled");
             Expect((int)ContrabandCounts(true, true)["hidden_grid_exposed"] == 2,
                 "inspection_exposure counts hidden_grid_exposed when poster is pulled");
-            StorePoster.Instance.isPulled = false;
+            var posterDownReq = new JObject { ["action"] = "toggle_poster", ["mode"] = "down",
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue };
+            var posterDownRes = new JObject();
+            Expect(ActAtCounter(posterDownReq, posterDownRes) == "poster_down" && !(bool)posterDownRes["poster"]["pulled"] &&
+                (int)posterDownRes["hidden_grid"] == 2,
+                "toggle_poster pulls poster down and reports hidden_grid count");
             Expect((int)ContrabandCounts(true, true)["hidden_grid_exposed"] == 0,
                 "inspection_exposure excludes hidden_grid_exposed when poster is down");
             Expect((bool)SecurityView()["poster"]["pulled"] == false, "security.poster.pulled reflects poster state");
+            phase = "OPEN";
+            store.storeState = PlayerStore.StoreState.OPEN;
+            store.currentClientInstance = new StoreClientInstance();
+            posterUpReq["revision"] = sequence;
+            var openPosterRes = new JObject();
+            Expect(ActAtCounter(posterUpReq, openPosterRes) == "poster_unavailable" &&
+                (string)openPosterRes["reason"] == "customer_present",
+                "toggle_poster refuses when open with customer present");
+            store.currentClientInstance = null;
 
             Console.WriteLine("Stock replay passed: counter staging, nested ownership, furnace roles, power, fermentation and notices.");
         }

@@ -35,6 +35,7 @@ TOOL_MUTATION_RULES = {
     "finish_customer": True,
     "fill_and_purify_bottles": True,
     "sort_inventory": True,
+    "toggle_poster": True,
     "item_menu": lambda args: args.get("mode", "read") not in {"read", "targets"},
     "item_panel": lambda args: args.get("mode", "read") != "read",
     "reopen_trade_tablet": True,

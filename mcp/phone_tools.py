@@ -1,6 +1,8 @@
 """Phone directory, keypad, dialing, and call menu tools."""
+import time
 from typing import Literal
 
+from command_transport import poll
 import counter
 import shopdesk
 
@@ -26,8 +28,41 @@ def register(server, folder):
 
     @server.tool()
     def choose_phone_service(choice_id: int, generation: str, revision: int, phone_token: str) -> dict:
-        """Click one enabled choice from the current phone menu. May place an order or change service."""
-        return counter.command(folder, "phone_choice", generation, revision, phone_token=phone_token, choice_id=choice_id)
+        """Click one enabled choice from the current phone menu. Waits briefly for the phone state to settle after selection. May place an order or change service."""
+        result = counter.command(folder, "phone_choice", generation, revision, phone_token=phone_token, choice_id=choice_id)
+        if result.get("status") != "choice_submitted":
+            return result
+        initial_line = result.get("line")
+        initial_connected = result.get("connected_to")
+
+        def settled():
+            ctx = counter.phone_context(folder)
+            if ctx.get("status") != "observed":
+                return ctx
+            if not ctx.get("panel_open") or ctx.get("choices") or ctx.get("line") != initial_line:
+                return ctx
+            return None
+
+        ctx, timed_out = poll(settled, timeout=2.0, interval=0.1, sleep=time.sleep)
+        if not timed_out and isinstance(ctx, dict) and ctx.get("status") == "observed":
+            for key in ("phone_token", "panel_open", "display", "status_text", "connected_to", "line", "can_advance", "choices"):
+                if key in ctx:
+                    result[key] = ctx[key]
+                elif key in result and not ctx.get("panel_open") and key in {"connected_to", "line", "can_advance", "choices"}:
+                    result.pop(key, None)
+            if not ctx.get("panel_open") and "choices" not in ctx:
+                result["choices"] = []
+            contact_name = ctx.get("connected_to") or initial_connected
+            if contact_name and isinstance(ctx.get("contacts"), list):
+                match = next((c for c in ctx["contacts"] if c.get("name") == contact_name), None)
+                if match is not None:
+                    result["contact_state"] = match.get("state")
+                    result["cooldown_days"] = match.get("cooldown_days")
+        label = result.get("selected_label") or ""
+        if result.get("panel_open") and ("结束通话" in label or "結束通話" in label or "end" in label.lower()):
+            result["next_tool"] = "phone_keypad"
+            result["next_action"] = "mode=close"
+        return result
 
     @server.tool()
     def advance_phone_dialogue(generation: str, revision: int, phone_token: str) -> dict:

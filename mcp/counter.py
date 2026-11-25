@@ -229,6 +229,7 @@ ACTION_SPECS: dict[str, ActionSpec] = {
         retry_statuses=frozenset({"inventory_sort_disabled", "external_sorter_active", "sort_unavailable"}),
         retry_namespace="white-dragon/retry-sort/",
     ),
+    "toggle_poster": ActionSpec(requires_open=False, protocol="poster_protocol"),
     "open_shop": ActionSpec(requires_open=False, check=_check_open_shop),
     "water_use": ActionSpec(requires_open=False, protocol="water_use_protocol"),
     "water_panel": ActionSpec(requires_open=False, check=_check_water_panel),

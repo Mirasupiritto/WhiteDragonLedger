@@ -103,6 +103,12 @@ def register(server, folder, database, *, section_cache=None):
         return counter.command(folder, "sort_inventory", generation, revision)
 
     @server.tool()
+    def toggle_poster(mode: Literal["up", "down"], generation: str, revision: int) -> dict:
+        """Pull the store poster up or down to access or conceal the 2x2 hidden grid behind it.
+        Refuses with reason="customer_present" when the shop is open and a customer is present."""
+        return counter.command(folder, "toggle_poster", generation, revision, mode=mode)
+
+    @server.tool()
     def query_purchase_lots(supplier: str | None = None, product: str | None = None, lot_id: str | None = None) -> dict:
         """Look up wholesale lots by seller, product or exact lot ID. Report paid, recovered and stock.
         Gross profit is shown only for fully sold lots with a confirmed payment."""

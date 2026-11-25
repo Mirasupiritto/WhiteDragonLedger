@@ -51,7 +51,7 @@
 - 用 `item_menu(mode="read")` 看物品的原生右鍵選項。帶上一個 `menu_token` 可看變動；過期或已用的 token 會回 `stale_menu_token` 並附新 token 供直接重試。工具能作用於多件候選貨時，用 `mode="targets"` 和 `target_ids` 先試配預覽。選定後用 `mode="choose"`、`verb="use"` 與 `target_id`。用化學光譜儀掃描會直接回 `scan` 並自動關閉工具開出的面板（`panel_closed=True`）。
 - 用物品**自己的當局編號**作為 `inspect_item_window` 的 `owner_id`，需開窗時帶 `open_if_closed=True`。讀 `window.document`、槽位容量、可見控制項及 `window_token`。例如先讀化學手冊的可讀頁，按實驗設備當頁標明的配方放料，先核對容器是否到位，再操作。從同一槽批次存取用 `transfer_slot_items`，指定回執的 `control` 和 `window_token`。從槽取出帶 `source="slot"`，放入帶實際來源 `inventory` 或 `showcase`，逐件檢查實到數量。
 - 按鈕、單選與分頁用 `press_machine_button`，換頁帶當頁給出的標題與從 0 起算的 `tab_index`。滑桿用 `adjust_machine_control` 傳 `values=[數值]`，範圍滑桿傳 `[下限, 上限]`，再讀遊戲實際套用的值。化學成型機的輸出按鈕支援 `quantity` 1 至 64，對照 `produced` 和停止原因取貨。
-- 化學蒸發後段可用 `chem_finish` 串接：從蒸發器取出容器、用光譜儀確認沒有水或酒精殘留、放進成型機、在 `chemical_finisher` 面板依 `recipe_id` 選配方、批次輸出、收回庫存並抽檢純度與分級（`purity`、`grade`），有指定 `stash_ids` 或 `stash_count` 時再放進走私暗格；中途任一步失敗即停下並回報容器位置。蒸發器視窗也會回報電池電量、容器液量主成分與 `distillate_capture` 條件。
+- 化學蒸發後段可用 `chem_finish` 串接：從蒸發器取出容器（或於成型機內接續）、用光譜儀確認沒有水或酒精殘留（可帶 `min_purity` 先把關估計純度）、放進成型機、在 `chemical_finisher` 面板依 `recipe_id` 或名稱選配方、批次輸出、收回庫存並抽檢純度與分級（`purity`、`grade`），有指定 `stash_ids` 或 `stash_count` 時再放進走私暗格；中途任一步失敗即停下並回報容器位置。萃取後蒸發前務必先過濾：使用帶 `FILTER_CONTAINER_TAG` 的承接容器（例如水罐），先放入濾材（滤水器或韧棉织物），再用 `water_use` 把溶液倒進去。水罐為 3×4，用完記得從成型機或蒸發器取出，避免卡住庫存空間與下次的輸入槽。蒸發器視窗也會回報電池電量、容器液量主成分與 `distillate_capture` 條件。
 - 回執指向 `item_panel` 時先讀第二層面板。用當頁 `panel_token` 和啟用的 `control` 操作，結果和新 token 見 `after`。遇 `select_panel` 就從 `panels` 選名稱，以 `panel` 指定要讀哪一張，再依可用控制聚焦或關閉。遇 `dedicated_panel` 看 `next`。若掃描後需回同一位客人的交易平板，用 `reopen_trade_tablet` 帶當次 `visit`。
 - 水務可用 `inspect_purifiers` 查瓶貼、電力及微型淨水器耐久。用 `water_use` 裝水時以容器為 `source_id`、`"faucet"` 為 `target_id`；手持淨水器則以機器為來源、瓶子為目標。裝水、淨化、試紙可用 `apply_now`，排水、倒水、藥片與口糧先 `preview` 再 `apply`；多瓶空瓶一次裝水並用手持淨水器淨化可用 `fill_and_purify_bottles`，遇提示、沒電或關水龍頭即停下。試紙與藥片須先從容器取出單件。
 - 自有刮刮樂用 `scratch_card` 讀取、開啟、`reveal`（位置 1–3）或 `reveal_all` 一次刮開，刮完關閉面板再換下一張。
@@ -74,7 +74,7 @@
 
 睡前核對 `health` 與 `alerts`。哨兵距上次注射滿 6 天時警告，滿 7 天起累積傷害，池值達 20 會死亡。成癮的交易懲罰與戒斷進度以目前讀值為準。勒索者第 8 天起每 7 天來收費，用當頁對話選項決定。需要攝取或注射時，讀 `usable_items` 的物品編號，再以 `item_menu` 的 `activate` 消耗；未鑑定的針劑請玩家辨識。
 
-用 `get_shop_status(verbose=True)` 查看證據、違禁品分區件數、海報狀態（`poster.pulled`）、通緝名單和 `last_save`（`security.evidence_display` 在打烊後等時段可能依遊戲原生顯示「不適用」）。過夜後遊戲先進入次日早晨才存檔。
+用 `get_shop_status(verbose=True)` 查看證據、違禁品分區件數、海報狀態（`poster.pulled`）、通緝名單和 `last_save`（`security.evidence_display` 在打烊後等時段可能依遊戲原生顯示「不適用」）。使用隱藏格藏貨流程：先 `toggle_poster(mode="up")` 拉起海報 → `move_items` 搬進 `hidden` → **再 `toggle_poster(mode="down")` 放下海報**才算藏好；開店前若 `security.poster.pulled` 為 `true`，提醒玩家或先放下海報（營業中有客人在場時禁止操作海報）。過夜後遊戲先進入次日早晨才存檔。
 
 - 打烊前看剩餘客數及檯上留貨，用目前的 `reception_token` 呼叫 `close_shop`。若需要提前打烊，按回執核對剩餘客數和玩家交代，再以 `confirm_remaining` 確認。歇業後可以留店收貨、外出或睡覺。
 - 要過夜時，用當天 `bill_token` 呼叫 `prepare_sleep` 查帳單；需要時用 `night_service` 調整服務。沿用最新憑證和帳單的 `service_cost` 呼叫 `sleep`。回 `awaiting_report` 時等當晚報告，改查店況及日數確認進度。收到報告，核對租金、垃圾、服務費、餘額與 `alerts`，並留意下次到期日、傷勢及保險。若通緝警示關係到來客身分，交給玩家鑑定。

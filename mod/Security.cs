@@ -133,5 +133,32 @@ namespace WhiteDragon.Ledger
                 new JObject { ["slot"]=slot, ["day"]=saved.dayCount, ["phase"]="MORNING",
                     ["time"]=saved.lastSaveDateTime.ToString("o") };
         }
+
+        private string TogglePosterAction(JObject request, JObject receipt)
+        {
+            if (phase == "OPEN" && PlayerStore.Instance.IsClientPresent())
+            {
+                receipt["reason"] = "customer_present";
+                return "poster_unavailable";
+            }
+            var poster = StorePoster.Instance;
+            if (poster == null) return "poster_unavailable";
+            string mode = (string)request["mode"];
+            if (mode == "up")
+            {
+                if (!poster.isPulled) poster.PullUp(false);
+            }
+            else if (mode == "down")
+            {
+                if (poster.isPulled) poster.PullDown(false);
+            }
+            else return "invalid_mode";
+            nextView = 0;
+            RefreshDesk();
+            var counts = ContrabandCounts();
+            receipt["poster"] = new JObject { ["pulled"] = poster.isPulled };
+            receipt["hidden_grid"] = counts["hidden_grid"];
+            return poster.isPulled ? "poster_up" : "poster_down";
+        }
     }
 }

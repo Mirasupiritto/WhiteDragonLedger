@@ -250,7 +250,15 @@ namespace WhiteDragon.Ledger
                 if (!talk.IsChoice() || !VisibleChoice(button, 1) ||
                     button.index != (int)request["choice_id"] || !button.IsInteractable()) continue;
                 receipt["selected_label"] = button.TMP.text;
+                int cashBefore = PlayerStore.Instance.playerCash;
+                var activeClient = phone.currentPhoneClient;
                 button.OnDialogChoiceClick();
+                receipt["cash_delta"] = PlayerStore.Instance.playerCash - cashBefore;
+                if (activeClient != null)
+                {
+                    receipt["contact_state"] = activeClient.phoneState.ToString();
+                    receipt["cooldown_days"] = activeClient.currentCooldown;
+                }
                 AttachPhoneState(receipt, true);
                 return "choice_submitted";
             }

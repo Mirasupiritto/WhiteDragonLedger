@@ -109,6 +109,8 @@ namespace WhiteDragon.Ledger {
     {
         public static StorePoster Instance = new StorePoster();
         public bool isPulled;
+        public void PullUp(bool mute) { isPulled = true; }
+        public void PullDown(bool mute) { isPulled = false; }
     }
     public class ItemCondition { public string identifier, display; }
     public partial class ItemFeature {

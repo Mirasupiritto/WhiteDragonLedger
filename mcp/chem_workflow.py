@@ -9,6 +9,51 @@ import shopdesk
 
 LIQUID_RAW_IDS = {"water", "alcohol"}
 
+RECIPE_EXTRACTS = {
+    "dream_dust": "dream_cap_extract",
+    "caffeine": "caffeine",
+    "synaprest": "synaprest",
+    "methylol": "methylol",
+}
+RECIPE_NAME_ALIASES = {
+    "梦尘": "dream_dust",
+    "夢塵": "dream_dust",
+    "咖啡因": "caffeine",
+}
+PURITY_GRADES = (
+    (99.0, "lab_pure"),
+    (90.0, "pharma_grade"),
+    (80.0, "near_pharma"),
+    (60.0, "street_standard"),
+    (45.0, "cut_product"),
+    (30.0, "junk_grade"),
+    (0.0, "starch_grade"),
+)
+
+
+def _grade_for_purity(purity):
+    for threshold, grade in PURITY_GRADES:
+        if purity >= threshold:
+            return grade
+    return "starch_grade"
+
+
+def _estimate_purity(scan, recipe_query):
+    norm = _normalize_recipe_name(recipe_query)
+    recipe_key = RECIPE_NAME_ALIASES.get(recipe_query, RECIPE_NAME_ALIASES.get(norm, recipe_query))
+    extract_id = RECIPE_EXTRACTS.get(recipe_key)
+    if not extract_id:
+        return None, None
+    components = scan.get("components") or []
+    use_ul = any("ul" in c for c in components)
+    vol_key = "ul" if use_ul else "ml"
+    non_raw_total = sum(float(c.get(vol_key) or 0) for c in components if c.get("id") not in LIQUID_RAW_IDS)
+    if non_raw_total <= 0:
+        return None, None
+    target_vol = sum(float(c.get(vol_key) or 0) for c in components if c.get("id") == extract_id)
+    est = round(target_vol * 100.0 / non_raw_total, 2)
+    return est, _grade_for_purity(est)
+
 
 def _next_rev(receipt, folder, generation, fallback):
     flow = Flow(folder, generation, fallback)
@@ -101,13 +146,15 @@ def _use_scanner(folder, scanner_id, target_id, generation, rev):
 
 
 def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision,
-                    quantity=None, stash_ids=None, stash_count=None):
+                    quantity=None, stash_ids=None, stash_count=None, min_purity=None):
     if vessel_id < 1 or not recipe_id:
         raise ValueError("Provide a positive vessel_id and a non-empty recipe_id")
     if quantity is not None and not 1 <= quantity <= 64:
         raise ValueError("quantity must be between 1 and 64 when specified")
     if stash_count is not None and stash_count < 0:
         raise ValueError("stash_count must be non-negative")
+    if min_purity is not None and not 0 <= min_purity <= 100:
+        raise ValueError("min_purity must be between 0 and 100 when specified")
 
     flow = Flow(folder, generation, revision)
     steps = flow.steps
@@ -175,6 +222,9 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
             steps["retrieve_from_evaporator"] = {"status": "moved", "evaporator_id": evap["id"]}
 
     ok, scan_res, flow.rev = _use_scanner(folder, scanner["id"], vessel_id, generation, flow.rev)
+    estimated_purity = None
+    estimated_grade = None
+    low_purity_warning = None
     if not ok:
         if already_in_finisher:
             steps["scan_vessel"] = {"status": "skipped", "scan_skipped": "in_machine", "reason": scan_res.get("status") or "scan_failed"}
@@ -189,12 +239,27 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         if (scan.get("total_ml") or 0) <= 0 and not (scan.get("components") or []):
             steps["scan_vessel"] = {"status": "empty_vessel", "scan": scan}
             return stop("scan_vessel", "empty_vessel", scan=scan)
+        estimated_purity, estimated_grade = _estimate_purity(scan, recipe_id)
         steps["scan_vessel"] = {
             "status": "scanned",
             "total_ml": scan.get("total_ml"),
             "components": scan.get("components"),
             "remaining_liquids": remaining_raw,
         }
+        if estimated_purity is not None:
+            steps["scan_vessel"]["estimated_purity"] = estimated_purity
+            steps["scan_vessel"]["estimated_grade"] = estimated_grade
+            if min_purity is not None and estimated_purity < min_purity:
+                return stop(
+                    "scan_vessel",
+                    "purity_below_minimum",
+                    estimated_purity=estimated_purity,
+                    estimated_grade=estimated_grade,
+                    min_purity=min_purity,
+                    next_action="估計純度低於門檻；若植物質過多，請先在承接容器放入濾材（滤水器或韧棉织物）並以 water_use 過濾後再蒸發與成型。",
+                )
+            if min_purity is None and estimated_purity < 45.0:
+                low_purity_warning = "low_estimated_purity"
 
     if not already_in_finisher:
         fin_inspect = flow.command("inspect_window", owner_id=finisher["id"], open_if_closed=True, read_id=uuid4().hex)
@@ -389,7 +454,7 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
             return stop("stash_products", "stash_incomplete", collected_ids=collected_ids, stashed_ids=stashed_ids, remaining_ids=pending)
         steps["stash_products"] = {"status": "stashed", "stashed_ids": stashed_ids}
 
-    return {
+    out = {
         "status": "completed",
         "recipe_id": chosen_recipe_id,
         "produced": total_produced,
@@ -403,17 +468,25 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         "steps": steps,
         "revision": flow.rev,
     }
+    if estimated_purity is not None:
+        out["estimated_purity"] = estimated_purity
+        out["estimated_grade"] = estimated_grade
+    if low_purity_warning is not None:
+        out["warning"] = low_purity_warning
+    return out
 
 
 def register(server, folder, database):
     @server.tool()
     def chem_finish(vessel_id: int, recipe_id: str, generation: str, revision: int,
                     quantity: int | None = None, stash_ids: list[int] | None = None,
-                    stash_count: int | None = None) -> dict:
-        """Run the chemical finishing sequence for an evaporated vessel: retrieve from evaporator (if inside),
-        scan contents (recording any remaining water/alcohol), insert into chem_finisher, select recipe_id by name,
+                    stash_count: int | None = None, min_purity: float | None = None) -> dict:
+        """Run the chemical finishing sequence for an evaporated vessel: retrieve from evaporator (if inside) or resume if already in chem_finisher,
+        scan contents (estimating conservative pre-finisher purity/grade; actual product purity is determined by product_scan since finisher modules reduce impurities),
+        optionally stop before inserting when min_purity is not met, insert into chem_finisher, select recipe_id (ID or recipe_name),
         batch-produce (up to quantity, or until reagent runs out if omitted), collect outputs to inventory,
         scan one sample for purity/grade, and optionally move products into smuggler bays (stash_ids/stash_count).
-        Stops immediately on any failure and reports the stopped step and current vessel location."""
+        Filter extracts before evaporation using a FILTER_CONTAINER_TAG receiver with a filter inserted; remove 3x4 pitchers from evaporator/finisher after use so they do not block inventory or the next run."""
         return run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision,
-                               quantity=quantity, stash_ids=stash_ids, stash_count=stash_count)
+                               quantity=quantity, stash_ids=stash_ids, stash_count=stash_count,
+                               min_purity=min_purity)
