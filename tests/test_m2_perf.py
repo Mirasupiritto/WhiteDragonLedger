@@ -295,3 +295,32 @@ class M2AsyncServerTests(unittest.IsolatedAsyncioTestCase):
             self.assertLess(elapsed, 0.15)
             self.assertEqual(json.loads(scene_res[0].text)["status"], "ready")
             await slow_task
+
+    def test_cursor_reset_baseline_summary_preserves_finished_heat_once(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            root = Path(temp)
+            db = root / "ledger.sqlite"
+            game = ScriptedGame(root)
+            game.publish_scene(status="ready", location="pawnshop", revision=1)
+            game.publish_desk(
+                revision=1,
+                phase="OPEN",
+                counter={
+                    "stage": "idle",
+                    "cash": 100,
+                    "lines": [],
+                    "waiting": 0,
+                    "reception": {"can_ring": False},
+                    "heat": {"run_id": "heat-1", "status": "finished", "peak_c": 50},
+                },
+                event={"op": "baseline", "items": []},
+            )
+            tracker = trade_tools.Updates(root, db)
+            update = tracker.report(since=f"{game.generation}:99:deadbeef")
+            self.assertEqual(update["reason"], "cursor_reset")
+            slimmed = scene_server._slim_shop_update("open_shop", {}, update, {}, {})
+            self.assertEqual(slimmed["mode"], "baseline_summary")
+            self.assertEqual(slimmed["heat"], {"run_id": "heat-1", "status": "finished", "peak_c": 50})
+
+            next_update = tracker.report()
+            self.assertEqual(next_update["status"], "unchanged")
