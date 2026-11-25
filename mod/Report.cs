@@ -64,9 +64,12 @@ namespace WhiteDragon.Ledger
             bool read = (string)request["mode"] == "read";
             if (read && visit != null && visit == reportedVisit && reportGeneration == generation)
             {
-                receipt["next_tool"] = ReportNextTool();
-                if (completedReport != null) receipt.Merge(completedReport);
-                return reportStatus;
+                if (!(reportStatus == "report_intercepted" && CounterStage() != "speaking"))
+                {
+                    receipt["next_tool"] = ReportNextTool();
+                    if (completedReport != null) receipt.Merge(completedReport);
+                    return reportStatus;
+                }
             }
             if (visit != visitId || (!read && visit == null)) return VisitMismatchStatus(receipt);
             if (button == null) return "report_unavailable";
@@ -82,6 +85,11 @@ namespace WhiteDragon.Ledger
                 receipt["tooltip"] = button.GetTooltip();
                 receipt["requires_hold"] = button.ShouldRequireHold();
                 receipt["report_token"] = token;
+                if (reportStatus == "report_intercepted" && visit == reportedVisit && reportGeneration == generation)
+                {
+                    receipt["intercepted_before"] = true;
+                    receipt["choice_hint"] = "再按一次即舉報；送客即放走";
+                }
                 return "observed";
             }
             if ((string)request["mode"] != "report") return "invalid_mode";

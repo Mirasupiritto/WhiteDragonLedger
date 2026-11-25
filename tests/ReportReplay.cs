@@ -67,12 +67,22 @@ namespace WhiteDragon.Ledger
             Expect(ReportAction(req,receipt)=="report_intercepted" && (string)receipt["next_tool"]=="get_trade_context",
                 "intercept ends report polling");
             ObserveReport();
+            var dialog=DialogUIManager.Instance;
+            DialogUIManager.Instance=new DialogUIManager { current=new object(), typing=true };
             req["mode"]="read";
             receipt=new JObject();
             Expect(ReportAction(req,receipt)=="report_intercepted" && (string)receipt["next_tool"]=="get_trade_context",
-                "same visit retains the terminal interception");
+                "same visit retains interception while speaking");
+            DialogUIManager.Instance=dialog;
+            req["mode"]="read";
+            receipt=new JObject();
+            Expect(ReportAction(req,receipt)=="observed" && (bool)receipt["light"] &&
+                (bool)receipt["intercepted_before"] && receipt["report_token"]!=null &&
+                receipt["choice_hint"]!=null,
+                "after interception speech ends, read returns fresh light and token");
             req["mode"]="report";
-            Expect(ReportAction(req,new JObject())=="reported","native alarm submission");
+            req["report_token"]=receipt["report_token"];
+            Expect(ReportAction(req,new JObject())=="reported","second report after interception succeeds");
             var guard=StoreUIManager.Instance.secGameObject.gameObject;
             guard.activeInHierarchy=true;
             ObserveReport();

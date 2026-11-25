@@ -272,7 +272,7 @@ def register(server, folder, database):
                       report_token: str | None = None, generation: str | None = None,
                       revision: int | None = None) -> dict:
         """Read the visible alarm or press it with the current visit, token, generation and revision.
-        Read again with the reported visit until arrest_finished. On report_intercepted, follow get_trade_context.
+        Read again with the reported visit until arrest_finished. On report_intercepted, follow get_trade_context until speech finishes, then call report_client(mode="read") again for the fresh light and report_token to decide whether to report or dismiss.
         Compare feedback_box before and after an arrest."""
         if mode == "read":
             view = counter.context(folder)
