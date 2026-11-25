@@ -42,6 +42,32 @@ class M2PerfTests(unittest.TestCase):
             third = cache.read_json(path)
             self.assertEqual(third, {"a": 2, "nested": {"k": "v2"}})
 
+    def test_file_snapshot_cache_racy_mtime_rereads(self):
+        cache = FileSnapshotCache()
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            path = Path(temp) / "head.json"
+            t = time.time_ns()
+            path.write_text(json.dumps({"revision": 120}), encoding="utf-8")
+            os.utime(path, ns=(t, t))
+            self.assertEqual(cache.read_json(path), {"revision": 120})
+
+            # Overwrite with identical size and identical mtime_ns (racy window).
+            path.write_text(json.dumps({"revision": 121}), encoding="utf-8")
+            os.utime(path, ns=(t, t))
+            self.assertEqual(cache.read_json(path), {"revision": 121})
+
+    def test_file_snapshot_cache_hits_when_mtime_older_than_racy_window(self):
+        cache = FileSnapshotCache()
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            path = Path(temp) / "head.json"
+            old_t = time.time_ns() - FileSnapshotCache.RACY_NS - 500_000_000
+            path.write_text(json.dumps({"revision": 120}), encoding="utf-8")
+            os.utime(path, ns=(old_t, old_t))
+            self.assertEqual(cache.read_json(path), {"revision": 120})
+
+            with patch.object(Path, "read_text", side_effect=AssertionError("expected cache hit")):
+                self.assertEqual(cache.read_json(path), {"revision": 120})
+
     def test_book_history_changes_between_matches_delta_and_identity(self):
         conn = sqlite3.connect(":memory:")
         self.addCleanup(conn.close)

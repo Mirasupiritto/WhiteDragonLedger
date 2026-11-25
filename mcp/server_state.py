@@ -3,10 +3,13 @@ import copy
 import json
 from pathlib import Path
 import threading
+import time
 
 
 class FileSnapshotCache:
     """Process-level JSON file cache keyed by (resolved_path, st_mtime_ns, st_size)."""
+
+    RACY_NS = 200_000_000
 
     def __init__(self, max_entries=64):
         self._lock = threading.Lock()
@@ -17,15 +20,23 @@ class FileSnapshotCache:
         resolved = path.resolve()
         stat = path.stat()
         stamp = (stat.st_mtime_ns, stat.st_size)
+        now_ns = time.time_ns()
         with self._lock:
             cached = self._entries.get(resolved)
-            if cached is not None and cached[0] == stamp:
-                return copy.deepcopy(cached[1])
+            if cached is not None:
+                cached_stamp, cached_read_ns, cached_data = cached
+                if (
+                    cached_stamp == stamp
+                    and (cached_read_ns - stamp[0]) >= self.RACY_NS
+                    and (now_ns - stamp[0]) >= self.RACY_NS
+                ):
+                    return copy.deepcopy(cached_data)
+        read_ns = time.time_ns()
         data = json.loads(path.read_text(encoding="utf-8-sig"))
         with self._lock:
             if len(self._entries) >= self._max_entries and resolved not in self._entries:
                 self._entries.pop(next(iter(self._entries)))
-            self._entries[resolved] = (stamp, data)
+            self._entries[resolved] = (stamp, read_ns, data)
         return copy.deepcopy(data)
 
     def clear(self):
