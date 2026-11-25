@@ -8,6 +8,7 @@ namespace WhiteDragon.Ledger
     public static class TypeHelper { public const string CONTRABAND="contraband"; }
     public static class ContrabandHelper {
         public static bool IsSmugglerBay(GameItem item) => item.identifier == "smuggler_bay" || item.identifier == "smuggler_bay_mini";
+        public static bool IsBlockSearchContainer(GameItem item) => IsSmugglerBay(item);
         public static bool IsContraband(GameItem item) => item.IsTag(TypeHelper.CONTRABAND);
     }
 

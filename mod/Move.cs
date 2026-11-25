@@ -50,6 +50,23 @@ namespace WhiteDragon.Ledger
             return result;
         }
 
+        private bool TryParseBayArea(string area, out GameItem bay, out GameInventory grid)
+        {
+            bay = null;
+            grid = null;
+            if (string.IsNullOrEmpty(area) || !area.StartsWith("bay:") ||
+                !int.TryParse(area.Substring(4), out int ownerId) || ownerId <= 0 ||
+                !itemsById.TryGetValue(ownerId, out var candidate) ||
+                !GeneralHelper.IsItemEffectivelyOwned(candidate) ||
+                !IsSmugglerBayContainer(candidate))
+                return false;
+            var bagGrid = candidate.contentWindow?.childElement as GameGridInventory;
+            if (bagGrid == null) return false;
+            bay = candidate;
+            grid = bagGrid;
+            return true;
+        }
+
         private JObject ExecuteMove(JObject request)
         {
             if ((long)request["expires_ms"] < DateTimeOffset.UtcNow.ToUnixTimeMilliseconds())
@@ -59,18 +76,22 @@ namespace WhiteDragon.Ledger
 
             int id = (int)request["item_id"];
             string source = (string)request["source"], destination = (string)request["destination"];
+            TryParseBayArea(source, out var sourceBay, out var sourceBayGrid);
+            TryParseBayArea(destination, out var destBay, out var destBayGrid);
+            bool bayMove = sourceBay != null || destBay != null;
             bool stockMove=(source=="inventory" && destination=="showcase") || (source=="showcase" && destination=="inventory");
             bool hiddenMove=(source=="inventory" && destination=="hidden") || (source=="hidden" && destination=="inventory");
-            if (stockMove && request["visit"]!=null && (string)request["visit"]!=visitId)
+            if ((stockMove || bayMove) && request["visit"]!=null && (string)request["visit"]!=visitId)
                 return Receipt(request, visitId==null ? "customer_left" : "customer_replaced");
             itemsById.TryGetValue(id, out var item);
-            bool validArea = source == "inventory" || source == "showcase" || source == "front" || source == "back" || source == "hidden";
-            bool allowAlreadyAtDest = destination == "inventory" || destination == "showcase" || destination == "hidden" ||
+            bool validArea = source == "inventory" || source == "showcase" || source == "front" || source == "back" || source == "hidden" || sourceBay != null;
+            bool allowAlreadyAtDest = destination == "inventory" || destination == "showcase" || destination == "hidden" || destBay != null ||
                 (destination == "back" && request["visit"] != null && (string)request["visit"] == visitId);
             if (validArea && allowAlreadyAtDest && source != destination && (int)request["revision"] <= sequence &&
                 item?.parentInventory != null &&
                 (GeneralHelper.IsItemOwned(item) || (source == "front" && destination == "back")) &&
-                areas.TryGetValue(item.parentInventory, out var current) && current == destination)
+                ((destBayGrid != null && item.parentInventory == destBayGrid) ||
+                 (areas.TryGetValue(item.parentInventory, out var current) && current == destination)))
             {
                 var settled = Receipt(request, "already_in_destination");
                 settled["actual_area"] = destination;
@@ -93,9 +114,12 @@ namespace WhiteDragon.Ledger
             }
             if (phase != "CLOSED" && phase != "MORNING")
             {
-                if (hiddenMove || !stockMove || phase!="OPEN") return Receipt(request,"shop_open");
+                bool stockOrBayMove = stockMove || (bayMove && source != "hidden" && destination != "hidden");
+                if (hiddenMove || !stockOrBayMove || phase != "OPEN") return Receipt(request, "shop_open");
                 var entry=EmporiumEntry.Instance;
-                if (!entry.showcaseWindow.IsVisible() || !entry.invWindow.IsVisible() || Interactable.isPaused)
+                bool needInv = stockMove || source == "inventory" || destination == "inventory";
+                bool needShowcase = stockMove || source == "showcase" || destination == "showcase";
+                if ((needShowcase && !entry.showcaseWindow.IsVisible()) || (needInv && !entry.invWindow.IsVisible()) || Interactable.isPaused)
                 {
                     var blocked=Receipt(request,"transfer_blocked");
                     blocked["reason"]=Interactable.isPaused ? "paused" : "stock_window_hidden";
@@ -145,26 +169,35 @@ namespace WhiteDragon.Ledger
             }
             else
             {
+                bool validBayRoute = bayMove && source != destination &&
+                    (sourceBay != null ? (destination == "inventory" || destination == "showcase" || destBay != null) :
+                     (source == "inventory" || source == "showcase"));
                 if (source == destination ||
-                    (!hiddenMove && ((source != "inventory" && source != "showcase") ||
+                    (!hiddenMove && !validBayRoute && ((source != "inventory" && source != "showcase") ||
                     (destination != "inventory" && destination != "showcase"))))
                     return Receipt(request, "invalid_route");
-                if (!areas.TryGetValue(item.parentInventory, out var actual) || actual != source)
+                if (sourceBayGrid != null)
+                {
+                    if (item.parentInventory != sourceBayGrid)
+                        return Receipt(request, "source_changed");
+                }
+                else if (!areas.TryGetValue(item.parentInventory, out var actual) || actual != source)
                     return Receipt(request, "source_changed");
             }
             if (!GeneralHelper.IsItemOwned(item)) return Receipt(request, "not_owned");
             var shop = EmporiumEntry.Instance;
             GameInventory target = loading ? (GameInventory)container :
+                destBayGrid != null ? destBayGrid :
                 destination == "hidden" ? shop.hiddenElement :
                 destination == "showcase" ? shop.showcaseElement : shop.invElement;
             if (item.parentInventory.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove())
                 return Receipt(request, "locked");
 
-            if ((destination == "showcase" || destination == "hidden") && !GraphUtils.CanAccept(target, item))
+            if ((destination == "showcase" || destination == "hidden" || destBayGrid != null) && !GraphUtils.CanAccept(target, item))
             {
                 string fullCode = destination == "showcase" ? "showcase_full" : "no_space";
                 var full = Receipt(request, fullCode);
-                full["reason"] = destination == "showcase" ? "showcase_full" : "hidden_full";
+                full["reason"] = destination == "showcase" ? "showcase_full" : destBayGrid != null ? "bay_full" : "hidden_full";
                 full["actual_area"] = source;
                 AttachSpaceFailure(item, target, full);
                 return full;
@@ -181,7 +214,7 @@ namespace WhiteDragon.Ledger
 
             // The native placement routine enforces available space and slot rules.
             int quantityBefore = item.unitCount;
-            if (loading || destination == "hidden")
+            if (loading || destination == "hidden" || destBayGrid != null)
             {
                 if (!GraphUtils.CanAccept(container ?? target, item)) return Receipt(request, loading ? "slot_rejected" : "no_space");
                 GraphUtils.TryAcceptOnce(container ?? target, item);
@@ -192,7 +225,9 @@ namespace WhiteDragon.Ledger
             ScanKnownIdentities();
             FlushChanges();
             string observed = null;
-            if (item.parentInventory != null) areas.TryGetValue(item.parentInventory, out observed);
+            if (destBayGrid != null && item.parentInventory == destBayGrid) observed = destination;
+            else if (sourceBayGrid != null && item.parentInventory == sourceBayGrid) observed = source;
+            else if (item.parentInventory != null) areas.TryGetValue(item.parentInventory, out observed);
             if (container != null && item.parentInventory == container) observed = "purifier";
             bool sourceCleared = container == null || (loading ? container.childItem == item : container.childItem == null);
             string status = sourceCleared && observed == destination && item.unitCount == quantityBefore ? "moved" :
@@ -227,6 +262,7 @@ namespace WhiteDragon.Ledger
                 result["kind"] = item.identifier;
             }
             if (BottleLabel(item) is string label) result["bottle_label"] = label;
+            if (sourceBay != null) result["from_container"] = FromContainerJson(sourceBay);
             result["actual_area"] = observed;
             result["quantity"] = item.unitCount;
             AttachReceiptIdentityChanges(result);
