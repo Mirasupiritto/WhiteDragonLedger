@@ -172,14 +172,23 @@ def register(server, folder, database, *, section_cache=None):
                 time.sleep(min(0.15, max(0, deadline - time.monotonic())))
                 view = counter.context(folder)
             elif view.get("stage") == "idle" and not view.get("visit"):
-                ring_wait = view.get("waiting", 0) if waiting is None else waiting
-                result = counter.ring(folder, view["generation"], view["revision"], ring_wait,
-                                      timeout=max(0, deadline - time.monotonic()))
-                if result.get("status") not in {"occupied", "bell_unavailable", "customer_replaced", "customer_left", "queue_changed", "customer_departing"}:
-                    return result
-                view = counter.context(folder)
-                if not view.get("visit") and view.get("stage") != "customer_departing":
-                    return result
+                if view.get("reception", {}).get("can_ring") is False and (view.get("waiting") or 0) > 0:
+                    if time.monotonic() >= deadline:
+                        return {**shopdesk.strip_protocols(view), "status": "bell_unavailable", "reason": "bell_cooldown_timeout"}
+                    time.sleep(min(0.15, max(0, deadline - time.monotonic())))
+                    view = counter.context(folder)
+                else:
+                    ring_wait = view.get("waiting", 0) if waiting is None else waiting
+                    result = counter.ring(folder, view["generation"], view["revision"], ring_wait,
+                                          timeout=max(0, deadline - time.monotonic()))
+                    if result.get("status") not in {"occupied", "bell_unavailable", "customer_replaced", "customer_left", "queue_changed", "customer_departing"}:
+                        return result
+                    view = counter.context(folder)
+                    in_cooldown = (view.get("stage") == "idle" and not view.get("visit")
+                                   and view.get("reception", {}).get("can_ring") is False
+                                   and (view.get("waiting") or 0) > 0)
+                    if not view.get("visit") and view.get("stage") != "customer_departing" and not in_cooldown:
+                        return result
             else:
                 break
             if view.get("status") != "observed":

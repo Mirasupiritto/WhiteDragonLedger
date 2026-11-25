@@ -481,6 +481,18 @@ class CounterFlow(unittest.TestCase):
                   patch("counter.ring", return_value={"status":"called","visit":self.visit}) as ring):
                 self.assertEqual(call("next_customer")["status"], "called")
                 ring.assert_called_once()
+            cooldown = dict(self.view, stage="idle", visit=None, waiting=6,
+                            reception={"waiting": 6, "can_ring": False, "can_close_shop": False, "can_dismiss": False})
+            ringable = dict(cooldown, reception={"waiting": 6, "can_ring": True, "can_close_shop": True, "can_dismiss": False})
+            with (patch("counter.context", side_effect=[leaving, cooldown, ringable]),
+                  patch("counter.ring", return_value={"status": "called", "visit": self.visit}) as ring):
+                self.assertEqual(call("next_customer")["status"], "called")
+                ring.assert_called_once()
+            empty_cooldown = dict(cooldown, waiting=0, reception={"waiting": 0, "can_ring": False})
+            with (patch("counter.context", return_value=empty_cooldown),
+                  patch("counter.ring", return_value={"status": "bell_unavailable"}) as ring):
+                self.assertEqual(call("next_customer")["status"], "bell_unavailable")
+                ring.assert_called_once()
             heated = dict(leaving, heat={"run_id":"344261ba","status":"stopped"})
             with patch("counter.context",return_value=heated), patch("counter.ring",return_value=heated):
                 self.assertIn("heat", call("next_customer", timeout=0))
