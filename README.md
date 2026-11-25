@@ -1,4 +1,4 @@
-# 白龍店帳 · White Dragon Ledger
+# 深空當鋪：店長可能是智能體 · White Dragon Ledger
 
 **0.31.0 · 適用遊戲版本：0.46D · Windows · MIT License**
 
@@ -66,7 +66,7 @@ $python = "$work/venv/Scripts/python.exe"
 ```
 
 1. **安裝 Mod**：將 `$work/build/white_dragon_ledger` 資料夾複製到 `<遊戲目錄>/Mods/` 下，確認 `Mods/white_dragon_ledger/` 內直接包含 `manifest.xml` 與 `WhiteDragonLedger.dll`。
-2. **啟用 Mod**：啟動遊戲，在模組選單啟用「白龍店帳 · White Dragon Ledger」並授權。升級 DLL 後需重啟遊戲再讀檔。
+2. **啟用 Mod**：啟動遊戲，在模組選單啟用「深空當鋪：店長可能是智能體 · White Dragon Ledger」並授權。升級 DLL 後需重啟遊戲再讀檔。
 3. **設定 stdio MCP**：在你的 MCP 宿主設定檔加入以下項目（替換成實際的絕對路徑）：
 
 ```json
