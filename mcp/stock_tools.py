@@ -89,10 +89,10 @@ def register(server, folder, database, *, section_cache=None):
 
     @server.tool()
     def move_items(item_ids: list[int], source: Literal["inventory", "showcase", "front", "back"],
-                   destination: Literal["inventory", "showcase"], generation: str, revision: int, visit: str | None = None) -> dict:
-        """Move owned stock between visible inventory and showcase windows, including while open, or collect owned front/back items to inventory.
-        Pass the current visit during any arrived customer visit without an active order (including ready, barter, seller-only or dialogue), or omit it at an empty counter. Pass the generation and
-        starting revision from query_inventory. When space is insufficient, returns no_space or showcase_full with item_size and target_capacity instead of not_moved.
+                   destination: Literal["inventory", "showcase", "back"], generation: str, revision: int, visit: str | None = None) -> dict:
+        """Move owned stock between visible inventory and showcase windows, including while open, stage owned goods onto the trade table (back) with visit (including dialogue choice_required/counter_request stages), or collect owned front/back items to inventory.
+        Pass the current visit during any arrived customer visit without an active order (including ready, barter, seller-only or dialogue), or omit it at an empty counter (destination="back" always requires visit). Pass the generation and
+        starting revision from query_inventory. When space is insufficient, returns no_space or showcase_full with item_size and target_capacity and skips that item into skipped_ids.
         Stops at the first unconfirmed or rejected item. The original arguments recover completed lines and can continue pending lines."""
         return submit_batch(folder, item_ids, source, destination, generation, revision, visit=visit)
 

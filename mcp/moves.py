@@ -87,6 +87,8 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
     """Execute one ordered plan. An identical plan reuses its native receipts."""
     if source in {"front", "back"} and destination != "inventory":
         raise ValueError("A batch from the counter can only go to inventory")
+    if destination == "back" and not visit:
+        return {"status": "invalid_route", "reason": "visit_required", "source": source, "destination": destination}
     if not item_ids or any(item_id < 1 for item_id in item_ids):
         raise ValueError("Expected a nonempty list of positive item IDs")
     if len(set(item_ids)) != len(item_ids):
