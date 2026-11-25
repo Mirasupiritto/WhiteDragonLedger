@@ -19,6 +19,12 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
         scene = {"dll_commit":"22baa43"}
         self.assertNotIn("version_mismatch",scene_version(scene,"22baa43"))
         self.assertEqual(scene_version(scene,"277a165")["version_mismatch"],{"dll":"22baa43","mcp":"277a165"})
+        self.assertEqual(
+            scene_version({"status": "ready"}, "277a165")["version_mismatch"],
+            {"dll": None, "mcp": "277a165", "reason": "dll_without_commit"},
+        )
+        self.assertNotIn("version_mismatch", scene_version({"status": "ready"}, None))
+        self.assertNotIn("version_mismatch", scene_version(scene, None))
         with tempfile.TemporaryDirectory() as tmp:
             folder = Path(tmp)
             delivery = {"source":"phone_delivery","contact":"阿希什","ids":[103,104]}
