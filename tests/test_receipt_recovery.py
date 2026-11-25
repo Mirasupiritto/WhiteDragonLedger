@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
-import machine_wait
+import workstation_tools
 from moves import move_item
 from receipt_store import read_command_receipt
 
@@ -42,8 +42,8 @@ class RecoveryTests(unittest.TestCase):
     def test_machine_wait_submits_once_and_reports_final_value(self):
         view = dict(status="observed", generation=self.generation, revision=2)
         args = self.folder, 4, self.generation, 2, "current_c", "at_least", 45, 10
-        with patch("counter.context", return_value=view), patch("machine_wait.exchange") as exchange:
-            self.assertEqual(machine_wait.wait(*args)["need"], "mod")
+        with patch("counter.context", return_value=view), patch("workstation_tools.exchange") as exchange:
+            self.assertEqual(workstation_tools.wait_machine(*args)["need"], "mod")
             exchange.assert_not_called()
             view["machine_wait_protocol"] = 1
             def finish(folder, inbox, request, read, *, wait_seconds):
@@ -56,7 +56,7 @@ class RecoveryTests(unittest.TestCase):
             exchange.side_effect = finish
             from mcp.server.fastmcp import FastMCP
             server = FastMCP("machine-wait-test")
-            machine_wait.register(server, self.folder)
+            workstation_tools.register(server, self.folder)
             response = asyncio.run(server.call_tool("wait_for_machine", dict(owner_id=4, generation=self.generation,
                                     revision=2, control="current_c", threshold=45)))
             self.assertEqual(json.loads(response[0].text)["value"], 46)
