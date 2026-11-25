@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -17,6 +18,7 @@ import book_history
 from database import ensure_schema, transaction
 from mcp_helpers import ScriptedGame
 import pawnshop_tools
+import scene
 import scene_server
 from server_state import FileSnapshotCache
 import trade_tools
@@ -199,3 +201,97 @@ class M2AsyncServerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(payload["status"], "arrest_finished")
                 self.assertIn("shop_update", payload)
                 report_mock.assert_called_once()
+
+    async def test_concurrent_counter_calls_serialize_without_busy(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            root = Path(temp)
+            db = root / "ledger.sqlite"
+            game = ScriptedGame(root)
+            game.publish_scene(status="ready", location="pawnshop", revision=1)
+            game.publish_desk(
+                revision=1,
+                phase="MORNING",
+                counter={
+                    "stage": "idle",
+                    "cash": 100,
+                    "lines": [],
+                    "waiting": 0,
+                    "reception": {"can_ring": False},
+                    "can_open_shop": True,
+                    "inventory_sort_protocol": 1,
+                },
+            )
+
+            server = scene_server.SceneServer(root)
+            pawnshop_tools.register_pawnshop_tools(server, root, db)
+
+            inbox = root / f"counter-{game.generation}.json"
+            stop_responder = threading.Event()
+            seen_actions = []
+
+            def responder():
+                while not stop_responder.is_set():
+                    if inbox.exists():
+                        try:
+                            req = json.loads(inbox.read_text(encoding="utf-8"))
+                        except (FileNotFoundError, json.JSONDecodeError):
+                            time.sleep(0.01)
+                            continue
+                        time.sleep(0.06)
+                        seen_actions.append(req["action"])
+                        game.write_receipt(
+                            req["command_id"],
+                            {
+                                "status": "observed",
+                                "command_id": req["command_id"],
+                                "generation": game.generation,
+                                "revision": 1,
+                            },
+                            unlink_inbox=inbox,
+                        )
+                    else:
+                        time.sleep(0.01)
+
+            worker = threading.Thread(target=responder, daemon=True)
+            worker.start()
+            try:
+                res1, res2 = await asyncio.gather(
+                    server.call_tool("open_shop", {"generation": game.generation, "revision": 1}),
+                    server.call_tool("sort_inventory", {"generation": game.generation, "revision": 1}),
+                )
+            finally:
+                stop_responder.set()
+                worker.join(timeout=2)
+
+            p1 = json.loads(res1[0].text)
+            p2 = json.loads(res2[0].text)
+            self.assertEqual(p1["status"], "observed")
+            self.assertEqual(p2["status"], "observed")
+            self.assertEqual(seen_actions, ["open_shop", "sort_inventory"])
+
+    async def test_get_scene_responds_immediately_while_sync_tool_holds_lock(self):
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            root = Path(temp)
+            game = ScriptedGame(root)
+            game.publish_scene(status="ready", location="pawnshop", revision=1)
+
+            server = scene_server.SceneServer(root)
+            scene.register_scene_tools(server, root)
+            started = threading.Event()
+
+            @server.tool()
+            def slow_locked_tool() -> dict:
+                started.set()
+                time.sleep(0.25)
+                return {"status": "done"}
+
+            slow_task = asyncio.create_task(server.call_tool("slow_locked_tool", {}))
+            while not started.is_set():
+                await asyncio.sleep(0.01)
+
+            t0 = time.monotonic()
+            scene_res = await server.call_tool("get_scene", {})
+            elapsed = time.monotonic() - t0
+            self.assertLess(elapsed, 0.15)
+            self.assertEqual(json.loads(scene_res[0].text)["status"], "ready")
+            await slow_task

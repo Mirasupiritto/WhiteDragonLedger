@@ -184,6 +184,7 @@ class SceneServer(FastMCP):
         self.state = ServerState()
         self.section_cache = self.state.section_cache
         self._last_emitted_items = self.state.last_emitted_items
+        self._tool_lock = asyncio.Lock()
 
     async def list_tools(self):
         self.client_session = self.get_context().session
@@ -231,43 +232,51 @@ class SceneServer(FastMCP):
             return attach_arrivals(self.folder, previous, result)
 
     async def call_tool(self, name, arguments):
+        if name in self.global_tools:
+            if name == "wait_for_scene":
+                scene = await asyncio.to_thread(read_scene, self.folder)
+                if scene.get("status") == "game_over":
+                    return {**scene, "tool_status": "game_over"}
+            return await self._invoke_tool(name, arguments)
+        async with self._tool_lock:
+            return await self._call_locked(name, arguments)
+
+    async def _call_locked(self, name, arguments):
         scene = await asyncio.to_thread(read_scene, self.folder)
         if scene.get("status") == "game_over":
-            if name == "get_scene" or name in self.ledger_tools:
+            if name in self.ledger_tools:
                 return await self._invoke_tool(name, arguments)
             return {**scene, "tool_status": "game_over"}
         if name in ACTION_REGIONS:
             # A departure can finish before the client receives its reply. The command
             # layer can recover an existing receipt across regions, then gates new work.
             return await self._invoke_tool(name, arguments)
-        if name not in self.global_tools:
-            region = tool_region(scene)
-            if not self.available(name, region):
-                return {**scene, "tool_status": "unavailable_in_scene"}
-            if name in REGIONS or region == "offline":
-                return await self._invoke_tool(name, arguments)
-            token = shop_visit.set((scene["session"], scene["revision"]))
-            try:
-                if name == "get_shop_updates":
-                    tool = self._tool_manager.get_tool(name)
-                    result = await asyncio.to_thread(self._run_get_shop_updates, arguments)
+        region = tool_region(scene)
+        if not self.available(name, region):
+            return {**scene, "tool_status": "unavailable_in_scene"}
+        if name in REGIONS or region == "offline":
+            return await self._invoke_tool(name, arguments)
+        token = shop_visit.set((scene["session"], scene["revision"]))
+        try:
+            if name == "get_shop_updates":
+                tool = self._tool_manager.get_tool(name)
+                result = await asyncio.to_thread(self._run_get_shop_updates, arguments)
+                return tool.fn_metadata.convert_result(result)
+            mutating = is_mutating_tool(name, arguments)
+            if mutating and (self.updates.cursor is not None or name == "report_client"):
+                tool = self._tool_manager.get_tool(name)
+                result = await self._invoke_tool(name, arguments, convert_result=False)
+                if name == "report_client" and result.get("status") != "arrest_finished" and (arguments.get("mode", "read") == "read" or self.updates.cursor is None):
                     return tool.fn_metadata.convert_result(result)
-                mutating = is_mutating_tool(name, arguments)
-                if mutating and (self.updates.cursor is not None or name == "report_client"):
-                    tool = self._tool_manager.get_tool(name)
-                    result = await self._invoke_tool(name, arguments, convert_result=False)
-                    if name == "report_client" and result.get("status") != "arrest_finished" and (arguments.get("mode", "read") == "read" or self.updates.cursor is None):
-                        return tool.fn_metadata.convert_result(result)
-                    try:
-                        result["shop_update"] = await asyncio.to_thread(self._collect_shop_update, name, result, arguments)
-                    except (OSError, sqlite3.Error, json.JSONDecodeError) as error:
-                        # The action may already have settled. Keep its receipt even when the next read fails.
-                        result["shop_update"] = {"status": "update_unavailable", "detail": str(error)}
-                    return tool.fn_metadata.convert_result(result)
-                return await self._invoke_tool(name, arguments)
-            finally:
-                shop_visit.reset(token)
-        return await self._invoke_tool(name, arguments)
+                try:
+                    result["shop_update"] = await asyncio.to_thread(self._collect_shop_update, name, result, arguments)
+                except (OSError, sqlite3.Error, json.JSONDecodeError) as error:
+                    # The action may already have settled. Keep its receipt even when the next read fails.
+                    result["shop_update"] = {"status": "update_unavailable", "detail": str(error)}
+                return tool.fn_metadata.convert_result(result)
+            return await self._invoke_tool(name, arguments)
+        finally:
+            shop_visit.reset(token)
 
     async def run_stdio_async(self):
         options = self._mcp_server.create_initialization_options(NotificationOptions())
