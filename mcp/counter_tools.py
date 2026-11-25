@@ -64,9 +64,8 @@ def _summarize_wild_network(result, *, verbose=False):
     return {**result, "panel": out_panel}
 
 
-def register(server, folder, database, *, heat_state=None, section_cache=None):
+def register(server, folder, database, *, section_cache=None):
     state = getattr(server, "state", None)
-    heat = heat_state if heat_state is not None else (state if state is not None else counter.default_state)
     cache = section_cache if section_cache is not None else (
         state.section_cache if state is not None else (getattr(server, "section_cache", None) or shop_day.SectionCache())
     )
@@ -76,7 +75,6 @@ def register(server, folder, database, *, heat_state=None, section_cache=None):
             payload,
             folder=folder,
             database=database,
-            heat_state=heat,
             summarize_offer=trade_tools.summarize_offer,
             verbose=verbose,
             apply_barter=apply_barter,

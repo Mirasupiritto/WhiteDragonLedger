@@ -9,28 +9,25 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import command_transport
+import counter
 import receipt_store
 from mcp_helpers import ScriptedGame, call_tool_json, open_mcp_session
-from server_state import ServerState
 
 
 class M1BaseTests(unittest.TestCase):
-    def test_heat_seen_clears_when_generation_changes(self):
-        state = ServerState()
-        folder = Path("D:/fake")
+    def test_heat_seen_notifies_again_when_generation_changes(self):
         gen1 = "a" * 32
         gen2 = "b" * 32
         r1 = {"generation": gen1, "heat": {"run_id": "run-1", "status": "finished"}}
-        r2 = {"generation": gen2, "heat": {"run_id": "run-2", "status": "finished"}}
+        r2 = {"generation": gen2, "heat": {"run_id": "run-1", "status": "finished"}}
 
-        self.assertIn("heat", state.filter_finished_heat(folder, r1))
-        self.assertNotIn("heat", state.filter_finished_heat(folder, r1))
-        self.assertEqual(len(state._heat_seen), 1)
-
-        # Switching generation clears the previous generation's entries (bounded B5).
-        self.assertIn("heat", state.filter_finished_heat(folder, r2))
-        self.assertEqual(len(state._heat_seen), 1)
-        self.assertEqual(state._heat_generation, gen2)
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            db = Path(temp) / "ledger.sqlite"
+            self.assertIn("heat", counter.filter_finished_heat(db, r1))
+            self.assertNotIn("heat", counter.filter_finished_heat(db, r1))
+            # Switching generation notifies the same run_id again.
+            self.assertIn("heat", counter.filter_finished_heat(db, r2))
+            self.assertNotIn("heat", counter.filter_finished_heat(db, r2))
 
     def test_poll_early_exit_and_timeout(self):
         calls = 0

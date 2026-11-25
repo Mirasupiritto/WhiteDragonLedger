@@ -13,16 +13,11 @@ from command_transport import (
     replayed,
     submit_command,
 )
-from server_state import ServerState
 import trade_journal
 from shopdesk import published, strip_protocols
 
 
 from database import transaction
-
-
-default_state = ServerState()
-_seen_finished_heat = default_state._heat_seen
 
 
 def filter_finished_heat(database, result):
