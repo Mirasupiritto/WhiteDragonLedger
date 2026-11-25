@@ -56,6 +56,29 @@ def _find_finisher_controls(controls):
     return input_ctrl, output_ctrl, config_btn, output_btn
 
 
+def _normalize_recipe_name(text):
+    if not isinstance(text, str):
+        return ""
+    s = text.strip()
+    if s.startswith("一小瓶"):
+        s = s[len("一小瓶"):].strip()
+    return s.strip("\"'“”‘’ ")
+
+
+def _match_recipe_control(panel_controls, query):
+    entries = [(k, v) for k, v in panel_controls.items() if isinstance(v, dict) and v.get("recipe_id")]
+    exact_id = [k for k, v in entries if v.get("recipe_id") == query]
+    if exact_id:
+        return exact_id
+    exact_name = [k for k, v in entries if v.get("recipe_name") == query]
+    if exact_name:
+        return exact_name
+    norm_query = _normalize_recipe_name(query)
+    if not norm_query:
+        return []
+    return [k for k, v in entries if _normalize_recipe_name(v.get("recipe_name")) == norm_query]
+
+
 def _use_scanner(folder, scanner_id, target_id, generation, rev):
     read_res = counter.command(
         folder, "item_menu", generation, rev, item_id=scanner_id, mode="read", read_id=uuid4().hex
@@ -106,76 +129,105 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         return stop("locate_equipment", "missing_chemical_scanner")
 
     vessel_item = next((i for i in items if i.get("id") == vessel_id), None)
+    already_in_finisher = False
+    fin_inspect = None
+    win = {}
+    win_token = None
+    input_ctrl = output_ctrl = config_btn = output_btn = None
+    remaining_raw = []
+
     if vessel_item and vessel_item.get("area") in {"inventory", "showcase"}:
         vessel_location = {"area": vessel_item["area"]}
         steps["retrieve_from_evaporator"] = {"status": "skipped", "reason": "already_in_stock", "area": vessel_item["area"]}
     else:
-        evap = _find_owned_by_kind(items, "evaporator")
-        if not evap:
-            return stop("retrieve_from_evaporator", "missing_evaporator")
-        evap_inspect = flow.command("inspect_window", owner_id=evap["id"], open_if_closed=True, read_id=uuid4().hex)
-        if evap_inspect.get("status") != "observed":
-            return stop("retrieve_from_evaporator", evap_inspect.get("status"), receipt=evap_inspect)
-        evap_ctrl, _ = _slot_with_item((evap_inspect.get("window") or {}).get("controls") or [], vessel_id)
-        if not evap_ctrl:
-            return stop("retrieve_from_evaporator", "vessel_not_in_evaporator", receipt=evap_inspect)
-        vessel_location = {"area": "evaporator", "owner_id": evap["id"], "control": evap_ctrl["control"]}
-        take_res = flow.command(
-            "transfer_slot", owner_id=evap["id"], control=evap_ctrl["control"],
-            window_token=evap_inspect["window_token"], item_id=vessel_id, source="slot",
-        )
-        if take_res.get("status") != "moved":
-            return stop("retrieve_from_evaporator", take_res.get("status"), receipt=take_res)
-        vessel_location = {"area": "inventory"}
-        steps["retrieve_from_evaporator"] = {"status": "moved", "evaporator_id": evap["id"]}
+        # Check chem_finisher input slot first so interrupted runs can resume in-place.
+        probe = flow.command("inspect_window", owner_id=finisher["id"], open_if_closed=True, read_id=uuid4().hex)
+        if probe.get("status") == "observed":
+            p_win = probe.get("window") or {}
+            p_in, p_out, p_cfg, p_out_btn = _find_finisher_controls(p_win.get("controls") or [])
+            if p_in and any(i.get("id") == vessel_id for i in (p_in.get("items") or [])):
+                already_in_finisher = True
+                fin_inspect = probe
+                win = p_win
+                win_token = probe.get("window_token")
+                input_ctrl, output_ctrl, config_btn, output_btn = p_in, p_out, p_cfg, p_out_btn
+                vessel_location = {"area": "chem_finisher", "owner_id": finisher["id"], "control": input_ctrl["control"]}
+                steps["retrieve_from_evaporator"] = {"status": "skipped", "reason": "already_in_finisher"}
+                steps["insert_into_finisher"] = {"status": "already_in_slot"}
+        if not already_in_finisher:
+            evap = _find_owned_by_kind(items, "evaporator")
+            if not evap:
+                return stop("retrieve_from_evaporator", "missing_evaporator")
+            evap_inspect = flow.command("inspect_window", owner_id=evap["id"], open_if_closed=True, read_id=uuid4().hex)
+            if evap_inspect.get("status") != "observed":
+                return stop("retrieve_from_evaporator", evap_inspect.get("status"), receipt=evap_inspect)
+            evap_ctrl, _ = _slot_with_item((evap_inspect.get("window") or {}).get("controls") or [], vessel_id)
+            if not evap_ctrl:
+                return stop("retrieve_from_evaporator", "vessel_not_in_evaporator", receipt=evap_inspect)
+            vessel_location = {"area": "evaporator", "owner_id": evap["id"], "control": evap_ctrl["control"]}
+            take_res = flow.command(
+                "transfer_slot", owner_id=evap["id"], control=evap_ctrl["control"],
+                window_token=evap_inspect["window_token"], item_id=vessel_id, source="slot",
+            )
+            if take_res.get("status") != "moved":
+                return stop("retrieve_from_evaporator", take_res.get("status"), receipt=take_res)
+            vessel_location = {"area": "inventory"}
+            steps["retrieve_from_evaporator"] = {"status": "moved", "evaporator_id": evap["id"]}
 
     ok, scan_res, flow.rev = _use_scanner(folder, scanner["id"], vessel_id, generation, flow.rev)
     if not ok:
-        return stop("scan_vessel", scan_res.get("status") or "scan_failed", receipt=scan_res)
-    scan = scan_res.get("scan") or {}
-    remaining_raw = [
-        c for c in (scan.get("components") or [])
-        if c.get("id") in LIQUID_RAW_IDS and (c.get("ul", 0) > 0 or c.get("ml", 0) > 0)
-    ]
-    if (scan.get("total_ml") or 0) <= 0 and not (scan.get("components") or []):
-        steps["scan_vessel"] = {"status": "empty_vessel", "scan": scan}
-        return stop("scan_vessel", "empty_vessel", scan=scan)
-    steps["scan_vessel"] = {
-        "status": "scanned",
-        "total_ml": scan.get("total_ml"),
-        "components": scan.get("components"),
-        "remaining_liquids": remaining_raw,
-    }
-
-    fin_inspect = flow.command("inspect_window", owner_id=finisher["id"], open_if_closed=True, read_id=uuid4().hex)
-    if fin_inspect.get("status") != "observed":
-        return stop("insert_into_finisher", fin_inspect.get("status"), receipt=fin_inspect)
-    win = fin_inspect.get("window") or {}
-    win_token = fin_inspect.get("window_token")
-    input_ctrl, output_ctrl, config_btn, output_btn = _find_finisher_controls(win.get("controls") or [])
-    if not input_ctrl or not output_ctrl:
-        return stop("insert_into_finisher", "finisher_slots_unavailable", receipt=fin_inspect)
-
-    existing_input = input_ctrl.get("items") or []
-    if any(i.get("id") == vessel_id for i in existing_input):
-        vessel_location = {"area": "chem_finisher", "owner_id": finisher["id"], "control": input_ctrl["control"]}
-        steps["insert_into_finisher"] = {"status": "already_in_slot"}
-    elif existing_input:
-        return stop("insert_into_finisher", "input_slot_occupied", occupant=existing_input[0])
+        if already_in_finisher:
+            steps["scan_vessel"] = {"status": "skipped", "scan_skipped": "in_machine", "reason": scan_res.get("status") or "scan_failed"}
+        else:
+            return stop("scan_vessel", scan_res.get("status") or "scan_failed", receipt=scan_res)
     else:
-        src_area = vessel_location["area"]
-        ins_res = flow.command(
-            "transfer_slot", owner_id=finisher["id"], control=input_ctrl["control"],
-            window_token=win_token, item_id=vessel_id, source=src_area,
-        )
-        if ins_res.get("status") != "moved":
-            return stop("insert_into_finisher", ins_res.get("status"), receipt=ins_res)
-        win_token = ins_res.get("window_token") or win_token
-        vessel_location = {"area": "chem_finisher", "owner_id": finisher["id"], "control": input_ctrl["control"]}
-        steps["insert_into_finisher"] = {"status": "moved"}
+        scan = scan_res.get("scan") or {}
+        remaining_raw = [
+            c for c in (scan.get("components") or [])
+            if c.get("id") in LIQUID_RAW_IDS and (c.get("ul", 0) > 0 or c.get("ml", 0) > 0)
+        ]
+        if (scan.get("total_ml") or 0) <= 0 and not (scan.get("components") or []):
+            steps["scan_vessel"] = {"status": "empty_vessel", "scan": scan}
+            return stop("scan_vessel", "empty_vessel", scan=scan)
+        steps["scan_vessel"] = {
+            "status": "scanned",
+            "total_ml": scan.get("total_ml"),
+            "components": scan.get("components"),
+            "remaining_liquids": remaining_raw,
+        }
 
-    if win.get("recipe_id") == recipe_id:
-        steps["select_recipe"] = {"status": "already_selected", "recipe_id": recipe_id}
+    if not already_in_finisher:
+        fin_inspect = flow.command("inspect_window", owner_id=finisher["id"], open_if_closed=True, read_id=uuid4().hex)
+        if fin_inspect.get("status") != "observed":
+            return stop("insert_into_finisher", fin_inspect.get("status"), receipt=fin_inspect)
+        win = fin_inspect.get("window") or {}
+        win_token = fin_inspect.get("window_token")
+        input_ctrl, output_ctrl, config_btn, output_btn = _find_finisher_controls(win.get("controls") or [])
+        if not input_ctrl or not output_ctrl:
+            return stop("insert_into_finisher", "finisher_slots_unavailable", receipt=fin_inspect)
+
+        existing_input = input_ctrl.get("items") or []
+        if any(i.get("id") == vessel_id for i in existing_input):
+            vessel_location = {"area": "chem_finisher", "owner_id": finisher["id"], "control": input_ctrl["control"]}
+            steps["insert_into_finisher"] = {"status": "already_in_slot"}
+        elif existing_input:
+            return stop("insert_into_finisher", "input_slot_occupied", occupant=existing_input[0])
+        else:
+            src_area = vessel_location["area"]
+            ins_res = flow.command(
+                "transfer_slot", owner_id=finisher["id"], control=input_ctrl["control"],
+                window_token=win_token, item_id=vessel_id, source=src_area,
+            )
+            if ins_res.get("status") != "moved":
+                return stop("insert_into_finisher", ins_res.get("status"), receipt=ins_res)
+            win_token = ins_res.get("window_token") or win_token
+            vessel_location = {"area": "chem_finisher", "owner_id": finisher["id"], "control": input_ctrl["control"]}
+            steps["insert_into_finisher"] = {"status": "moved"}
+
+    chosen_recipe_id = win.get("recipe_id")
+    norm_req = _normalize_recipe_name(recipe_id)
+    if chosen_recipe_id == recipe_id or (win.get("recipe_name") and (win.get("recipe_name") == recipe_id or (norm_req and _normalize_recipe_name(win.get("recipe_name")) == norm_req))):
+        steps["select_recipe"] = {"status": "already_selected", "recipe_id": chosen_recipe_id}
     else:
         if not config_btn:
             return stop("select_recipe", "configure_button_unavailable")
@@ -191,14 +243,16 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
         if panel_read.get("status") != "observed":
             return stop("select_recipe", panel_read.get("status"), receipt=panel_read)
         panel_controls = (panel_read.get("view") or {}).get("controls") or {}
-        match_key = next(
-            (k for k, v in panel_controls.items() if isinstance(v, dict) and v.get("recipe_id") == recipe_id),
-            None,
-        )
-        if not match_key:
+        matches = _match_recipe_control(panel_controls, recipe_id)
+        if not matches:
             return stop("select_recipe", "recipe_not_found", recipe_id=recipe_id, available=list(panel_controls.values()))
+        if len(matches) > 1:
+            return stop("select_recipe", "recipe_ambiguous", recipe_id=recipe_id,
+                        candidates=[panel_controls[k] for k in matches])
+        match_key = matches[0]
+        chosen_recipe_id = panel_controls[match_key]["recipe_id"]
         if not panel_controls[match_key].get("enabled"):
-            return stop("select_recipe", "recipe_disabled", recipe_id=recipe_id, control=panel_controls[match_key])
+            return stop("select_recipe", "recipe_disabled", recipe_id=chosen_recipe_id, control=panel_controls[match_key])
         choose_res = flow.command(
             "item_panel", mode="choose",
             panel_token=panel_read["panel_token"], control=match_key, panel="chemical_finisher",
@@ -218,10 +272,10 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
             return stop("select_recipe", fin_recheck.get("status"), receipt=fin_recheck)
         win = fin_recheck.get("window") or {}
         win_token = fin_recheck.get("window_token")
-        if win.get("recipe_id") != recipe_id:
+        if win.get("recipe_id") != chosen_recipe_id:
             return stop("select_recipe", "recipe_selection_unconfirmed", actual_recipe_id=win.get("recipe_id"))
         _, output_ctrl, _, output_btn = _find_finisher_controls(win.get("controls") or [])
-        steps["select_recipe"] = {"status": "selected", "recipe_id": recipe_id}
+        steps["select_recipe"] = {"status": "selected", "recipe_id": chosen_recipe_id}
 
     if not output_btn:
         return stop("produce_batch", "output_button_unavailable")
@@ -337,7 +391,7 @@ def run_chem_finish(folder, database, vessel_id, recipe_id, generation, revision
 
     return {
         "status": "completed",
-        "recipe_id": recipe_id,
+        "recipe_id": chosen_recipe_id,
         "produced": total_produced,
         "produced_ids": collected_ids,
         "stashed_ids": stashed_ids,

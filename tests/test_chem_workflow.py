@@ -274,6 +274,90 @@ class ChemWorkflowTests(unittest.TestCase):
         chem_workflow.register(Server(), self.folder, self.db)
         self.assertTrue(registered <= scene_server.MUTATING_TOOLS)
 
+    def test_chem_finish_resumes_in_finisher_and_matches_recipe_name(self):
+        fin_win = {
+            "status": "observed",
+            "revision": 11,
+            "window_token": "w-fin-1",
+            "window": {
+                "recipe_id": None,
+                "controls": [
+                    {"control": "in_slot", "type": "slot", "role": "input", "accepts": "one_item", "insert_allowed": True,
+                     "items": [{"id": 201, "name": "水罐", "kind": "bottle"}]},
+                    {"control": "out_slot", "type": "slot", "role": "output", "items": []},
+                    {"control": "btn_cfg", "type": "button", "action": "configure", "label": "配方", "enabled": True},
+                    {"control": "btn_out", "type": "button", "action": "output", "label": "輸出", "enabled": True},
+                ],
+            },
+        }
+        panel_read = {
+            "status": "observed",
+            "revision": 13,
+            "panel_token": "p-1",
+            "view": {
+                "controls": {
+                    "r1": {"recipe_id": "dream_dust", "recipe_name": "一小瓶“梦尘”", "enabled": True},
+                }
+            },
+        }
+        fin_recheck = {
+            "status": "observed",
+            "revision": 15,
+            "window_token": "w-fin-2",
+            "window": {
+                "recipe_id": "dream_dust",
+                "controls": [
+                    {"control": "in_slot", "type": "slot", "role": "input", "items": [{"id": 201}]},
+                    {"control": "out_slot", "type": "slot", "role": "output", "items": []},
+                    {"control": "btn_out", "type": "button", "action": "output", "label": "輸出", "enabled": True},
+                ],
+            },
+        }
+        fin_after = {
+            "status": "observed",
+            "revision": 17,
+            "window_token": "w-fin-3",
+            "window": {
+                "recipe_id": "dream_dust",
+                "controls": [
+                    {"control": "in_slot", "type": "slot", "role": "input", "items": []},
+                    {"control": "out_slot", "type": "slot", "role": "output", "items": [{"id": 301, "name": "梦尘"}]},
+                ],
+            },
+        }
+
+        def fake_cmd(folder, action, generation, revision, **args):
+            if action == "inspect_window" and args.get("owner_id") == 12:
+                if args.get("open_if_closed"):
+                    return fin_win
+                return fin_recheck if revision < 16 else fin_after
+            if action == "item_menu":
+                return {"status": "unavailable_in_machine"}
+            if action == "press_control" and args.get("control") == "btn_cfg":
+                return {"status": "pressed", "revision": 12}
+            if action == "item_panel" and args.get("mode") == "read":
+                return panel_read
+            if action == "item_panel" and args.get("mode") == "choose":
+                return {"status": "applied", "revision": 14, "after": {"status": "panel_closed"}}
+            if action == "press_control" and args.get("control") == "btn_out":
+                return {"status": "produced", "produced": 1, "purity": 98, "grade": "S", "revision": 16}
+            if action == "transfer_slots":
+                return {"status": "moved", "revision": 18, "items": [{"item_id": 301, "status": "moved"}]}
+            raise AssertionError(f"Unexpected command {action} {args}")
+
+        with (patch("ledger.lookup", return_value=self.stock),
+              patch("counter.context", return_value={"status": "observed", "generation": self.gen, "revision": 10}),
+              patch("counter.command", side_effect=fake_cmd)):
+            res = chem_workflow.run_chem_finish(
+                self.folder, self.db, vessel_id=201, recipe_id="梦尘",
+                generation=self.gen, revision=10,
+            )
+        self.assertEqual(res["status"], "completed")
+        self.assertEqual(res["recipe_id"], "dream_dust")
+        self.assertEqual(res["steps"]["retrieve_from_evaporator"]["reason"], "already_in_finisher")
+        self.assertEqual(res["steps"]["scan_vessel"]["scan_skipped"], "in_machine")
+        self.assertEqual(res["produced"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()
