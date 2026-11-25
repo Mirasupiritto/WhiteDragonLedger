@@ -113,7 +113,7 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["heat_control_protocol"]=1, ["machine_wait_protocol"]=1, ["chemist_protocol"]=1, ["item_panel_protocol"]=1, ["item_menu_protocol"]=1, ["inventory_sort_protocol"]=1, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["heat_control_protocol"]=1, ["machine_wait_protocol"]=1, ["chemist_protocol"]=1, ["item_panel_protocol"]=1, ["item_menu_protocol"]=1, ["inventory_sort_protocol"]=1, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["poster_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (ClientRole() is string clientRole) view["client_role"] = clientRole;
             if (heatRun != null || lastHeat != null) view["heat"] = (heatRun?.Summary ?? lastHeat).DeepClone();
@@ -245,6 +245,7 @@ namespace WhiteDragon.Ledger
             if (action == "item_panel") return ItemPanelAction(request,receipt);
             if (action == "item_menu") return ItemMenuAction(request, receipt);
             if (action == "sort_inventory") return SortInventory(receipt);
+            if (action == "toggle_poster") return TogglePosterAction(request, receipt);
             if (action == "inspect_window" || action == "transfer_slot" || action == "transfer_slots" || action == "adjust_control" || action == "press_control" ||
                 action == "inspect_archive" || action == "close_archive")
                 return WorkstationAction(request, receipt);

@@ -45,14 +45,21 @@ namespace WhiteDragon.Ledger
                 else if ((!canCollect && stage != "ready" && stage != "barter") || order != null || Interactable.isPaused ||
                     NegociationUIManager.IsTradeLocked()) return Receipt(request,"trade_unavailable");
             }
-            if (!areas.TryGetValue(item.parentInventory,out var actual) || actual != source)
+            TryParseBayArea(source, out var sourceBay, out var sourceBayGrid);
+            TryParseBayArea(destination, out var destBay, out var destBayGrid);
+            if (sourceBayGrid != null)
+            {
+                if (item.parentInventory != sourceBayGrid)
+                    return Receipt(request, "source_changed");
+            }
+            else if (!areas.TryGetValue(item.parentInventory,out var actual) || actual != source)
                 return Receipt(request,"source_changed");
             var shop = EmporiumEntry.Instance;
             bool owned = GeneralHelper.IsItemOwned(item);
             if ((stage == "barter" || dialogueStage) && !owned) return Receipt(request,"invalid_route");
-            bool stock = source == "inventory" || source == "showcase";
+            bool stock = source == "inventory" || source == "showcase" || sourceBay != null;
             bool allowed = destination == "back" ? (owned ? stock : source == "front") :
-                source == "back" && (owned ? destination == "inventory" || destination == "showcase" : destination == "front");
+                source == "back" && (owned ? (destination == "inventory" || destination == "showcase" || destBay != null) : destination == "front");
             if (!allowed && !(collect && owned)) return Receipt(request,"invalid_route");
             if (destination == "back" && shop.backInvinvElement.childItems.Count != 0 &&
                 (!owned || (stage != "ready" && !dialogueStage) ||
@@ -62,11 +69,14 @@ namespace WhiteDragon.Ledger
                 DescribeBlockedTable(occupied, false, true);
                 return occupied;
             }
-            var target = destination == "back" ? shop.backInvinvElement : destination == "front" ? shop.frontInvinvElement :
+            var target = destBayGrid != null ? destBayGrid :
+                destination == "back" ? shop.backInvinvElement : destination == "front" ? shop.frontInvinvElement :
                 destination == "showcase" ? shop.showcaseElement : shop.invElement;
-            var window = destination == "back" ? shop.backInvWindow : destination == "front" ? shop.frontInvWindow :
+            var window = destBayGrid != null ? null :
+                destination == "back" ? shop.backInvWindow : destination == "front" ? shop.frontInvWindow :
                 destination == "showcase" ? shop.showcaseWindow : shop.invWindow;
-            if (window == null || !window.IsVisible() || window.isLocked || GeneralHelper.IsItemLocked(item) ||
+            if ((window != null && (!window.IsVisible() || window.isLocked)) || (destBayGrid == null && window == null) ||
+                GeneralHelper.IsItemLocked(item) ||
                 GeneralHelper.IsDisplayOnly(item) || item.parentInventory.IsRemoveLocked() || target.IsInsertLocked() ||
                 !item.MayRemove()) return Receipt(request,"transfer_blocked");
             if (!GraphUtils.CanAccept(target, item))
@@ -92,9 +102,10 @@ namespace WhiteDragon.Ledger
             if (status == "not_moved" && IsSpaceFailure(target, item))
             {
                 receipt["status"] = destination == "showcase" ? "showcase_full" : "no_space";
-                receipt["reason"] = destination == "showcase" ? "showcase_full" : "inventory_full";
+                receipt["reason"] = destination == "showcase" ? "showcase_full" : destBay != null ? "bay_full" : "inventory_full";
                 AttachSpaceFailure(item, target, receipt);
             }
+            if (sourceBay != null) receipt["from_container"] = FromContainerJson(sourceBay);
             AttachReceiptIdentityChanges(receipt);
             receipt["actual_area"] = item.parentInventory == target || status == "moved" ? destination :
                 item.parentInventory == origin ? source : null;

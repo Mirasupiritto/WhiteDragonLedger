@@ -9,6 +9,10 @@ from scene import interrupted_shop_call
 from ledger import read_head
 
 
+def _is_bay_area(area: str) -> bool:
+    return isinstance(area, str) and area.startswith("bay:") and area[4:].isdigit() and int(area[4:]) > 0
+
+
 def move_item(folder: Path, item_id, source, destination, generation, revision, command_id=None, *, previous_command=None, machine_id=None, visit=None):
     changed = interrupted_shop_call(folder)
     if changed:
@@ -16,24 +20,29 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
     command = command_id or uuid4().hex
     if not is_hex32(generation) or not is_hex32(command):
         raise ValueError("generation and command_id must be lowercase 32-digit hex values")
+    bay_move = _is_bay_area(source) or _is_bay_area(destination)
     counter_move = source in {"front", "back"} or destination in {"front", "back"}
     collect = source in {"front", "back"} and destination == "inventory"
     idle_clear = (collect or (source, destination) == ("back", "showcase")) and visit is None
     if counter_move and not idle_clear:
         other = source if destination == "back" else destination
-        if ((not collect and ("back" not in (source, destination) or other not in {"front","inventory","showcase"})) or machine_id is not None
-                or not is_hex32(visit or "")):
+        if ((not collect and ("back" not in (source, destination) or (other not in {"front", "inventory", "showcase"} and not _is_bay_area(other))))
+                or machine_id is not None or not is_hex32(visit or "")):
             raise ValueError("Use the current visit and a route to or from the trade table (back)")
     elif idle_clear:
         if machine_id is not None:
             raise ValueError("Use the current visit and a route to or from the trade table (back)")
-    elif visit is not None and (machine_id is not None or {source, destination} != {"inventory", "showcase"}):
+    elif visit is not None and (machine_id is not None or ({source, destination} != {"inventory", "showcase"} and not (bay_move and "hidden" not in {source, destination}))):
         return {"status":"invalid_route", "reason":"visit_requires_stock_or_counter_move", "command_id":command}
     elif machine_id is not None:
         if machine_id < 1 or (source, destination) not in {
             ("purifier", "inventory"), ("inventory", "purifier"), ("showcase", "purifier")
         }:
             raise ValueError("Expected a stock area and a purifier slot")
+    elif bay_move:
+        if (source == destination or "hidden" in {source, destination} or
+                not all(area in {"inventory", "showcase"} or _is_bay_area(area) for area in (source, destination))):
+            raise ValueError("Expected two different stock or smuggler bay areas")
     elif {source, destination} not in ({"inventory", "showcase"}, {"inventory", "hidden"}):
         raise ValueError("Expected two different stock areas")
     if item_id < 1 or revision < 1:
@@ -78,7 +87,7 @@ def move_item(folder: Path, item_id, source, destination, generation, revision, 
         return {"status": "reload_updated_mod", "command_id": command}
     if counter_move and not idle_clear and not (verify_location and destination in {"inventory", "showcase"}) and head["phase"] != "OPEN":
         return {"status":"shop_closed", "command_id":command}
-    if {source, destination} not in ({"inventory", "showcase"}, {"inventory", "hidden"}) and not counter_move and not verify_location and destination != "purifier" and head["phase"] not in ("CLOSED", "MORNING"):
+    if {source, destination} not in ({"inventory", "showcase"}, {"inventory", "hidden"}) and not counter_move and not bay_move and not verify_location and destination != "purifier" and head["phase"] not in ("CLOSED", "MORNING"):
         return {"status": "shop_open", "command_id": command}
     if {source, destination} == {"inventory", "hidden"} and head["phase"] != "CLOSED":
         return {"status": "shop_open", "command_id": command}
@@ -113,7 +122,7 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
         row = {"item_id": item_id, "status": receipt["status"], "from": source,
                "actual_area": receipt.get("actual_area")}
         for field in ("name", "kind", "quantity", "observed_quantity", "bottle_label", "revision",
-                      "reason", "item_size", "target_capacity", "identity_changed"):
+                      "reason", "item_size", "target_capacity", "identity_changed", "from_container"):
             if field in receipt:
                 row[field] = receipt[field]
         if "identity_changed" in receipt:

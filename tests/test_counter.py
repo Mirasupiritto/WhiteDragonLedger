@@ -508,8 +508,16 @@ class CounterFlow(unittest.TestCase):
             ringable = dict(cooldown, reception={"waiting": 6, "can_ring": True, "can_close_shop": True, "can_dismiss": False})
             with (patch("counter.context", side_effect=[leaving, cooldown, ringable]),
                   patch("counter.ring", return_value={"status": "called", "visit": self.visit}) as ring):
-                self.assertEqual(call("next_customer")["status"], "called")
+                res = call("next_customer")
+                self.assertEqual((res["status"], res.get("waited_for_bell")), ("called", True))
                 ring.assert_called_once()
+            # When cooldown ends via guest arriving on their own, status must be called (not already_present).
+            arrived_after_cooldown = dict(ringable, stage="ready", visit="v" * 32, customer="新客")
+            with (patch("counter.context", side_effect=[cooldown, arrived_after_cooldown]),
+                  patch("counter.wait_opening", return_value={"status": "observed", "visit": "v" * 32})):
+                res = call("next_customer")
+                self.assertEqual((res["status"], res.get("waited_for_bell")), ("called", True))
+                self.assertNotIn("already_at_counter", res)
             empty_cooldown = dict(cooldown, waiting=0, reception={"waiting": 0, "can_ring": False})
             with (patch("counter.context", return_value=empty_cooldown),
                   patch("counter.ring", return_value={"status": "bell_unavailable"}) as ring):

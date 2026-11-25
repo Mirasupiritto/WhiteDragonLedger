@@ -77,20 +77,21 @@ def register(server, folder, database, *, section_cache=None):
         return lookup(folder, database, stock_query=dict(item_ids=item_ids, generation=generation))
 
     @server.tool()
-    def move_item(item_id: int, source: Literal["inventory", "showcase", "front", "back", "hidden"],
-                  destination: Literal["inventory", "showcase", "front", "back", "hidden"], generation: str,
+    def move_item(item_id: int, source: str,
+                  destination: str, generation: str,
                   revision: int, command_id: str | None = None, visit: str | None = None) -> dict:
-        """Pass item_id, source, destination, generation and revision. While closed, move owned stock between inventory and showcase. During trade pass the observed visit
-        to stage items on the trade table (back), or return them (multiple owned items may be staged together
+        """Pass item_id, source, destination, generation and revision. Valid areas: "inventory", "showcase", "front", "back", "hidden", or "bay:<owner_id>" (an owned smuggler bay container). While closed, move owned stock between inventory, showcase, and smuggler bays. During trade pass the observed visit
+        to stage items on the trade table (back) from inventory/showcase/bay:<owner_id>, or return them (multiple owned items may be staged together
         during regular selling; guest goods require an empty table). Guest goods return to front and
-        owned goods to inventory/showcase. Owned goods left on back when no customer is present can also be
+        owned goods to inventory/showcase/bay:<owner_id>. Owned goods left on back when no customer is present can also be
         cleared to inventory/showcase with visit omitted. Placement alone does not confirm a trade. Reuse the command ID to retry."""
         return submit_move(folder, item_id, source, destination, generation, revision, command_id, visit=visit)
 
     @server.tool()
-    def move_items(item_ids: list[int], source: Literal["inventory", "showcase", "front", "back", "hidden"],
-                   destination: Literal["inventory", "showcase", "back", "hidden"], generation: str, revision: int, visit: str | None = None) -> dict:
-        """Move owned stock between visible inventory and showcase windows, including while open, stage owned goods onto the trade table (back) with visit (including dialogue choice_required/counter_request stages), or collect owned front/back items to inventory.
+    def move_items(item_ids: list[int], source: str,
+                   destination: str, generation: str, revision: int, visit: str | None = None) -> dict:
+        """Move owned stock between visible inventory, showcase, and smuggler bays ("bay:<owner_id>"), including while open, stage owned goods onto the trade table (back) with visit (including dialogue choice_required/counter_request stages), or collect owned front/back items to inventory.
+        Valid source areas: "inventory", "showcase", "front", "back", "hidden", or "bay:<owner_id>". Valid destination areas: "inventory", "showcase", "back", "hidden", or "bay:<owner_id>".
         Pass the current visit during any arrived customer visit without an active order (including ready, barter, seller-only or dialogue), or omit it at an empty counter (destination="back" always requires visit). Pass the generation and
         starting revision from query_inventory. When space is insufficient, returns no_space or showcase_full with item_size and target_capacity and skips that item into skipped_ids.
         Stops at the first unconfirmed or rejected item. The original arguments recover completed lines and can continue pending lines."""
@@ -101,6 +102,12 @@ def register(server, folder, database, *, section_cache=None):
         """Compact the main inventory once using native big-first sorting. Compare before/after free_cells and largest_free.
         Returns external_sorter_active when the player uses a recognized Workshop sorter in auto mode."""
         return counter.command(folder, "sort_inventory", generation, revision)
+
+    @server.tool()
+    def toggle_poster(mode: Literal["up", "down"], generation: str, revision: int) -> dict:
+        """Pull the store poster up or down to access or conceal the 2x2 hidden grid behind it.
+        Refuses with reason="customer_present" when the shop is open and a customer is present."""
+        return counter.command(folder, "toggle_poster", generation, revision, mode=mode)
 
     @server.tool()
     def query_purchase_lots(supplier: str | None = None, product: str | None = None, lot_id: str | None = None) -> dict:

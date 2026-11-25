@@ -117,7 +117,9 @@ namespace WhiteDragon.Ledger {
             request["phone_token"]=PhoneView()["phone_token"];
             result = new JObject();
             Expect(ActOnPhone(request,result)=="choice_submitted" && option.clicks==1 &&
-                !string.IsNullOrEmpty((string)result["phone_token"]),"explicit service selection attaches next phone_token");
+                (int)result["cash_delta"]==0 && (string)result["contact_state"]!=null &&
+                result["cooldown_days"]!=null && !string.IsNullOrEmpty((string)result["phone_token"]),
+                "explicit service selection attaches cash_delta, cooldown and next phone_token");
             // Open shop blocks opening phone or dialing with reason="shop_open".
             phone.CloseUI();
             talk.page = null; talk.choice = false; talk.dialogChoiceBubbles.Clear();

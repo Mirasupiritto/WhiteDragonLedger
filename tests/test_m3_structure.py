@@ -40,7 +40,7 @@ EXPECTED_TOOL_NAMES = {
     # stock_tools
     "get_shop_ledger", "dismiss_trade_ticket", "query_inventory", "list_stock_tags",
     "find_stock", "get_stock_items", "move_item", "move_items", "sort_inventory",
-    "query_purchase_lots",
+    "toggle_poster", "query_purchase_lots",
     # workstation_tools
     "item_menu", "item_panel", "inspect_item_window", "inspect_archive",
     "transfer_slot_item", "transfer_slot_items", "adjust_machine_control",

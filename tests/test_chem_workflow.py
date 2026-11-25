@@ -358,6 +358,59 @@ class ChemWorkflowTests(unittest.TestCase):
         self.assertEqual(res["steps"]["scan_vessel"]["scan_skipped"], "in_machine")
         self.assertEqual(res["produced"], 1)
 
+    def test_chem_finish_min_purity_blocks_day17_unfiltered_and_allows_filtered(self):
+        day17_scan = {
+            "total_ml": 63.6,
+            "components": [
+                {"id": "plant_matter", "ml": 29.01},
+                {"id": "dream_cap_extract", "ml": 23.79},
+                {"id": "physical_contaminant", "ml": 4.8},
+                {"id": "protein", "ml": 4.8},
+                {"id": "mineral", "ml": 1.2},
+            ],
+        }
+        calls = []
+
+        def fake_cmd(folder, action, generation, revision, **args):
+            calls.append((action, args))
+            if action == "inspect_window" and args.get("owner_id") == 12:
+                return {"status": "observed", "revision": 11, "window_token": "w-fin", "window": {"controls": []}}
+            if action == "inspect_window" and args.get("owner_id") == 11:
+                return {
+                    "status": "observed",
+                    "revision": 12,
+                    "window_token": "w-evap",
+                    "window": {"controls": [{"control": "c2", "type": "slot", "items": [{"id": 10}]}]},
+                }
+            if action == "transfer_slot" and args.get("owner_id") == 11:
+                return {"status": "moved", "revision": 13}
+            if action == "item_menu" and args.get("mode") == "read":
+                return {"status": "observed", "revision": 14, "menu_token": "m1", "enabled": ["use"]}
+            if action == "item_menu" and args.get("mode") == "choose":
+                return {"status": "invoked", "revision": 15, "scan": day17_scan}
+            raise AssertionError(f"Should stop before finisher insert; got {action} {args}")
+
+        with (patch("ledger.lookup", return_value=self.stock),
+              patch("counter.context", return_value={"status": "observed", "generation": self.gen, "revision": 10}),
+              patch("counter.command", side_effect=fake_cmd)):
+            stopped = chem_workflow.run_chem_finish(
+                self.folder, self.db, vessel_id=10, recipe_id="dream_dust",
+                generation=self.gen, revision=10, min_purity=45,
+            )
+        self.assertEqual((stopped["status"], stopped["stopped_at"], stopped["reason"]), ("stopped", "scan_vessel", "purity_below_minimum"))
+        self.assertAlmostEqual(stopped["estimated_purity"], 37.41, places=1)
+        self.assertEqual(stopped["estimated_grade"], "junk_grade")
+        self.assertIn("next_action", stopped)
+        # No insert transfer_slot into finisher (owner_id=12) was ever called.
+        self.assertFalse(any(a == "transfer_slot" and kw.get("owner_id") == 12 for a, kw in calls))
+
+        # Filtered solution (>=45%) passes the min_purity=45 gate.
+        est, grade = chem_workflow._estimate_purity({
+            "components": [{"id": "dream_cap_extract", "ml": 35.0}, {"id": "protein", "ml": 20.0}]
+        }, "dream_dust")
+        self.assertGreaterEqual(est, 45.0)
+        self.assertEqual(grade, "street_standard")
+
 
 if __name__ == "__main__":
     unittest.main()

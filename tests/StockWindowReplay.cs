@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json.Linq;
 
@@ -367,19 +368,171 @@ namespace WhiteDragon.Ledger
                 ["revision"] = sequence,
             };
             var downRes = ExecuteMove(hiddenReq);
-            Expect((string)downRes["status"] == "transfer_blocked" && (string)downRes["reason"] == "poster_down",
+            Expect((string)downRes["status"] == "transfer_blocked" && (string)downRes["reason"] == "poster_down" &&
+                (string)downRes["next_tool"] == "toggle_poster",
                 "hidden move blocked when poster is down");
-            StorePoster.Instance.isPulled = true;
+            var posterUpReq = new JObject { ["action"] = "toggle_poster", ["mode"] = "up",
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue };
+            var posterUpRes = new JObject();
+            Expect(ActAtCounter(posterUpReq, posterUpRes) == "poster_up" && (bool)posterUpRes["poster"]["pulled"],
+                "toggle_poster pulls poster up");
             hiddenReq["revision"] = sequence;
             var upRes = ExecuteMove(hiddenReq);
             Expect((string)upRes["status"] == "moved" && (string)upRes["actual_area"] == "hidden",
                 "hidden move succeeds when poster is pulled");
             Expect((int)ContrabandCounts(true, true)["hidden_grid_exposed"] == 2,
                 "inspection_exposure counts hidden_grid_exposed when poster is pulled");
-            StorePoster.Instance.isPulled = false;
+            var posterDownReq = new JObject { ["action"] = "toggle_poster", ["mode"] = "down",
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue };
+            var posterDownRes = new JObject();
+            Expect(ActAtCounter(posterDownReq, posterDownRes) == "poster_down" && !(bool)posterDownRes["poster"]["pulled"] &&
+                (int)posterDownRes["hidden_grid"] == 2,
+                "toggle_poster pulls poster down and reports hidden_grid count");
             Expect((int)ContrabandCounts(true, true)["hidden_grid_exposed"] == 0,
                 "inspection_exposure excludes hidden_grid_exposed when poster is down");
             Expect((bool)SecurityView()["poster"]["pulled"] == false, "security.poster.pulled reflects poster state");
+            phase = "OPEN";
+            store.storeState = PlayerStore.StoreState.OPEN;
+            store.currentClientInstance = new StoreClientInstance();
+            posterUpReq["revision"] = sequence;
+            var openPosterRes = new JObject();
+            Expect(ActAtCounter(posterUpReq, openPosterRes) == "poster_unavailable" &&
+                (string)openPosterRes["reason"] == "customer_present",
+                "toggle_poster refuses when open with customer present");
+            store.currentClientInstance = null;
+
+            // P6: sell_order / trade_batch from smuggler bay returns to original bay on decline, falls back to inventory when full, and move_items supports bay:<owner_id> -> back.
+            shop.invElement.childItems.Clear();
+            shop.showcaseElement.childItems.Clear();
+            shop.backInvinvElement.childItems.Clear();
+            var bay1 = Item(32, "smuggler_bay", 1);
+            var bay1Grid = new GameGridInventory(4, 4) { owner = bay1 };
+            bay1.contentWindow = new PixelWindow { childElement = bay1Grid };
+            bay1.To(shop.invElement);
+            var dustItems = new List<GameItem>();
+            for (int i = 0; i < 8; i++)
+            {
+                var d = Item(83 + i, "dream_dust", 8);
+                d.waterTags.Add(TypeHelper.CONTRABAND);
+                d.To(bay1Grid);
+                dustItems.Add(d);
+            }
+            var bay2 = Item(33, "smuggler_bay_mini", 1);
+            var bay2Grid = new GameGridInventory(4, 4) { owner = bay2 };
+            bay2.contentWindow = new PixelWindow { childElement = bay2Grid };
+            bay2.To(shop.invElement);
+            var bay2Items = new List<GameItem>();
+            for (int i = 0; i < 7; i++)
+            {
+                var d = Item(100 + i, "dream_dust", 8);
+                d.waterTags.Add(TypeHelper.CONTRABAND);
+                d.To(bay2Grid);
+                bay2Items.Add(d);
+            }
+            FlushChanges();
+            int bay1Id = LocalId(bay1);
+            int bay2Id = LocalId(bay2);
+
+            phase = "OPEN";
+            store.storeState = PlayerStore.StoreState.OPEN;
+            store.currentClientInstance = new StoreClientInstance();
+            ObserveVisit();
+            DialogUIManager.Instance = new DialogUIManager();
+            NegociationUIManager.Instance.IsOpen = true;
+            merchant.budget = 500;
+
+            JObject RunP6Sale(JArray lines)
+            {
+                string cmd = Guid.NewGuid().ToString("N");
+                Write("sale-" + generation + ".json", new JObject {
+                    ["command_id"] = cmd, ["generation"] = generation, ["revision"] = sequence,
+                    ["visit"] = visitId, ["lines"] = lines,
+                    ["expires_ms"] = DateTimeOffset.UtcNow.AddMinutes(1).ToUnixTimeMilliseconds()
+                });
+                for (int n = 0; n < 32; n++) { UnityEngine.Time.realtimeSinceStartup++; CheckOrder(); CloseTransactions(); }
+                return JObject.Parse(ModHelper.ReadModDataFileText(ModId, "receipt-" + cmd + ".json"));
+            }
+
+            var declineLines = new JArray();
+            foreach (var d in dustItems)
+                declineLines.Add(new JObject { ["item_id"] = LocalId(d), ["min_price"] = 12 });
+            var declineReply = RunP6Sale(declineLines);
+            Expect((string)declineReply["status"] == "finished", "P6 8-bottle bay decline finishes");
+            var declinedRows = (JArray)declineReply["items"];
+            Expect(declinedRows.Count == 8, "P6 8-bottle bay decline has 8 lines");
+            foreach (JObject r in declinedRows)
+            {
+                Expect((string)r["status"] == "returned_below_minimum", "P6 bay item returned_below_minimum");
+                Expect((int)r["from_container"]["owner_id"] == bay1Id && (string)r["from_container"]["kind"] == "smuggler_bay",
+                    "P6 bay item records from_container");
+                Expect((string)r["actual_area"] == "bay:" + bay1Id, "P6 bay item returns to original bay");
+            }
+            Expect(dustItems.All(d => d.parentInventory == bay1Grid), "P6 all 8 bottles back in bay1");
+            Expect((int)ContrabandCounts()["inventory"] == 0 && (int)ContrabandCounts()["smuggler_bay"] == 15,
+                "P6 contraband inventory count stays 0 after bay return");
+
+            // P6 fallback when bay is full
+            bay1Grid.replayFull = true;
+            var fbReply = RunP6Sale(new JArray(new JObject { ["item_id"] = LocalId(dustItems[0]), ["min_price"] = 12 }));
+            bay1Grid.replayFull = false;
+            Expect((string)fbReply["status"] == "finished", "P6 full bay fallback finishes");
+            var fbLine = (JObject)fbReply["items"][0];
+            Expect((string)fbLine["returned_to"] == "inventory" && (bool)fbLine["contraband_outside_bay"] &&
+                (string)fbLine["actual_area"] == "inventory" && dustItems[0].parentInventory == shop.invElement,
+                "P6 full bay fallback returns to inventory with contraband_outside_bay");
+            // Move bottle back to bay1 via move_item("inventory" -> "bay:<id>")
+            var backToBayRes = ExecuteMove(new JObject
+            {
+                ["command_id"] = "f1000000000000000000000000000001",
+                ["item_id"] = LocalId(dustItems[0]),
+                ["source"] = "inventory",
+                ["destination"] = "bay:" + bay1Id,
+                ["generation"] = generation,
+                ["revision"] = sequence,
+                ["visit"] = visitId,
+                ["expires_ms"] = long.MaxValue
+            });
+            Expect((string)backToBayRes["status"] == "moved" && dustItems[0].parentInventory == bay1Grid,
+                "P6 move_item moves from inventory into bay: " + backToBayRes);
+
+            // P6 Cartel delivery: 15 bottles from 2 bays moved directly to back
+            int movedToBack = 0;
+            foreach (var d in dustItems)
+            {
+                var mv = ExecuteMove(new JObject
+                {
+                    ["command_id"] = "f20000000000000000000000000000" + movedToBack.ToString("D2"),
+                    ["item_id"] = LocalId(d),
+                    ["source"] = "bay:" + bay1Id,
+                    ["destination"] = "back",
+                    ["generation"] = generation,
+                    ["revision"] = sequence,
+                    ["visit"] = visitId,
+                    ["expires_ms"] = long.MaxValue
+                });
+                Expect((string)mv["status"] == "moved" && (string)mv["actual_area"] == "back" &&
+                    (int)mv["from_container"]["owner_id"] == bay1Id, "P6 bay1 bottle moved to back");
+                movedToBack++;
+            }
+            foreach (var d in bay2Items)
+            {
+                var mv = ExecuteMove(new JObject
+                {
+                    ["command_id"] = "f20000000000000000000000000000" + movedToBack.ToString("D2"),
+                    ["item_id"] = LocalId(d),
+                    ["source"] = "bay:" + bay2Id,
+                    ["destination"] = "back",
+                    ["generation"] = generation,
+                    ["revision"] = sequence,
+                    ["visit"] = visitId,
+                    ["expires_ms"] = long.MaxValue
+                });
+                Expect((string)mv["status"] == "moved" && (string)mv["actual_area"] == "back" &&
+                    (int)mv["from_container"]["owner_id"] == bay2Id, "P6 bay2 bottle moved to back");
+                movedToBack++;
+            }
+            Expect(movedToBack == 15 && shop.backInvinvElement.childItems.Count == 15, "P6 all 15 bottles from 2 bays staged on back");
+            store.currentClientInstance = null;
 
             Console.WriteLine("Stock replay passed: counter staging, nested ownership, furnace roles, power, fermentation and notices.");
         }

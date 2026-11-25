@@ -35,7 +35,7 @@
 | 議價 | 用 `bargain(mode="read")` 查依類型分組的百分比、聲望、預算影響與離場機率（需逐鈕明細時帶 `verbose=True`），再用 `offer` 提交同頁的類型、百分比和 `bargain_token`。先看抬價成功後的預算削減率。送出後若回 `bargain_pending`，等對話結束，用同一來訪編號及最新版本重讀反應。聲望倍率影響聲望，成交金額看實際上櫃報價。 |
 | 整批採購 | 用 `quoted_total` 評估，取本次 `offer_token` 呼叫 `buy_merchant_batch`。例如最多花 90 就帶 `max_total=90`，成交後看實付和買進的 `items`，再看 `shop_update` 的附帶異動。 |
 | 單件採購 | 用 `request_supplier_quote` 帶本次 `visit` 和商品 `item_id`，取上櫃報價並核對原件已回到前櫃，再決定上限。可在 `trade_batch` 帶單筆買入。 |
-| 賣貨 | 帳面 `estimated_value` 用於估值，實際上櫃看 `quote.price`。用 `sell_order` 的 `lines` 設逐件底價，如 `[{"item_id": 42, "min_price": 18}]`。想按整批合計底價成交時可帶 `bundle=True`。同來訪若有未售貨物仍在自有庫存，新版本可重下；已全售或離庫則重送會回原成交回執。 |
+| 賣貨 | 帳面 `estimated_value` 用於估值，實際上櫃看 `quote.price`。用 `sell_order` 的 `lines` 設逐件底價，如 `[{"item_id": 42, "min_price": 18}]`。想按整批合計底價成交時可帶 `bundle=True`。走私艙（`smuggler_bay`／`smuggler_bay_mini`）內的貨可直接賣出，遭拒時會優先退回原走私艙（僅在艙滿時退回主庫存並標註 `returned_to="inventory"`）。同來訪若有未售貨物仍在自有庫存，新版本可重下；已全售或離庫則重送會回原成交回執。 |
 | 同客混合買賣 | 用 `trade_batch` 的 `orders`，每筆帶 `item_id`、`side` 和 `price_limit`。例如 `{"item_id": 63, "side": "buy", "price_limit": 25}` 是買入上限；`side="sell"` 時同欄位是最低售價。逐筆查成交結果。 |
 | 以物易物 | 遇 `barter_unsupported` 表示這位客人的原生交換流程尚未接入。可交換時先看各方案 `give`（店家付出）和 `receive`（店家取得）。用 `barter_offer(mode="select")` 選方案，按要求將付款物移到交易檯。重讀報價，帶新 `barter_token`、同一方案的 `option` 及 `payment_item_id` 接受。 |
 | 購買情報 | 先讀 `info_receipt`。決定購買時用 `pay_info_receipt` 帶當頁 `receipt_token` 和顯示的 `price`。核對現金及情報紙條。 |
@@ -47,11 +47,11 @@
 
 - 卡槽或物品右鍵回執若有 `removal.reason="module_stuck"`，保持機台視窗開在該槽。找到自有的普通或進階模組拆卸器，用拆卸器自己的編號讀 `item_menu`，再用它的 `menu_token` 選 `use`，以 `removal.target_id` 指定卡片。普通型要有剩餘次數。回執的 `module_stuck=false` 表示卡已鬆開；重讀機台槽位，用新的 `window_token` 取回庫存。
 - 查貨時若有 `container_path`，按列出的順序從外包找到內包，`parent_id` 是直接裝著該件貨的包。包內貨的 `area` 跟隨整包；`unpack_first` 要先取出，`container_locked` 先核對容器狀態，直接出貨以前再看實際位置。
-- 用 `move_items` 同批處理相同 `source`、`destination` 的貨，逐件核對 `status`、`actual_area` 和堆疊的 `observed_quantity`。單件空間不足時會列入 `skipped_ids`，並繼續試後面的貨；其他阻礙仍會停下。例如空櫃檯時把一批後櫃自有貨由 `back` 搬到 `inventory`。若回 `already_in_destination`，該件已在目標位置；若遇換客停下，先查當前狀態，再處理 `not_attempted` 的貨。遇 `no_space` 或 `showcase_full`，比對物品尺寸、可旋轉性與 `largest_free`。必要時用 `sort_inventory` 整理主庫存，比對前後連續空間；若回 `external_sorter_active`，用已啟用的整理模組處理。
+- 用 `move_items` 同批處理相同 `source`、`destination` 的貨，逐件核對 `status`、`actual_area`、`from_container` 和堆疊的 `observed_quantity`。`source`／`destination` 也支援 `"bay:<owner_id>"` 直接與走私艙互搬或送交櫃檯 `back`（`bay → back` 須帶 `visit`）。單件空間不足時會列入 `skipped_ids`，並繼續試後面的貨；其他阻礙仍會停下。例如空櫃檯時把一批後櫃自有貨由 `back` 搬到 `inventory`。若回 `already_in_destination`，該件已在目標位置；若遇換客停下，先查當前狀態，再處理 `not_attempted` 的貨。遇 `no_space` 或 `showcase_full`，比對物品尺寸、可旋轉性與 `largest_free`。必要時用 `sort_inventory` 整理主庫存，比對前後連續空間；若回 `external_sorter_active`，用已啟用的整理模組處理。
 - 用 `item_menu(mode="read")` 看物品的原生右鍵選項。帶上一個 `menu_token` 可看變動；過期或已用的 token 會回 `stale_menu_token` 並附新 token 供直接重試。工具能作用於多件候選貨時，用 `mode="targets"` 和 `target_ids` 先試配預覽。選定後用 `mode="choose"`、`verb="use"` 與 `target_id`。用化學光譜儀掃描會直接回 `scan` 並自動關閉工具開出的面板（`panel_closed=True`）。
 - 用物品**自己的當局編號**作為 `inspect_item_window` 的 `owner_id`，需開窗時帶 `open_if_closed=True`。讀 `window.document`、槽位容量、可見控制項及 `window_token`。例如先讀化學手冊的可讀頁，按實驗設備當頁標明的配方放料，先核對容器是否到位，再操作。從同一槽批次存取用 `transfer_slot_items`，指定回執的 `control` 和 `window_token`。從槽取出帶 `source="slot"`，放入帶實際來源 `inventory` 或 `showcase`，逐件檢查實到數量。
 - 按鈕、單選與分頁用 `press_machine_button`，換頁帶當頁給出的標題與從 0 起算的 `tab_index`。滑桿用 `adjust_machine_control` 傳 `values=[數值]`，範圍滑桿傳 `[下限, 上限]`，再讀遊戲實際套用的值。化學成型機的輸出按鈕支援 `quantity` 1 至 64，對照 `produced` 和停止原因取貨。
-- 化學蒸發後段可用 `chem_finish` 串接：從蒸發器取出容器、用光譜儀確認沒有水或酒精殘留、放進成型機、在 `chemical_finisher` 面板依 `recipe_id` 選配方、批次輸出、收回庫存並抽檢純度與分級（`purity`、`grade`），有指定 `stash_ids` 或 `stash_count` 時再放進走私暗格；中途任一步失敗即停下並回報容器位置。蒸發器視窗也會回報電池電量、容器液量主成分與 `distillate_capture` 條件。
+- 化學蒸發後段可用 `chem_finish` 串接：從蒸發器取出容器（或於成型機內接續）、用光譜儀確認沒有水或酒精殘留（可帶 `min_purity` 先把關估計純度）、放進成型機、在 `chemical_finisher` 面板依 `recipe_id` 或名稱選配方、批次輸出、收回庫存並抽檢純度與分級（`purity`、`grade`），有指定 `stash_ids` 或 `stash_count` 時再放進走私暗格；中途任一步失敗即停下並回報容器位置。萃取後蒸發前務必先過濾：使用帶 `FILTER_CONTAINER_TAG` 的承接容器（例如水罐），先放入濾材（滤水器或韧棉织物），再用 `water_use` 把溶液倒進去。水罐為 3×4，用完記得從成型機或蒸發器取出，避免卡住庫存空間與下次的輸入槽。蒸發器視窗也會回報電池電量、容器液量主成分與 `distillate_capture` 條件。
 - 回執指向 `item_panel` 時先讀第二層面板。用當頁 `panel_token` 和啟用的 `control` 操作，結果和新 token 見 `after`。遇 `select_panel` 就從 `panels` 選名稱，以 `panel` 指定要讀哪一張，再依可用控制聚焦或關閉。遇 `dedicated_panel` 看 `next`。若掃描後需回同一位客人的交易平板，用 `reopen_trade_tablet` 帶當次 `visit`。
 - 水務可用 `inspect_purifiers` 查瓶貼、電力及微型淨水器耐久。用 `water_use` 裝水時以容器為 `source_id`、`"faucet"` 為 `target_id`；手持淨水器則以機器為來源、瓶子為目標。裝水、淨化、試紙可用 `apply_now`，排水、倒水、藥片與口糧先 `preview` 再 `apply`；多瓶空瓶一次裝水並用手持淨水器淨化可用 `fill_and_purify_bottles`，遇提示、沒電或關水龍頭即停下。試紙與藥片須先從容器取出單件。
 - 自有刮刮樂用 `scratch_card` 讀取、開啟、`reveal`（位置 1–3）或 `reveal_all` 一次刮開，刮完關閉面板再換下一張。
@@ -74,7 +74,7 @@
 
 睡前核對 `health` 與 `alerts`。哨兵距上次注射滿 6 天時警告，滿 7 天起累積傷害，池值達 20 會死亡。成癮的交易懲罰與戒斷進度以目前讀值為準。勒索者第 8 天起每 7 天來收費，用當頁對話選項決定。需要攝取或注射時，讀 `usable_items` 的物品編號，再以 `item_menu` 的 `activate` 消耗；未鑑定的針劑請玩家辨識。
 
-用 `get_shop_status(verbose=True)` 查看證據、違禁品分區件數、海報狀態（`poster.pulled`）、通緝名單和 `last_save`（`security.evidence_display` 在打烊後等時段可能依遊戲原生顯示「不適用」）。過夜後遊戲先進入次日早晨才存檔。
+用 `get_shop_status(verbose=True)` 查看證據、違禁品分區件數、海報狀態（`poster.pulled`）、通緝名單和 `last_save`（`security.evidence_display` 在打烊後等時段可能依遊戲原生顯示「不適用」）。使用隱藏格藏貨流程：先 `toggle_poster(mode="up")` 拉起海報 → `move_items` 搬進 `hidden` → **再 `toggle_poster(mode="down")` 放下海報**才算藏好；開店前若 `security.poster.pulled` 為 `true`，提醒玩家或先放下海報（營業中有客人在場時禁止操作海報）。過夜後遊戲先進入次日早晨才存檔。
 
 - 打烊前看剩餘客數及檯上留貨，用目前的 `reception_token` 呼叫 `close_shop`。若需要提前打烊，按回執核對剩餘客數和玩家交代，再以 `confirm_remaining` 確認。歇業後可以留店收貨、外出或睡覺。
 - 要過夜時，用當天 `bill_token` 呼叫 `prepare_sleep` 查帳單；需要時用 `night_service` 調整服務。沿用最新憑證和帳單的 `service_cost` 呼叫 `sleep`。回 `awaiting_report` 時等當晚報告，改查店況及日數確認進度。收到報告，核對租金、垃圾、服務費、餘額與 `alerts`，並留意下次到期日、傷勢及保險。若通緝警示關係到來客身分，交給玩家鑑定。

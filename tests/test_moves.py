@@ -311,6 +311,27 @@ class MoveMailbox(unittest.TestCase):
         self.assertEqual([r["actual_area"] for r in res["items"]], ["back", "back", "back"])
         self.assertEqual(call.call_count, 3)
 
+    def test_smuggler_bay_routes_and_from_container(self):
+        with self.assertRaises(ValueError):
+            move_item(self.folder, 83, "bay:0", "inventory", self.generation, 2)
+        with self.assertRaises(ValueError):
+            move_item(self.folder, 83, "bay:32", "hidden", self.generation, 2)
+        with self.assertRaises(ValueError):
+            move_item(self.folder, 83, "bay:32", "back", self.generation, 2)
+
+        self.head.update(revision=2, counter_move_protocol=1, phase="OPEN")
+        self.publish_head()
+        visit = "c" * 32
+        bay_moved = lambda rev, cid: dict(
+            status="moved", actual_area="back", revision=rev, load_scans=1, full_scans=1,
+            phase="OPEN", slot=4, from_container={"owner_id": 32, "kind": "smuggler_bay"},
+            command_id=cid, item_id=83, expected_revision=2, requested_area="back",
+        )
+        with patch("moves.move_item", side_effect=[bay_moved(3, "1"*32), bay_moved(4, "2"*32)]):
+            res = move_items(self.folder, [83, 84], "bay:32", "back", self.generation, 2, visit=visit)
+        self.assertEqual((res["status"], res["moved_count"]), ("moved", 2))
+        self.assertEqual(res["items"][0]["from_container"], {"owner_id": 32, "kind": "smuggler_bay"})
+
 
 if __name__ == "__main__":
     unittest.main()

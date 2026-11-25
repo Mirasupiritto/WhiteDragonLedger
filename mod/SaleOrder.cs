@@ -15,6 +15,7 @@ namespace WhiteDragon.Ledger
         private GameInventory original;
         private readonly List<GameItem> stagedBundle = new List<GameItem>();
         private readonly Dictionary<GameItem, GameInventory> bundleOrigins = new Dictionary<GameItem, GameInventory>();
+        private readonly Dictionary<GameItem, JObject> bundleFromContainers = new Dictionary<GameItem, JObject>();
         private readonly Dictionary<GameItem, int> bundleQuantities = new Dictionary<GameItem, int>();
         private readonly Dictionary<GameItem, int> observedBundleSales = new Dictionary<GameItem, int>();
         private readonly HashSet<string> blockedKinds = new HashSet<string>();
@@ -47,6 +48,7 @@ namespace WhiteDragon.Ledger
             orderClearedItems.Clear();
             stagedBundle.Clear();
             bundleOrigins.Clear();
+            bundleFromContainers.Clear();
             bundleQuantities.Clear();
             observedBundleSales.Clear();
             order = null;
@@ -116,10 +118,48 @@ namespace WhiteDragon.Ledger
             EndOrder(reason);
         }
 
-        private static void ReturnToOrigin(GameItem item, GameInventory origin)
+        private static bool IsSmugglerBayContainer(GameItem container) =>
+            container != null && (container.identifier == "smuggler_bay" || container.identifier == "smuggler_bay_mini" ||
+                ContrabandHelper.IsSmugglerBay(container) || ContrabandHelper.IsBlockSearchContainer(container));
+
+        private GameItem BayContainerOf(GameInventory grid)
+        {
+            if (grid == null || areas.ContainsKey(grid)) return null;
+            var parent = grid.GetParentItem();
+            return IsSmugglerBayContainer(parent) ? parent : null;
+        }
+
+        private JObject FromContainerJson(GameItem bay) =>
+            bay == null ? null : new JObject { ["owner_id"] = LocalId(bay), ["kind"] = bay.identifier };
+
+        private JToken AreaOfInventory(GameInventory inv)
+        {
+            if (inv == null) return JValue.CreateNull();
+            if (areas.TryGetValue(inv, out var area)) return area;
+            var bay = BayContainerOf(inv);
+            return bay != null ? (JToken)("bay:" + LocalId(bay)) : JValue.CreateNull();
+        }
+
+        private static bool ReturnToOriginWithFallback(GameItem item, GameInventory origin)
         {
             if (origin == EmporiumEntry.Instance.invElement) ModHelper.MoveItemToInventory(item);
             else if (origin == EmporiumEntry.Instance.showcaseElement) ModHelper.MoveItemToDisplayCase(item);
+            else if (origin != null)
+            {
+                if (GraphUtils.CanAccept(origin, item))
+                    GraphUtils.TryAcceptOnce(origin, item);
+                if (item.parentInventory != origin)
+                {
+                    ModHelper.MoveItemToInventory(item);
+                    return item.parentInventory == EmporiumEntry.Instance.invElement;
+                }
+            }
+            return false;
+        }
+
+        private static void ReturnToOrigin(GameItem item, GameInventory origin)
+        {
+            ReturnToOriginWithFallback(item, origin);
         }
 
         private void StopBundle(string reason)
@@ -177,12 +217,16 @@ namespace WhiteDragon.Ledger
                 }
                 var toStage = new List<GameItem>(rows.Count);
                 var origins = new List<GameInventory>(rows.Count);
+                var fromContainers = new Dictionary<GameItem, JObject>();
                 for (int i = 0; i < rows.Count; i++)
                 {
                     int id = (int)rows[i]["item_id"];
+                    GameItem bay = null;
+                    string area = null;
                     if (!itemsById.TryGetValue(id, out var item) || !GeneralHelper.IsItemOwned(item) ||
-                        item.parentInventory == null || !areas.TryGetValue(item.parentInventory, out var area) ||
-                        (area != "inventory" && area != "showcase"))
+                        item.parentInventory == null ||
+                        !((areas.TryGetValue(item.parentInventory, out area) && (area == "inventory" || area == "showcase")) ||
+                          (bay = BayContainerOf(item.parentInventory)) != null))
                     { StopBundle("source_changed"); return; }
                     if (GeneralHelper.IsItemLocked(item) || !item.MayRemove() || item.parentInventory.IsRemoveLocked())
                     {
@@ -193,6 +237,7 @@ namespace WhiteDragon.Ledger
                     }
                     toStage.Add(item);
                     origins.Add(item.parentInventory);
+                    if (bay != null) fromContainers[item] = FromContainerJson(bay);
                 }
                 for (int i = 0; i < toStage.Count; i++)
                 {
@@ -202,17 +247,24 @@ namespace WhiteDragon.Ledger
                     ModHelper.MoveItemToBackCounter(item);
                     if (item.parentInventory != table)
                     {
+                        var fellBack = new bool[stagedBundle.Count];
                         for (int j = stagedBundle.Count - 1; j >= 0; j--)
-                            ReturnToOrigin(stagedBundle[j], bundleOrigins[stagedBundle[j]]);
+                            fellBack[j] = ReturnToOriginWithFallback(stagedBundle[j], bundleOrigins[stagedBundle[j]]);
                         FlushChanges();
                         for (int j = 0; j < stagedBundle.Count; j++)
                         {
                             var rolled = (JObject)rows[j].DeepClone();
                             var prev = stagedBundle[j];
                             rolled["kind"] = prev.identifier;
-                            rolled["actual_area"] = prev.parentInventory != null && areas.TryGetValue(prev.parentInventory, out var a)
-                                ? (JToken)a : JValue.CreateNull();
-                            rolled["status"] = prev.parentInventory == bundleOrigins[prev] ? "returned_placement_failed" : "return_unconfirmed";
+                            if (fromContainers.TryGetValue(prev, out var fcPrev)) rolled["from_container"] = fcPrev.DeepClone();
+                            rolled["actual_area"] = AreaOfInventory(prev.parentInventory);
+                            bool returned = prev.parentInventory == bundleOrigins[prev] || fellBack[j];
+                            if (fellBack[j])
+                            {
+                                rolled["returned_to"] = "inventory";
+                                if (ContrabandHelper.IsContraband(prev)) rolled["contraband_outside_bay"] = true;
+                            }
+                            rolled["status"] = returned ? "returned_placement_failed" : "return_unconfirmed";
                             results.Add(rolled);
                         }
                         var failed = (JObject)rows[i].DeepClone();
@@ -226,6 +278,7 @@ namespace WhiteDragon.Ledger
                     }
                     stagedBundle.Add(item);
                     bundleOrigins[item] = origin;
+                    if (fromContainers.TryGetValue(item, out var fc)) bundleFromContainers[item] = fc;
                     bundleQuantities[item] = qty;
                 }
                 FlushChanges();
@@ -259,8 +312,9 @@ namespace WhiteDragon.Ledger
                 bundleRefusal = "over_budget";
             if (bundleRefusal != null)
             {
+                var fellBack = new bool[stagedBundle.Count];
                 for (int i = stagedBundle.Count - 1; i >= 0; i--)
-                    ReturnToOrigin(stagedBundle[i], bundleOrigins[stagedBundle[i]]);
+                    fellBack[i] = ReturnToOriginWithFallback(stagedBundle[i], bundleOrigins[stagedBundle[i]]);
                 FlushChanges();
                 bool allReturned = true;
                 JToken budgetAfter = merchant.useClientBudget ? (JToken)merchant.GetBudget() : JValue.CreateNull();
@@ -269,13 +323,18 @@ namespace WhiteDragon.Ledger
                     var row = (JObject)rows[i].DeepClone();
                     var item = stagedBundle[i];
                     row["kind"] = item.identifier;
+                    if (bundleFromContainers.TryGetValue(item, out var fc)) row["from_container"] = fc.DeepClone();
                     row["quote"] = quotes[i];
                     row["budget_before"] = budgetBefore;
                     row["budget_after"] = budgetAfter;
-                    bool returned = item.parentInventory == bundleOrigins[item];
+                    bool returned = item.parentInventory == bundleOrigins[item] || fellBack[i];
                     if (!returned) allReturned = false;
-                    row["actual_area"] = item.parentInventory != null && areas.TryGetValue(item.parentInventory, out var area)
-                        ? (JToken)area : JValue.CreateNull();
+                    row["actual_area"] = AreaOfInventory(item.parentInventory);
+                    if (fellBack[i])
+                    {
+                        row["returned_to"] = "inventory";
+                        if (ContrabandHelper.IsContraband(item)) row["contraband_outside_bay"] = true;
+                    }
                     row["status"] = returned ? "returned_" + (refusals[i] ?? bundleRefusal) : "return_unconfirmed";
                     results.Add(row);
                 }
@@ -304,6 +363,7 @@ namespace WhiteDragon.Ledger
                 var row = (JObject)rows[i].DeepClone();
                 var item = stagedBundle[i];
                 row["kind"] = item.identifier;
+                if (bundleFromContainers.TryGetValue(item, out var fc)) row["from_container"] = fc.DeepClone();
                 row["quote"] = quotes[i];
                 row["budget_before"] = budgetBefore;
                 row["budget_after"] = finalBudget;
@@ -368,11 +428,17 @@ namespace WhiteDragon.Ledger
                     orderRevision = sequence;
                 }
                 line = (JObject)spec.DeepClone();
-                if (!itemsById.TryGetValue(id, out var item) || GeneralHelper.IsItemOwned(item) == buying ||
-                    item.parentInventory == null || !areas.TryGetValue(item.parentInventory, out var area) ||
-                    (onTable ? area != "back" : buying ? area != "front" && area != "back" : area != "inventory" && area != "showcase")) { StopLine("source_changed"); return; }
+                GameItem bay = null;
+                string area = null;
+                bool validArea = itemsById.TryGetValue(id, out var item) && GeneralHelper.IsItemOwned(item) != buying &&
+                    item.parentInventory != null &&
+                    (areas.TryGetValue(item.parentInventory, out area)
+                        ? (onTable ? area == "back" : buying ? area == "front" || area == "back" : area == "inventory" || area == "showcase")
+                        : (!onTable && !buying && (bay = BayContainerOf(item.parentInventory)) != null));
+                if (!validArea) { StopLine("source_changed"); return; }
                 line["kind"] = item.identifier;
-                line["actual_area"] = area;
+                line["actual_area"] = bay != null ? (JToken)("bay:" + LocalId(bay)) : area;
+                if (bay != null) line["from_container"] = FromContainerJson(bay);
                 if (!buying && blockedKinds.Contains(item.identifier))
                 {
                     line["status"] = "skipped_same_kind_budget";
@@ -427,12 +493,16 @@ namespace WhiteDragon.Ledger
                 quote < (long)rows[index]["min_price"] ? "below_minimum" : null;
             if (refusal != null)
             {
-                if (original == EmporiumEntry.Instance.invElement) ModHelper.MoveItemToInventory(staged);
-                else if (original == EmporiumEntry.Instance.showcaseElement) ModHelper.MoveItemToDisplayCase(staged);
+                bool fellBack = ReturnToOriginWithFallback(staged, original);
                 FlushChanges();
-                if (staged.parentInventory != original) { StopLine("return_unconfirmed"); return; }
+                if (staged.parentInventory != original && !fellBack) { StopLine("return_unconfirmed"); return; }
                 line["status"] = "returned_" + refusal;
-                line["actual_area"] = areas[original];
+                line["actual_area"] = AreaOfInventory(staged.parentInventory);
+                if (fellBack)
+                {
+                    line["returned_to"] = "inventory";
+                    if (ContrabandHelper.IsContraband(staged)) line["contraband_outside_bay"] = true;
+                }
                 if (overBudget && (bool?)order["stop_same_kind_on_budget"] == true) blockedKinds.Add(staged.identifier);
                 FinishLine();
                 return;

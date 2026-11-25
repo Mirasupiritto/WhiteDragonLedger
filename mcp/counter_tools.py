@@ -147,7 +147,7 @@ def register(server, folder, database, *, section_cache=None):
     @server.tool()
     def next_customer(generation: str | None = None, revision: int | None = None, waiting: int | None = None,
                       verbose: bool = False, timeout: float = 20.0) -> dict:
-        """One-step guest admission: if counter is idle, ring the bell, wait through opening dialogue and tablet opening (up to timeout seconds, default 20, returning opening_timeout if exceeded) and return trade-ready state; if a customer is already at the counter, finish opening and return status="already_present".
+        """One-step guest admission: if counter is idle, ring the bell, wait through opening dialogue and tablet opening (up to timeout seconds, default 20, returning opening_timeout if exceeded) and return status="called" with trade-ready state; if a customer was already at the counter before the call, finish opening and return status="already_present" with already_at_counter=True.
         Auto-closes tool-opened item panels; player-opened panels return item_panel_open with current visit/customer/stage and after_close_next_tool.
         Large (>5 item) supplier offers return a summary unless verbose=True."""
         return _present(admit_customer(generation, revision, waiting, timeout), verbose=verbose)
@@ -165,16 +165,20 @@ def register(server, folder, database, *, section_cache=None):
                     "can_open_shop": view.get("can_open_shop")}
         deadline = time.monotonic() + min(20.0, max(0.0, timeout))
         start_generation = view["generation"]
+        initially_at_counter = bool(view.get("visit"))
+        waited_for_bell = False
         while True:
             if view.get("stage") == "customer_departing":
                 if time.monotonic() >= deadline:
                     return {**shopdesk.strip_protocols(view), "status": "customer_departing"}
+                waited_for_bell = True
                 time.sleep(min(0.15, max(0, deadline - time.monotonic())))
                 view = counter.context(folder)
             elif view.get("stage") == "idle" and not view.get("visit"):
                 if view.get("reception", {}).get("can_ring") is False and (view.get("waiting") or 0) > 0:
                     if time.monotonic() >= deadline:
                         return {**shopdesk.strip_protocols(view), "status": "bell_unavailable", "reason": "bell_cooldown_timeout"}
+                    waited_for_bell = True
                     time.sleep(min(0.15, max(0, deadline - time.monotonic())))
                     view = counter.context(folder)
                 else:
@@ -182,6 +186,8 @@ def register(server, folder, database, *, section_cache=None):
                     result = counter.ring(folder, view["generation"], view["revision"], ring_wait,
                                           timeout=max(0, deadline - time.monotonic()))
                     if result.get("status") not in {"occupied", "bell_unavailable", "customer_replaced", "customer_left", "queue_changed", "customer_departing"}:
+                        if waited_for_bell and isinstance(result, dict):
+                            result = {**result, "waited_for_bell": True}
                         return result
                     view = counter.context(folder)
                     in_cooldown = (view.get("stage") == "idle" and not view.get("visit")
@@ -212,7 +218,12 @@ def register(server, folder, database, *, section_cache=None):
         if view.get("visit"):
             waited = counter.wait_opening(folder, view["generation"], view["visit"], timeout=max(0, deadline - time.monotonic()))
             if waited.get("status") == "observed":
-                waited = {**waited, "status": "already_present", "already_at_counter": True}
+                if initially_at_counter:
+                    waited = {**waited, "status": "already_present", "already_at_counter": True}
+                else:
+                    waited = {**waited, "status": "called"}
+                    if waited_for_bell:
+                        waited["waited_for_bell"] = True
             return waited
         return shopdesk.strip_protocols(dict(view))
 
