@@ -172,12 +172,17 @@ def _check_dismiss(view, args, revision):
         return visit_mismatch_status(view.get("visit"), view.get("customer"))
     if view["revision"] >= revision and not view["reception"]["can_dismiss"]:
         reception = view["reception"]
+        if (args.get("interrupt") and reception.get("reason") == "dialogue_in_progress"
+                and view.get("stage") != "choice_required"):
+            return None
         blockers = {
             "reason": reception.get("reason", "dismiss_unavailable"),
             "blocking_items": reception.get("blocking_items", []),
             "visit": view.get("visit"),
             "latest_revision": view["revision"],
         }
+        if "reason_detail" in reception:
+            blockers["reason_detail"] = reception["reason_detail"]
         if "token" in reception:
             blockers["reception_token"] = reception["token"]
         if "guidance" in reception:

@@ -146,13 +146,14 @@ def register(server, folder, database, *, section_cache=None):
 
     @server.tool()
     def next_customer(generation: str | None = None, revision: int | None = None, waiting: int | None = None,
-                      verbose: bool = False, timeout: float = 20.0) -> dict:
+                      verbose: bool = False, timeout: float = 20.0, skip_current: str | None = None) -> dict:
         """One-step guest admission: if counter is idle, ring the bell, wait through opening dialogue and tablet opening (up to timeout seconds, default 20, returning opening_timeout if exceeded) and return status="called" with trade-ready state; if a customer was already at the counter before the call, finish opening and return status="already_present" with already_at_counter=True.
+        Pass skip_current=<visit> to dismiss the current dismissible visitor mid-speech (interrupt=True) and immediately admit the next customer within the same timeout; stops without ringing if the visitor changed (customer_replaced) or cannot be dismissed (story NPC, choice page, active order).
         Auto-closes tool-opened item panels; player-opened panels return item_panel_open with current visit/customer/stage and after_close_next_tool.
         Large (>5 item) supplier offers return a summary unless verbose=True."""
-        return _present(admit_customer(generation, revision, waiting, timeout), verbose=verbose)
+        return _present(admit_customer(generation, revision, waiting, timeout, skip_current=skip_current), verbose=verbose)
 
-    def admit_customer(generation, revision, waiting, timeout):
+    def admit_customer(generation, revision, waiting, timeout, skip_current=None):
         view = counter.context(folder)
         if view.get("status") != "observed":
             return view
@@ -166,6 +167,20 @@ def register(server, folder, database, *, section_cache=None):
         deadline = time.monotonic() + min(20.0, max(0.0, timeout))
         start_generation = view["generation"]
         initially_at_counter = bool(view.get("visit"))
+        if skip_current is not None:
+            if view.get("visit") != skip_current:
+                return counter.visit_mismatch_status(view.get("visit"), view.get("customer"))
+            fin = finish_customer(view["generation"], view["revision"], skip_current, interrupt=True)
+            if fin.get("status") not in {"dismissed", "customer_left"}:
+                return fin
+            initially_at_counter = False
+            view = counter.context(folder)
+            if view.get("status") != "observed":
+                return view
+            if view.get("generation") != start_generation:
+                return {"status": "stale_observation"}
+            if view.get("phase") != "OPEN":
+                return {"status": "shop_closed", "phase": view.get("phase")}
         waited_for_bell = False
         while True:
             if view.get("stage") == "customer_departing":
@@ -228,11 +243,14 @@ def register(server, folder, database, *, section_cache=None):
         return shopdesk.strip_protocols(dict(view))
 
     @server.tool()
-    def finish_customer(generation: str, revision: int, visit: str) -> dict:
-        """Pass generation, revision and visit from the counter receipt. Dismiss this visitor. A brief native lock is retried once if the same visitor becomes dismissible.
+    def finish_customer(generation: str, revision: int, visit: str, interrupt: bool = False) -> dict:
+        """Pass generation, revision and visit from the counter receipt. Dismiss this visitor. Set interrupt=True to dismiss a dismissible visitor mid-speech (still blocked on choice pages, active orders, and non-dismissible story NPCs, returning reason_detail="story_npc"). A brief native lock is retried once if the same visitor becomes dismissible.
         If blocked, returns status="dismiss_unavailable" with reason, blocking_items, reception_token and latest_revision; if visitor left or changed, returns customer_left or customer_replaced."""
-        result = counter.command(folder, "dismiss", generation, revision, visit=visit)
-        if result.get("status")=="dismiss_unavailable" and result.get("reason") in {"client_not_dismissable","bell_locked","dialogue_in_progress"}:
+        dismiss_args = {"visit": visit}
+        if interrupt:
+            dismiss_args["interrupt"] = True
+        result = counter.command(folder, "dismiss", generation, revision, **dismiss_args)
+        if result.get("status")=="dismiss_unavailable" and result.get("reason") in {"client_not_dismissable","bell_locked","dialogue_in_progress"} and result.get("reason_detail")!="story_npc":
             replaced = None
 
             def try_dismiss():
@@ -243,8 +261,12 @@ def register(server, folder, database, *, section_cache=None):
                 if current.get("visit")!=visit:
                     replaced = counter.visit_mismatch_status(current.get("visit"),current.get("customer"))
                     return replaced
-                if current.get("reception",{}).get("can_dismiss"):
-                    return counter.command(folder,"dismiss",generation,revision,visit=visit)
+                can_now = current.get("reception", {}).get("can_dismiss") or (
+                    interrupt and current.get("reception", {}).get("reason") == "dialogue_in_progress"
+                    and current.get("stage") != "choice_required"
+                )
+                if can_now:
+                    return counter.command(folder,"dismiss",generation,revision,**dismiss_args)
                 return None
 
             retried, timed_out = poll(try_dismiss, timeout=1.5, interval=0.1, sleep=time.sleep)

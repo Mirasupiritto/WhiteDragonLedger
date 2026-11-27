@@ -314,7 +314,7 @@ namespace WhiteDragon.Ledger
                 receipt["revision_rechecked"] = recheckDismiss;
             if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);
             if (action == "pay_info") return PayInformationReceipt(request, receipt);
-            if (action == "dismiss") return DismissCustomer(receipt);
+            if (action == "dismiss") return DismissCustomer(request, receipt);
             if (action=="request_quote") return RequestSupplierQuote(request,receipt);
             string stage = CounterStage();
             if (action == "advance")
