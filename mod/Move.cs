@@ -79,18 +79,21 @@ namespace WhiteDragon.Ledger
             TryParseBayArea(source, out var sourceBay, out var sourceBayGrid);
             TryParseBayArea(destination, out var destBay, out var destBayGrid);
             bool bayMove = sourceBay != null || destBay != null;
+            bool trashMove = destination == "trash" || source == "trash";
             bool stockMove=(source=="inventory" && destination=="showcase") || (source=="showcase" && destination=="inventory");
-            bool hiddenMove=(source=="inventory" && destination=="hidden") || (source=="hidden" && destination=="inventory");
+            bool hiddenMove = source == "hidden" || destination == "hidden";
             if ((stockMove || bayMove) && request["visit"]!=null && (string)request["visit"]!=visitId)
                 return Receipt(request, visitId==null ? "customer_left" : "customer_replaced");
             itemsById.TryGetValue(id, out var item);
-            bool validArea = source == "inventory" || source == "showcase" || source == "front" || source == "back" || source == "hidden" || sourceBay != null;
-            bool allowAlreadyAtDest = destination == "inventory" || destination == "showcase" || destination == "hidden" || destBay != null ||
+            var shop = EmporiumEntry.Instance;
+            bool validArea = source == "inventory" || source == "showcase" || source == "front" || source == "back" || source == "hidden" || source == "trash" || sourceBay != null;
+            bool allowAlreadyAtDest = destination == "inventory" || destination == "showcase" || destination == "hidden" || destination == "trash" || destBay != null ||
                 (destination == "back" && request["visit"] != null && (string)request["visit"] == visitId);
             if (validArea && allowAlreadyAtDest && source != destination && (int)request["revision"] <= sequence &&
                 item?.parentInventory != null &&
                 (GeneralHelper.IsItemOwned(item) || (source == "front" && destination == "back")) &&
                 ((destBayGrid != null && item.parentInventory == destBayGrid) ||
+                 (destination == "trash" && shop.trashcanInvElement != null && item.parentInventory == shop.trashcanInvElement) ||
                  (areas.TryGetValue(item.parentInventory, out var current) && current == destination)))
             {
                 var settled = Receipt(request, "already_in_destination");
@@ -114,8 +117,19 @@ namespace WhiteDragon.Ledger
             }
             if (phase != "CLOSED" && phase != "MORNING")
             {
-                bool stockOrBayMove = stockMove || (bayMove && source != "hidden" && destination != "hidden");
-                if (hiddenMove || !stockOrBayMove || phase != "OPEN") return Receipt(request, "shop_open");
+                bool allowedOpenMove = stockMove || (bayMove && !hiddenMove) || (trashMove && !hiddenMove) ||
+                    (hiddenMove && phase == "OPEN" && !PlayerStore.Instance.IsClientPresent());
+                if (!allowedOpenMove || phase != "OPEN")
+                {
+                    if (hiddenMove)
+                    {
+                        var blocked = Receipt(request, "transfer_blocked");
+                        blocked["reason"] = phase == "OPEN" && PlayerStore.Instance.IsClientPresent()
+                            ? "customer_present" : "hidden_grid_closed_only";
+                        return blocked;
+                    }
+                    return Receipt(request, "shop_open");
+                }
                 var entry=EmporiumEntry.Instance;
                 bool needInv = stockMove || source == "inventory" || destination == "inventory";
                 bool needShowcase = stockMove || source == "showcase" || destination == "showcase";
@@ -128,7 +142,6 @@ namespace WhiteDragon.Ledger
             }
             if (hiddenMove)
             {
-                if (phase != "CLOSED") return Receipt(request, "shop_open");
                 if (StorePoster.Instance == null || !StorePoster.Instance.isPulled)
                 {
                     var blocked = Receipt(request, "transfer_blocked");
@@ -169,11 +182,17 @@ namespace WhiteDragon.Ledger
             }
             else
             {
+                bool validTrashRoute = trashMove && source != destination &&
+                    (destination == "trash" ? (source == "inventory" || source == "showcase" || source == "hidden" || sourceBay != null) :
+                     destination == "inventory");
+                bool validHiddenRoute = hiddenMove && source != destination &&
+                    (source == "inventory" || source == "showcase" || sourceBay != null ||
+                     destination == "inventory" || destination == "showcase" || destBay != null || destination == "trash");
                 bool validBayRoute = bayMove && source != destination &&
-                    (sourceBay != null ? (destination == "inventory" || destination == "showcase" || destBay != null) :
-                     (source == "inventory" || source == "showcase"));
+                    (sourceBay != null ? (destination == "inventory" || destination == "showcase" || destination == "hidden" || destination == "trash" || destBay != null) :
+                     (source == "inventory" || source == "showcase" || source == "hidden"));
                 if (source == destination ||
-                    (!hiddenMove && !validBayRoute && ((source != "inventory" && source != "showcase") ||
+                    (!validHiddenRoute && !validBayRoute && !validTrashRoute && ((source != "inventory" && source != "showcase") ||
                     (destination != "inventory" && destination != "showcase"))))
                     return Receipt(request, "invalid_route");
                 if (sourceBayGrid != null)
@@ -181,23 +200,45 @@ namespace WhiteDragon.Ledger
                     if (item.parentInventory != sourceBayGrid)
                         return Receipt(request, "source_changed");
                 }
+                else if (source == "trash")
+                {
+                    if (shop.trashcanInvElement == null || item.parentInventory != shop.trashcanInvElement)
+                        return Receipt(request, "source_changed");
+                }
                 else if (!areas.TryGetValue(item.parentInventory, out var actual) || actual != source)
                     return Receipt(request, "source_changed");
             }
             if (!GeneralHelper.IsItemOwned(item)) return Receipt(request, "not_owned");
-            var shop = EmporiumEntry.Instance;
+            if (destination == "trash")
+            {
+                if (item.IsTag(GeneralHelper.IMPORTANT_TAG))
+                {
+                    var blocked = Receipt(request, "transfer_blocked");
+                    blocked["reason"] = "important_item";
+                    return blocked;
+                }
+                if (item.IsTag(GeneralHelper.HAZARDOUS_WASTE_TAG) || IsHazardousWasteItem(item))
+                {
+                    var blocked = Receipt(request, "transfer_blocked");
+                    blocked["reason"] = "hazardous_waste_cannot_trash";
+                    return blocked;
+                }
+                if (shop.trashcanInvElement == null)
+                    return Receipt(request, "transfer_blocked");
+            }
             GameInventory target = loading ? (GameInventory)container :
                 destBayGrid != null ? destBayGrid :
+                destination == "trash" ? shop.trashcanInvElement :
                 destination == "hidden" ? shop.hiddenElement :
                 destination == "showcase" ? shop.showcaseElement : shop.invElement;
             if (item.parentInventory.IsRemoveLocked() || target.IsInsertLocked() || !item.MayRemove())
                 return Receipt(request, "locked");
 
-            if ((destination == "showcase" || destination == "hidden" || destBayGrid != null) && !GraphUtils.CanAccept(target, item))
+            if ((destination == "showcase" || destination == "hidden" || destination == "trash" || destBayGrid != null) && !GraphUtils.CanAccept(target, item))
             {
                 string fullCode = destination == "showcase" ? "showcase_full" : "no_space";
                 var full = Receipt(request, fullCode);
-                full["reason"] = destination == "showcase" ? "showcase_full" : destBayGrid != null ? "bay_full" : "hidden_full";
+                full["reason"] = destination == "showcase" ? "showcase_full" : destination == "trash" ? "trash_full" : destBayGrid != null ? "bay_full" : "hidden_full";
                 full["actual_area"] = source;
                 AttachSpaceFailure(item, target, full);
                 return full;
@@ -214,7 +255,7 @@ namespace WhiteDragon.Ledger
 
             // The native placement routine enforces available space and slot rules.
             int quantityBefore = item.unitCount;
-            if (loading || destination == "hidden" || destBayGrid != null)
+            if (loading || destination == "hidden" || destination == "trash" || destBayGrid != null)
             {
                 if (!GraphUtils.CanAccept(container ?? target, item)) return Receipt(request, loading ? "slot_rejected" : "no_space");
                 GraphUtils.TryAcceptOnce(container ?? target, item);
@@ -226,7 +267,9 @@ namespace WhiteDragon.Ledger
             FlushChanges();
             string observed = null;
             if (destBayGrid != null && item.parentInventory == destBayGrid) observed = destination;
+            else if (destination == "trash" && shop.trashcanInvElement != null && item.parentInventory == shop.trashcanInvElement) observed = "trash";
             else if (sourceBayGrid != null && item.parentInventory == sourceBayGrid) observed = source;
+            else if (source == "trash" && shop.trashcanInvElement != null && item.parentInventory == shop.trashcanInvElement) observed = "trash";
             else if (item.parentInventory != null) areas.TryGetValue(item.parentInventory, out observed);
             if (container != null && item.parentInventory == container) observed = "purifier";
             bool sourceCleared = container == null || (loading ? container.childItem == item : container.childItem == null);

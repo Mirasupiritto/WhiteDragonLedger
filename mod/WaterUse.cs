@@ -72,6 +72,43 @@ namespace WhiteDragon.Ledger
                 ["target_ml_after"]=(WaterHelper.GetCurrentCapacityUL(target)+received)/1000.0 };
         }
 
+        private static bool IsContainerReacting(GameItem item)
+        {
+            if (item == null || !item.IsTag("LIQUID_CONTAINER_TAG")) return false;
+            var parts = LiquidParts.Read(item);
+            bool hasAcid = false, hasBase = false, hasProtein = false, hasPaste = false, hasChlorine = false, hasMicrobe = false;
+            foreach (var part in parts)
+            {
+                switch (part.Key.identifier)
+                {
+                    case "acid": hasAcid = true; break;
+                    case "base": hasBase = true; break;
+                    case "protein": hasProtein = true; break;
+                    case "mushroom_paste": hasPaste = true; break;
+                    case "chlorine": hasChlorine = true; break;
+                    case "microbe": hasMicrobe = true; break;
+                }
+            }
+            return (hasAcid && hasBase) || (hasProtein && (hasAcid || hasBase)) ||
+                (hasPaste && item.IsTag("HEATING_TAG")) || (hasChlorine && hasMicrobe);
+        }
+
+        private static JArray ChangedPlanFields(JObject current, JObject previous)
+        {
+            var changedFields = new JArray();
+            if (current == null || previous == null) return changedFields;
+            foreach (var prop in current.Properties())
+            {
+                if (!previous.TryGetValue(prop.Name, out var prevVal) || !JToken.DeepEquals(prop.Value, prevVal))
+                    changedFields.Add(prop.Name);
+            }
+            foreach (var prop in previous.Properties())
+            {
+                if (current[prop.Name] == null) changedFields.Add(prop.Name);
+            }
+            return changedFields;
+        }
+
         private string WaterUseAction(JObject request, JObject receipt)
         {
             string mode = (string)request["mode"];
@@ -79,7 +116,11 @@ namespace WhiteDragon.Ledger
             bool apply = applyNow || mode == "apply";
             if (!apply && mode != "preview") return "invalid_action";
             if (!apply) waterPlan = null;
-            if (mode == "apply" && (waterPlan == null || waterUseToken != (string)request["use_token"])) return "water_plan_changed";
+            if (mode == "apply" && (waterPlan == null || waterUseToken != (string)request["use_token"]))
+            {
+                receipt["reason"] = waterPlan == null ? "no_active_preview" : "stale_use_token";
+                return "water_plan_changed";
+            }
             var shop = EmporiumEntry.Instance;
             if (!itemsById.TryGetValue((int)request["source_id"], out var source) || source == null ||
                 !GeneralHelper.IsItemEffectivelyOwned(source))
@@ -176,7 +217,16 @@ namespace WhiteDragon.Ledger
                 receipt["use_token"] = waterUseToken;
                 return "preview";
             }
-            if (!applyNow && !JToken.DeepEquals(plan, waterPlan)) return "water_plan_changed";
+            if (!applyNow && !JToken.DeepEquals(plan, waterPlan))
+            {
+                receipt["changed_fields"] = ChangedPlanFields(plan, waterPlan);
+                if (IsContainerReacting(source) || (!fixture && IsContainerReacting(target)))
+                {
+                    receipt["reason"] = "reaction_in_progress";
+                    receipt["next_action"] = "wait_for_reaction_and_retry";
+                }
+                return "water_plan_changed";
+            }
             waterPlan = null;
             int charge = operation == "purify" ? DurabilityHelper.GetRealDurability(source) : 0;
             receipt["operation"] = operation;

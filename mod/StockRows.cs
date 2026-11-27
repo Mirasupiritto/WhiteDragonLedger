@@ -25,6 +25,11 @@ namespace WhiteDragon.Ledger
                 ["trade_contraband"] = ContrabandHelper.IsContraband(item) };
             if (BottleLabel(item) is string label)
                 row["bottle_label"] = label;
+            if (StolenHelper.IsStolenItem(item))
+            {
+                row["stolen"] = true;
+                row["stolen_heat"] = StolenHelper.GetFoundChance(item);
+            }
             EnrichStockRow(item, row);
             return row;
         }
