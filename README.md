@@ -1,6 +1,6 @@
 # 深空當鋪：店長可能是智能體 · White Dragon Ledger
 
-**0.34.3 · 適用遊戲版本：0.46D · Windows · MIT License**
+**0.34.4 · 適用遊戲版本：0.46D · Windows · MIT License**
 
 白龍店帳是一套為《深空當鋪》（Probably Stolen）打造的本機 Mod + stdio MCP 橋接工具，讓 **AI 智能體直接作為店主／玩家遊玩整款遊戲**。你不必一步步代操作，可以坐在旁邊看畫面、一起討論吐槽，只在需要「人眼看圖」或「手動點 UI」時搭把手。
 

@@ -2,8 +2,8 @@
   <ID>white_dragon_ledger</ID>
   <Name>深空當鋪：店長可能是智能體 · White Dragon Ledger</Name>
   <Author>鳴瀨與大白龍</Author>
-  <ModVersion>0.34.3</ModVersion>
-  <Description>將讀檔盤點與貨區變動記入本機店帳，提供批發回本查詢、淨水器晨檢與逐件銷售訂單。</Description>
+  <ModVersion>0.34.4</ModVersion>
+  <Description>透過本機 SQLite 店帳與 MCP 橋接，讓 AI 智能體直接當店長遊玩《深空當鋪》：覆蓋開局接客、議價批發、鑑定委員會估價、贓物與暗格藏貨、水務化學自動化、電話人脈與夜間外出，並於模組設定提供鑑定輔助與「物品詳情」模組選配相容。</Description>
   <GameVersions><Version>0.46D</Version></GameVersions>
   <Prerequisites />
   <Assemblies><Assembly>WhiteDragonLedger.dll</Assembly></Assemblies>
