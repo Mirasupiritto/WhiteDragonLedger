@@ -13,6 +13,19 @@ namespace WhiteDragon.Ledger
         private readonly System.Collections.Generic.HashSet<string> toolOpenedPanels = new System.Collections.Generic.HashSet<string>();
         private static readonly string[] MenuVerbs = { "open", "use", "equip", "activate", "configure", "toggle", "unload", "pin" };
 
+        private string ItemMenuBlockReason(GameItem item)
+        {
+            if (Interactable.isPaused) return "paused";
+            if (GeneralHelper.IsItemLocked(item)) return "item_locked";
+            if (PlayerStore.Instance.lockAllInventoryFlag != 0) return "inventory_locked";
+            if (PlayerStore.Instance.lockAllFlag != 0) return "input_locked";
+            if (order != null || staged != null || stagedBundle.Count > 0) return "trade_in_progress";
+            if (GenericConfirmationUIManager.Instance?.panel?.activeInHierarchy == true) return "confirmation_open";
+            if (ItemPinHelper.BlocksClicks) return "item_pinned_blocking";
+            if (ItemMouseDragHandler.current?.IsDraggingItem == true) return "dragging_item";
+            return null;
+        }
+
         private static JObject BaseItemMenu()
         {
             var labels = new JObject();
@@ -151,11 +164,11 @@ namespace WhiteDragon.Ledger
             if (RefreshMenuToken(seen, same, view, options, receipt) is string chooseStale) return chooseStale;
             string verb = (string)request["verb"];
             if (!options["enabled"].Values<string>().Contains(verb)) return "option_unavailable";
-            if (Interactable.isPaused || GeneralHelper.IsItemLocked(item) || PlayerStore.Instance.lockAllInventoryFlag != 0 ||
-                PlayerStore.Instance.lockAllFlag != 0 || order != null || staged != null || stagedBundle.Count > 0 ||
-                GenericConfirmationUIManager.Instance?.panel?.activeInHierarchy == true ||
-                ItemPinHelper.BlocksClicks || ItemMouseDragHandler.current?.IsDraggingItem == true)
+            if (ItemMenuBlockReason(item) is string blockReason)
+            {
+                receipt["reason"] = blockReason;
                 return "interaction_blocked";
+            }
             // The native secondary click first cancels an equipped tool.
             if (verb != "unequip" && ItemSelectHandler.current?.IsEquipped == true &&
                 !(verb=="use" && ItemSelectHandler.current.GetEquippedItem()==item))
@@ -202,7 +215,11 @@ namespace WhiteDragon.Ledger
                 case "pin": ItemPinHelper.TogglePinned(item); receipt["pinned"]=ItemPinHelper.IsPinned(item); break;
                 case "unload": item.TryUnloadAll(skipPinned:true); break;
                 case "equip":
-                    if (ItemSelectHandler.current == null) return "interaction_blocked";
+                    if (ItemSelectHandler.current == null)
+                    {
+                        receipt["reason"] = "select_handler_missing";
+                        return "interaction_blocked";
+                    }
                     ItemSelectHandler.current.TryEquipItem(item);
                     return ItemSelectHandler.current.GetEquippedItem() == item ? "equipped" : "equip_unconfirmed";
                 case "unequip": ItemSelectHandler.current.EndSelect(); return "unequipped";

@@ -167,21 +167,27 @@ def register(server, folder, database, *, section_cache=None):
         deadline = time.monotonic() + min(20.0, max(0.0, timeout))
         start_generation = view["generation"]
         initially_at_counter = bool(view.get("visit"))
+        skipped_already_left = False
         if skip_current is not None:
-            if view.get("visit") != skip_current:
+            if not view.get("visit"):
+                initially_at_counter = False
+                skipped_already_left = True
+            elif view.get("visit") != skip_current:
                 return counter.visit_mismatch_status(view.get("visit"), view.get("customer"))
-            fin = finish_customer(view["generation"], view["revision"], skip_current, interrupt=True)
-            if fin.get("status") not in {"dismissed", "customer_left"}:
-                return fin
-            initially_at_counter = False
-            view = counter.context(folder)
-            if view.get("status") != "observed":
-                return view
-            if view.get("generation") != start_generation:
-                return {"status": "stale_observation"}
-            if view.get("phase") != "OPEN":
-                return {"status": "shop_closed", "phase": view.get("phase")}
+            else:
+                fin = finish_customer(view["generation"], view["revision"], skip_current, interrupt=True)
+                if fin.get("status") not in {"dismissed", "customer_left"}:
+                    return fin
+                initially_at_counter = False
+                view = counter.context(folder)
+                if view.get("status") != "observed":
+                    return view
+                if view.get("generation") != start_generation:
+                    return {"status": "stale_observation"}
+                if view.get("phase") != "OPEN":
+                    return {"status": "shop_closed", "phase": view.get("phase")}
         waited_for_bell = False
+        ring_retries = 0
         while True:
             if view.get("stage") == "customer_departing":
                 if time.monotonic() >= deadline:
@@ -203,11 +209,25 @@ def register(server, folder, database, *, section_cache=None):
                     if result.get("status") not in {"occupied", "bell_unavailable", "customer_replaced", "customer_left", "queue_changed", "customer_departing"}:
                         if waited_for_bell and isinstance(result, dict):
                             result = {**result, "waited_for_bell": True}
+                        if skipped_already_left and isinstance(result, dict):
+                            result = {**result, "skipped_already_left": True}
                         return result
                     view = counter.context(folder)
                     in_cooldown = (view.get("stage") == "idle" and not view.get("visit")
                                    and view.get("reception", {}).get("can_ring") is False
                                    and (view.get("waiting") or 0) > 0)
+                    retry_idle = (result.get("status") in {"customer_left", "queue_changed"}
+                                  and view.get("status") == "observed"
+                                  and view.get("generation") == start_generation
+                                  and view.get("phase") == "OPEN"
+                                  and view.get("stage") == "idle"
+                                  and not view.get("visit")
+                                  and (view.get("waiting") or 0) > 0
+                                  and ring_retries < 3
+                                  and time.monotonic() < deadline)
+                    if retry_idle:
+                        ring_retries += 1
+                        continue
                     if not view.get("visit") and view.get("stage") != "customer_departing" and not in_cooldown:
                         return result
             else:
@@ -239,6 +259,8 @@ def register(server, folder, database, *, section_cache=None):
                     waited = {**waited, "status": "called"}
                     if waited_for_bell:
                         waited["waited_for_bell"] = True
+                    if skipped_already_left:
+                        waited["skipped_already_left"] = True
             return waited
         return shopdesk.strip_protocols(dict(view))
 

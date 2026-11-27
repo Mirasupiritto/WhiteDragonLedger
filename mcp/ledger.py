@@ -32,6 +32,8 @@ def _db_stock_row(row):
         "contains_water": None if "contains_water" not in row else int(bool(row["contains_water"])),
         "charge_remaining": row.get("charge_remaining"), "charge_max": row.get("charge_max"),
         "liters_remaining": row.get("liters_remaining"), "estimated_value": row.get("estimated_value"),
+        "stolen": None if "stolen" not in row else int(bool(row["stolen"])),
+        "stolen_heat": row.get("stolen_heat"),
     }
 
 
@@ -113,7 +115,8 @@ def lookup(folder: Path, database: Path | Connection, name=None, area=None, owne
                 ":contraband,:trade_contraband,:machine_id,:can_take_now,"
                 ":size_w,:size_h,:slot_x,:slot_y,:rotatable,"
                 ":water_ml,:liquid_ml,:capacity_ml,:empty,:water_container,:contains_water,:liquid_main,"
-                ":charge_remaining,:charge_max,:liters_remaining,:estimated_value,:parent_id,:container_path,:access)",
+                ":charge_remaining,:charge_max,:liters_remaining,:estimated_value,:parent_id,:container_path,:access,"
+                ":stolen,:stolen_heat)",
                 (_db_stock_row(row) for row in rows),
             )
         if cursor != revision:
