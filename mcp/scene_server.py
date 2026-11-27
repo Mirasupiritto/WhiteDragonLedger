@@ -23,6 +23,7 @@ TOOL_MUTATION_RULES = {
     "sell_order": True,
     "trade_batch": True,
     "confirm_trade": True,
+    "submit_appraisal": True,
     "buy_merchant_batch": True,
     "barter_offer": True,
     "pay_info_receipt": True,

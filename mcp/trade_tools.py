@@ -46,7 +46,7 @@ def context(view):
         result["next_action"] = desk["next_action"]
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
-    for key in ("client_role", "offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
+    for key in ("client_role", "appraisal", "offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
                 "forced_choice", "forced_choice_reason", "wanted_name_match", "poster_match", "story_branch", "consequence_hint", "consequence", "counter_request", "inspection_exposure", "heat", "barter", "stale_during_speech", "table_items"):
         if key in desk:
             result[key] = desk[key]
@@ -366,3 +366,12 @@ def register(server, folder, database):
         line = {"item_id":item_id,"side":side,"exact_price":price,
                 ("min_price" if side=="sell" else "max_price"):price}
         return shopdesk.sell_order(folder,[line],generation,revision,visit,database=database,tool="confirm_trade",on_table=True)
+
+    @server.tool()
+    def submit_appraisal(item_id: int, estimate: int, visit: str, generation: str, revision: int) -> dict:
+        """Submit an appraisal estimate for an unowned APPRAISAL_ITEM on the counter for an APPRAISAL_SERVICE client.
+        Never guess the estimate: ask the player to inspect the item visually (or use read_item_details when item_details_compat is enabled) before calling this tool.
+        Returns accepted (with cash_delta, slip_text, remaining_count, all_done), rejected (with dialogue line and impatience_delta; wait for dialogue or re-read get_trade_context before retrying), or walked_out (patience_exhausted)."""
+        if item_id < 1 or estimate < 1:
+            raise ValueError("Expected positive item_id and estimate")
+        return counter.command(folder, "appraisal", generation, revision, visit=visit, item_id=item_id, estimate=estimate)
