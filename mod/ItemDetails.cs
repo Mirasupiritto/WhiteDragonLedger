@@ -355,7 +355,10 @@ namespace WhiteDragon.Ledger
         {
             RichTextBuilder builder = null;
             if (item is GameItemElement element && GetTooltipBasicMethod != null)
-                builder = GetTooltipBasicMethod.Invoke(element, null) as RichTextBuilder;
+            {
+                try { builder = GetTooltipBasicMethod.Invoke(element, null) as RichTextBuilder; }
+                catch { builder = null; }
+            }
             if (builder == null)
             {
                 builder = new RichTextBuilder(int.MaxValue);
