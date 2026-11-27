@@ -21,11 +21,11 @@ namespace WhiteDragon.Ledger
                 () => "MCP 主庫存整理", new[] { "auto", "off", "on" },
                 () => "auto：已知整理模組啟用時退讓；off：關閉；on：允許助手按需整理。");
             appraisalAssist = cfg.Define("appraisal_assist", false, "鑑定與輔助",
-                () => "鑑定輔助估價（get_appraisal_assist）",
-                () => "預設關閉（AI 依放大鏡可見外觀特徵自行算價）。開啟後允許 AI 直接取得最佳估價填表以節省額度；變更後重連 MCP 生效。");
+                () => "鑑定輔助估價",
+                () => "預設關閉（由助手依放大鏡外觀特徵自行算價）。開啟後直接提供最佳估價供助手填表；變更後重連 MCP 生效。");
             itemDetailsCompat = cfg.Define("item_details_compat", false, "鑑定與輔助",
-                () => "「物品詳情」模組相容（read_item_details）",
-                () => "預設關閉。開啟且已載入「物品詳情」模組時，允許 AI 讀取畫面懸停說明文字判斷真偽；變更後重連 MCP 生效。");
+                () => "物品詳情模組相容",
+                () => "預設關閉。開啟且已載入物品詳情模組時，允許助手讀取畫面顯示的懸停說明判斷真偽；變更後重連 MCP 生效。");
         }
 
         public static void Observe(LoadedMod mod)
