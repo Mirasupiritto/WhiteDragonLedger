@@ -108,6 +108,12 @@ def item_details_compat_enabled(override: bool | None = None) -> bool:
     return os.environ.get("WHITE_DRAGON_ITEM_DETAILS_COMPAT", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def appraisal_assist_enabled(override: bool | None = None) -> bool:
+    if override is not None:
+        return bool(override)
+    return os.environ.get("WHITE_DRAGON_APPRAISAL_ASSIST", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def item_details_mod_status(folder: Path) -> dict:
     mod = read_scene(folder).get("item_details_mod")
     if not isinstance(mod, dict):

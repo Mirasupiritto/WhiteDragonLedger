@@ -7,6 +7,64 @@ namespace WhiteDragon.Ledger
 {
     public sealed partial class InventoryObserver
     {
+        private static JObject VisualFeatures(GameItem item)
+        {
+            if (item == null) return null;
+            if (item.IsTag("HAND_TAG"))
+            {
+                return new JObject
+                {
+                    ["type"] = "hand",
+                    ["material"] = item.GetTagReadonly("HAND_MATERIAL").GetString(),
+                    ["interface"] = item.GetTagReadonly("HAND_INTERFACE").GetString(),
+                    ["interface_marking"] = item.GetTagReadonly("HAND_INTERFACE_MARKING").GetString(),
+                    ["condition"] = item.GetTagReadonly("HAND_CONDITION").GetString(),
+                    ["addon_armored"] = string.Equals(item.GetTagReadonly("HAND_ADDON_ARMORED").GetString(), "ARMORED", StringComparison.Ordinal),
+                    ["addon_bladed"] = string.Equals(item.GetTagReadonly("HAND_ADDON_BLADED").GetString(), "BLADED", StringComparison.Ordinal)
+                };
+            }
+            if (item.IsTag("RIBWICH_TAG"))
+            {
+                int wrap = item.GetTagReadonly("RIBWICH_WRAP_TAG").GetInt();
+                int pickles = item.GetTagReadonly("RIBWICH_PICKLES_TAG").GetInt();
+                int meat = item.GetTagReadonly("RIBWICH_MEAT_TAG").GetInt();
+                int bun = item.GetTagReadonly("RIBWICH_BUN_TAG").GetInt();
+                int davreLogo = item.GetTagReadonly("RIBWICH_DAVRE_LOGO_TAG").GetInt();
+                int ribwichLogo = item.GetTagReadonly("RIBWICH_RIBWICH_LOGO_TAG").GetInt();
+                return new JObject
+                {
+                    ["type"] = "ribwich",
+                    ["wrap"] = wrap == -1 ? "none" : wrap == 0 ? "sealed" : wrap == 1 ? "open_left" : wrap == 2 ? "open_right" : wrap.ToString(),
+                    ["pickles"] = pickles == -1 ? "none" : pickles == 0 ? "normal" : pickles == 1 ? "extra" : pickles.ToString(),
+                    ["meat"] = meat == 0 ? "normal" : meat == 1 ? "double" : meat.ToString(),
+                    ["bun"] = bun == 0 ? "normal" : bun == 1 ? "deluxe" : bun.ToString(),
+                    ["davre_logo_valid"] = davreLogo == 0,
+                    ["davre_logo_raw"] = davreLogo,
+                    ["ribwich_logo_valid"] = ribwichLogo == 0,
+                    ["ribwich_logo_raw"] = ribwichLogo,
+                    ["production_year"] = item.GetTagReadonly("RIBWICH_PRODUCTION_YEAR_TAG").GetInt(),
+                    ["production_month"] = item.GetTagReadonly("RIBWICH_PRODUCTION_MONTH_TAG").GetInt(),
+                    ["facility_number"] = item.GetTagReadonly("RIBWICH_FACILITY_NUMBER_TAG").GetInt()
+                };
+            }
+            if (item.IsTag("PLASMA_CELL_TAG"))
+            {
+                return new JObject
+                {
+                    ["type"] = "plasma_fuel",
+                    ["casing"] = item.GetTagReadonly("PLASMA_CASING").GetString(),
+                    ["crack"] = item.GetTagReadonly("PLASMA_CASING_CONDITION_CRACK").GetString(),
+                    ["wear"] = item.GetTagReadonly("PLASMA_CASING_CONDITION_WEAR").GetString(),
+                    ["uncovered"] = item.GetTagReadonly("PLASMA_CASING_CONDITION_UNCOVERED").GetString(),
+                    ["reinforced"] = item.GetTagReadonly("PLASMA_CASING_CONDITION_REINFORCED").GetString(),
+                    ["serial"] = item.GetTagReadonly("PLASMA_SERIAL").GetString(),
+                    ["color"] = item.GetTagReadonly("PLASMA_COLOR").GetString(),
+                    ["seal"] = item.GetTagReadonly("PLASMA_SEAL").GetString()
+                };
+            }
+            return null;
+        }
+
         private JArray AppraisalItems()
         {
             var items = new JArray();
@@ -18,14 +76,17 @@ namespace WhiteDragon.Ledger
                 foreach (var item in inv.childItems)
                 {
                     if (item == null || GeneralHelper.IsItemOwned(item) || !item.IsTag("APPRAISAL_ITEM")) continue;
-                    items.Add(new JObject
+                    var row = new JObject
                     {
                         ["item_id"] = LocalId(item),
                         ["name"] = item.GetDisplayName(true),
                         ["kind"] = item.identifier,
                         ["area"] = area,
                         ["default_estimate"] = item.GetTagReadonly("APPRAISAL_DEFAULT_VALUE").GetInt()
-                    });
+                    };
+                    if (VisualFeatures(item) is JObject features)
+                        row["visual_features"] = features;
+                    items.Add(row);
                 }
             }
             Scan(shop.frontInvinvElement, "front");
@@ -203,6 +264,41 @@ namespace WhiteDragon.Ledger
             receipt["impatience"] = merchant.clientImpatience;
             receipt["impatience_delta"] = merchant.clientImpatience - impatienceBefore;
             return "rejected";
+        }
+
+        private string AppraisalAssistAction(JObject request, JObject receipt)
+        {
+            if (phase != "OPEN") return "shop_closed";
+            ObserveVisit();
+            if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);
+            receipt["visit"] = visitId;
+            if (merchant == null || merchant.clientIntent != StoreClient.ClientIntent.APPRAISAL_SERVICE)
+            {
+                receipt["reason"] = "not_appraisal_service";
+                return "wrong_client_intent";
+            }
+            var shop = EmporiumEntry.Instance;
+            var rows = new JArray();
+            void Scan(GameInventory inv)
+            {
+                if (inv == null) return;
+                foreach (var item in inv.childItems)
+                {
+                    if (item == null || GeneralHelper.IsItemOwned(item) || !item.IsTag("APPRAISAL_ITEM")) continue;
+                    rows.Add(new JObject
+                    {
+                        ["item_id"] = LocalId(item),
+                        ["name"] = item.GetDisplayName(true),
+                        ["kind"] = item.identifier,
+                        ["recommended_estimate"] = AppraisalHelper.GetCorrectBaseValue(item)
+                    });
+                }
+            }
+            Scan(shop?.frontInvinvElement);
+            Scan(shop?.backInvinvElement);
+            receipt["source"] = "appraisal_assist";
+            receipt["items"] = rows;
+            return "observed";
         }
     }
 }

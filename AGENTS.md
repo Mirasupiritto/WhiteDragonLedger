@@ -42,7 +42,7 @@
 | 同客混合買賣 | 用 `trade_batch` 的 `orders`，每筆帶 `item_id`、`side` 和 `price_limit`（`side="buy"` 為買入上限，`side="sell"` 為最低售價），逐筆查成交結果。 |
 | 以物易物 | 遇 `barter_unsupported` 表示這位客人的原生交換流程尚未接入。可交換時先看各方案 `give`（店家付出）和 `receive`（店家取得）；用 `barter_offer(mode="select")` 選方案，按要求將付款物移到交易檯，重讀報價後帶新 `barter_token`、同一方案的 `option` 及 `payment_item_id` 接受。 |
 | 購買情報 | 先讀 `info_receipt`，決定購買時用 `pay_info_receipt` 帶當頁 `receipt_token` 和顯示的 `price`，核對現金及情報紙條。 |
-| 鑑定委託 | `client_role="appraisal"` 時列出 `appraisal.items` 請旁邊看畫面的人目視檢查瑕疵並估算價格（開啟 `item_details_compat` 時也可輔助參考）。拿到估價後用 `submit_appraisal(item_id, estimate, visit, generation, revision)` 提交；被拒時核對 `line`（喊高或喊低）與 `impatience` 再調整；接受後核對 `slip_text` 與 `cash_delta`，全部完成後依序送客並收納鑑定單。 |
+| 鑑定委託 | 若已開啟 `appraisal_assist`（有 `get_appraisal_assist` 工具），直接呼叫它取得 `recommended_estimate` 填入 `submit_appraisal`。預設模式下，直接依 `appraisal.items[*].visual_features` 對照店內鑑定指南計算價格並呼叫 `submit_appraisal`；僅遇無 `visual_features` 的未知物種（或 `item_details_compat` 也讀不到）時，才停下來交給旁邊看畫面的人目視檢查瑕疵並估算價格。被拒時核對 `line`（喊高或喊低）與 `impatience` 再調整；接受後核對 `slip_text` 與 `cash_delta`，全部完成後依序送客並收納鑑定單。 |
 
 5. 成交後核對實收、實付、餘額、剩餘預算及各件去向。若回執列出 `identity_changed`，用新的身分和名稱記帳。用 `finish_customer` 帶該客人的 `visit` 送客；`customer_left` 或 `customer_replaced` 表示原客已離開或換人，回執帶新客時從新 `visit` 和 `stage` 接手。
 6. 交易或送客受阻時看 `reason`、`blocking_items` 及 `next_tool`。一般檯上雜物可能自動收回庫存，查看 `cleared_items` 和來客狀態。報紙、便條、情報紙條、名片及返店背包平時會自動收納，庫存滿時可用 `get_counter` 找留在交易檯的物品。若顯示 `trade_table_not_empty`，依實際來源把自有留貨搬回庫存；若顯示 `nuclear_waste_on_counter`，先移到庫存或展示櫃（垃圾桶無法消除核廢料）。
