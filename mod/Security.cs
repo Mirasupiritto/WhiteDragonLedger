@@ -61,8 +61,11 @@ namespace WhiteDragon.Ledger
             // same keys in SpriteDict. Compare the rendered sprite, including scene overrides.
             foreach (string id in StoreClientListWanted.POSTER_IDS)
             {
-                if (!PosterData.TryGetValue(id,out var poster) || !sprites.TryGetValue(id,out var expected) ||
-                    portrait!=expected) continue;
+                if (!PosterData.TryGetValue(id,out var poster) || !sprites.TryGetValue(id,out var expected)) continue;
+                bool match = portrait == expected ||
+                    (expected != null && string.Equals(portrait.name, expected.name, StringComparison.Ordinal)) ||
+                    string.Equals(portrait.name, "cp_hd_portrait_" + id, StringComparison.Ordinal);
+                if (!match) continue;
                 view["poster_match"]=new JObject { ["poster_id"]=id, ["name"]=LocHelper.GetLocalizedClientName(poster.name),
                     ["bounty"]=poster.bounty, ["arrested"]=PlayerStore.Instance.wantedStatus.TryGetValue(id,out int status) && status==1 };
                 view["next_action"]="report_decision";
@@ -76,6 +79,7 @@ namespace WhiteDragon.Ledger
         {
             var shop=EmporiumEntry.Instance;
             var counts=new JObject { ["inventory"]=0, ["showcase"]=0, ["smuggler_bay"]=0, ["hidden_grid"]=0 };
+            var stolenCounts=new JObject { ["inventory"]=0, ["showcase"]=0, ["smuggler_bay"]=0, ["hidden_grid"]=0 };
             void Count(GameInventory inventory,string area, bool ownedOnly=false)
             {
                 if (inventory==null) return;
@@ -86,10 +90,13 @@ namespace WhiteDragon.Ledger
                     items.Add(root);
                     var hidden=new HashSet<GameItem>(items.Where(ContrabandHelper.IsSmugglerBay)
                         .SelectMany(bay=>bay.FindAllChildItems()));
-                    foreach (var item in items.Where(ContrabandHelper.IsContraband))
+                    foreach (var item in items)
                     {
                         string key=hidden.Contains(item) ? "smuggler_bay" : area;
-                        counts[key]=(int)counts[key]+item.unitCount;
+                        if (ContrabandHelper.IsContraband(item))
+                            counts[key]=(int)counts[key]+item.unitCount;
+                        if (StolenHelper.IsStolenItem(item))
+                            stolenCounts[key]=(int)stolenCounts[key]+item.unitCount;
                     }
                 }
             }
@@ -99,11 +106,21 @@ namespace WhiteDragon.Ledger
             if (includeCounter)
             {
                 counts["on_counter"]=0;
+                stolenCounts["on_counter"]=0;
                 Count(shop.frontInvinvElement,"on_counter",true);
                 Count(shop.backInvinvElement,"on_counter",true);
             }
+            bool pulled = IsPosterPulled();
             if (forInspection)
-                counts["hidden_grid_exposed"]=IsPosterPulled() ? (int)counts["hidden_grid"] : 0;
+            {
+                counts["hidden_grid_exposed"]=pulled ? (int)counts["hidden_grid"] : 0;
+                stolenCounts["hidden_grid_exposed"]=pulled ? (int)stolenCounts["hidden_grid"] : 0;
+            }
+            int stolenOutside = (int)stolenCounts["inventory"] + (int)stolenCounts["showcase"] +
+                (pulled ? (int)stolenCounts["hidden_grid"] : 0) +
+                (includeCounter ? (int)stolenCounts["on_counter"] : 0);
+            counts["stolen"]=stolenCounts;
+            counts["stolen_outside_bay"]=stolenOutside;
             return counts;
         }
 

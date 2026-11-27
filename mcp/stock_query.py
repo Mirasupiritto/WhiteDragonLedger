@@ -41,7 +41,8 @@ SELECT value FROM keys WHERE value IS NOT NULL
 STOCK_DETAIL_COLUMNS = (
     "size_w,size_h,slot_x,slot_y,rotatable,"
     "water_ml,liquid_ml,capacity_ml,empty,water_container,contains_water,liquid_main,"
-    "charge_remaining,charge_max,liters_remaining,estimated_value,parent_id,container_path,access"
+    "charge_remaining,charge_max,liters_remaining,estimated_value,parent_id,container_path,access,"
+    "stolen,stolen_heat"
 )
 
 
@@ -74,6 +75,10 @@ def row_to_item(row):
     for metric in ("water_ml", "liquid_ml", "capacity_ml", "charge_remaining", "charge_max", "liters_remaining", "estimated_value"):
         if raw.get(metric) is not None:
             item[metric] = raw[metric]
+    if raw.get("stolen"):
+        item["stolen"] = True
+        if raw.get("stolen_heat") is not None:
+            item["stolen_heat"] = raw["stolen_heat"]
     return item
 
 

@@ -11,6 +11,7 @@ _EXTRA_STOCK_COLUMNS = (
     ("empty", "INTEGER"), ("water_container", "INTEGER"), ("contains_water", "INTEGER"), ("liquid_main", "TEXT"),
     ("charge_remaining", "INTEGER"), ("charge_max", "INTEGER"), ("liters_remaining", "REAL"),
     ("estimated_value", "INTEGER"), ("parent_id", "INTEGER"), ("container_path", "TEXT"), ("access", "TEXT"),
+    ("stolen", "INTEGER"), ("stolen_heat", "INTEGER"),
 )
 
 _SCHEMA_LOCK = threading.Lock()

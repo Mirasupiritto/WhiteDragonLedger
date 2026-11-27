@@ -80,7 +80,7 @@ def register(server, folder, database, *, section_cache=None):
     def move_item(item_id: int, source: str,
                   destination: str, generation: str,
                   revision: int, command_id: str | None = None, visit: str | None = None) -> dict:
-        """Pass item_id, source, destination, generation and revision. Valid areas: "inventory", "showcase", "front", "back", "hidden", or "bay:<owner_id>" (an owned smuggler bay container). While closed, move owned stock between inventory, showcase, and smuggler bays. During trade pass the observed visit
+        """Pass item_id, source, destination, generation and revision. Valid areas: "inventory", "showcase", "front", "back", "hidden", "trash", or "bay:<owner_id>" (an owned smuggler bay container). While closed or in the morning, move owned stock between inventory, showcase, smuggler bays, hidden (poster pulled), and trash (trash->inventory also supported before overnight clear; rejects IMPORTANT_TAG and hazardous waste). During trade pass the observed visit
         to stage items on the trade table (back) from inventory/showcase/bay:<owner_id>, or return them (multiple owned items may be staged together
         during regular selling; guest goods require an empty table). Guest goods return to front and
         owned goods to inventory/showcase/bay:<owner_id>. Owned goods left on back when no customer is present can also be
@@ -90,8 +90,8 @@ def register(server, folder, database, *, section_cache=None):
     @server.tool()
     def move_items(item_ids: list[int], source: str,
                    destination: str, generation: str, revision: int, visit: str | None = None) -> dict:
-        """Move owned stock between visible inventory, showcase, and smuggler bays ("bay:<owner_id>"), including while open, stage owned goods onto the trade table (back) with visit (including dialogue choice_required/counter_request stages), or collect owned front/back items to inventory.
-        Valid source areas: "inventory", "showcase", "front", "back", "hidden", or "bay:<owner_id>". Valid destination areas: "inventory", "showcase", "back", "hidden", or "bay:<owner_id>".
+        """Move owned stock between visible inventory, showcase, smuggler bays ("bay:<owner_id>"), hidden (morning/closed or open without customer, poster pulled), and trash (destination="trash", or source="trash"->inventory; rejects IMPORTANT_TAG and hazardous waste), including while open, stage owned goods onto the trade table (back) with visit (including dialogue choice_required/counter_request stages), or collect owned front/back items to inventory.
+        Valid source areas: "inventory", "showcase", "front", "back", "hidden", "trash", or "bay:<owner_id>". Valid destination areas: "inventory", "showcase", "back", "hidden", "trash", or "bay:<owner_id>".
         Pass the current visit during any arrived customer visit without an active order (including ready, barter, seller-only or dialogue), or omit it at an empty counter (destination="back" always requires visit). Pass the generation and
         starting revision from query_inventory. When space is insufficient, returns no_space or showcase_full with item_size and target_capacity and skips that item into skipped_ids.
         Stops at the first unconfirmed or rejected item. The original arguments recover completed lines and can continue pending lines."""

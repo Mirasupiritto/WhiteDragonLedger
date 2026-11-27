@@ -18,6 +18,7 @@ def register(server, folder):
         To fill a container from the tap, pass the water container as source_id and target_id="faucet"; pass target_id="drain" to empty it.
         Use a single water_test_strip or water_tablet as source_id and the bottle as target_id. For boxed supplies, inspect_item_window(owner_id=box id, open_if_closed=True) then transfer_slot_item(source="slot").
         purifier_used reports charge_remaining and liters_remaining; tablet_used explains effect_pending (chlorine reacts over time/overnight and resets strip exposure).
+        If an active chemical reaction ticks between preview and apply, water_plan_changed attaches changed_fields, reason="reaction_in_progress", and next_action="wait_for_reaction_and_retry".
         For mode="apply", submit the same two IDs with the preview use_token."""
         if source_id < 1 or (isinstance(target_id, int) and (target_id < 1 or target_id == source_id)):
             raise ValueError("Choose a source and a distinct water target from the current observation")
