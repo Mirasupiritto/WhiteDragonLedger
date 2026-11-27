@@ -207,6 +207,7 @@ namespace WhiteDragon.Ledger
             Track(shop.frontInvinvElement, "front");
             Track(shop.backInvinvElement, "back");
             if (shop.hiddenElement != null) Track(shop.hiddenElement, "hidden");
+            if (shop.trashcanInvElement != null) Track(shop.trashcanInvElement, "trash");
             var rows = new JArray();
             var categoryNames = new JObject();
             foreach (string code in TypeHelper.ALL_TYPES_LIST)

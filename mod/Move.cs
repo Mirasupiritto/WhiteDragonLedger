@@ -186,8 +186,9 @@ namespace WhiteDragon.Ledger
                     (destination == "trash" ? (source == "inventory" || source == "showcase" || source == "hidden" || sourceBay != null) :
                      destination == "inventory");
                 bool validHiddenRoute = hiddenMove && source != destination &&
-                    (source == "inventory" || source == "showcase" || sourceBay != null ||
-                     destination == "inventory" || destination == "showcase" || destBay != null || destination == "trash");
+                    (source == "hidden"
+                        ? (destination == "inventory" || destination == "showcase" || destination == "trash" || destBay != null)
+                        : (source == "inventory" || source == "showcase" || sourceBay != null));
                 bool validBayRoute = bayMove && source != destination &&
                     (sourceBay != null ? (destination == "inventory" || destination == "showcase" || destination == "hidden" || destination == "trash" || destBay != null) :
                      (source == "inventory" || source == "showcase" || source == "hidden"));

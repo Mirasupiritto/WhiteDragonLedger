@@ -129,10 +129,9 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
         receipt = move_item(folder, item_id, source, destination, generation, next_revision, command,
                             previous_command=previous_command, visit=visit)
         stale_retries = 0
-        while receipt.get("status") == "stale_observation" and stale_retries < 2 and not result.get("already_count"):
+        while receipt.get("status") == "stale_observation" and stale_retries < 2:
             head = read_head(folder)
-            if (head.get("generation") != generation or head.get("revision", 0) <= next_revision
-                    or (visit is not None and head.get("visit") != visit)):
+            if head.get("generation") != generation or head.get("revision", 0) <= next_revision:
                 break
             stale_retries += 1
             next_revision = head["revision"]

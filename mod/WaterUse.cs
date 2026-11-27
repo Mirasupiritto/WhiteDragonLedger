@@ -76,7 +76,7 @@ namespace WhiteDragon.Ledger
         {
             if (item == null || !item.IsTag("LIQUID_CONTAINER_TAG")) return false;
             var parts = LiquidParts.Read(item);
-            bool hasAcid = false, hasBase = false, hasProtein = false, hasPaste = false, hasChlorine = false, hasMicrobe = false;
+            bool hasAcid = false, hasBase = false, hasProtein = false, hasPaste = false, hasChlorine = false, hasMicrobe = false, hasAlcohol = false;
             foreach (var part in parts)
             {
                 switch (part.Key.identifier)
@@ -84,13 +84,17 @@ namespace WhiteDragon.Ledger
                     case "acid": hasAcid = true; break;
                     case "base": hasBase = true; break;
                     case "protein": hasProtein = true; break;
-                    case "mushroom_paste": hasPaste = true; break;
+                    case "dream_cap_mush":
+                    case "nightmare_cap_mush":
+                    case "coffee_mush":
+                        hasPaste = true; break;
                     case "chlorine": hasChlorine = true; break;
                     case "microbe": hasMicrobe = true; break;
+                    case "alcohol": hasAlcohol = true; break;
                 }
             }
             return (hasAcid && hasBase) || (hasProtein && (hasAcid || hasBase)) ||
-                (hasPaste && item.IsTag("HEATING_TAG")) || (hasChlorine && hasMicrobe);
+                (hasPaste && item.IsTag("HEATING_TAG")) || ((hasChlorine || hasAlcohol) && hasMicrobe);
         }
 
         private static JArray ChangedPlanFields(JObject current, JObject previous)
