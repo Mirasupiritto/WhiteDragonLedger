@@ -190,7 +190,7 @@ namespace WhiteDragon.Ledger
             record["phase"] = phase;
             record["day"] = StoreStation.Instance.dayCounter;
             Write(generation + "-" + revision + ".json", record);
-            Write("head.json", new JObject { ["status"] = "observed", ["bag_stock_protocol"] = 1, ["item_details_protocol"] = 1, ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["move_location_protocol"] = 1, ["counter_move_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
+            Write("head.json", new JObject { ["status"] = "observed", ["appraisal_protocol"] = 1, ["bag_stock_protocol"] = 1, ["item_details_protocol"] = 1, ["trade_panel_protocol"] = 1, ["stock_categories_protocol"] = 1, ["move_location_protocol"] = 1, ["counter_move_protocol"] = 1, ["move_protocol"] = 1, ["desk_protocol"] = 1, ["purifier_take_protocol"] = 1, ["purifier_put_protocol"] = 1, ["generation"] = generation,
                 ["revision"] = revision, ["slot"] = slot, ["phase"] = phase,
                 ["full_scans"] = fullScans, ["load_scans"] = loadScans });
             sequence = revision;

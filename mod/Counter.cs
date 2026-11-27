@@ -65,6 +65,9 @@ namespace WhiteDragon.Ledger
             if (NegociationUIManager.IsTradeLocked()) return "trade_locked";
             bool dealer = merchant.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER;
             if (dealer && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
+            bool appraisal = merchant.clientIntent == StoreClient.ClientIntent.APPRAISAL_SERVICE;
+            if (appraisal && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
+            if (appraisal) return "appraisal";
             bool barter = IsPagedBarter();
             if (merchant.clientIntent==StoreClient.ClientIntent.BARTER && !barter) return "barter_unsupported";
             if (barter && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
@@ -91,10 +94,10 @@ namespace WhiteDragon.Ledger
             if (merchant == null) return null;
             if (merchant.barterOffer != null || merchant.clientIntent == StoreClient.ClientIntent.BARTER) return "barter";
             if (merchant.clientIntent == StoreClient.ClientIntent.DIALOGUE) return "dialogue";
+            if (merchant.clientIntent == StoreClient.ClientIntent.APPRAISAL_SERVICE) return "appraisal";
             switch (merchant.clientIntent)
             {
                 case StoreClient.ClientIntent.INFORMATION_DEALER:
-                case StoreClient.ClientIntent.APPRAISAL_SERVICE:
                 case StoreClient.ClientIntent.EXPEDITION:
                 case StoreClient.ClientIntent.GUNSMITH:
                 case StoreClient.ClientIntent.INSPECTION:
@@ -113,9 +116,16 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             string stage = CounterStage();
-            var view = new JObject { ["stage"] = stage, ["heat_control_protocol"]=1, ["machine_wait_protocol"]=1, ["chemist_protocol"]=1, ["item_panel_protocol"]=1, ["item_menu_protocol"]=1, ["inventory_sort_protocol"]=1, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["poster_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
+            var view = new JObject { ["stage"] = stage, ["appraisal_protocol"]=1, ["heat_control_protocol"]=1, ["machine_wait_protocol"]=1, ["chemist_protocol"]=1, ["item_panel_protocol"]=1, ["item_menu_protocol"]=1, ["inventory_sort_protocol"]=1, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["poster_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (ClientRole() is string clientRole) view["client_role"] = clientRole;
+            if (merchant?.clientIntent == StoreClient.ClientIntent.APPRAISAL_SERVICE)
+            {
+                var appraisalView = AppraisalView();
+                view["appraisal"] = appraisalView;
+                if ((int)appraisalView["remaining_count"] > 0 && view["next_action"] == null)
+                    view["next_action"] = "player_visual_check";
+            }
             if (heatRun != null || lastHeat != null) view["heat"] = (heatRun?.Summary ?? lastHeat).DeepClone();
             if (stage=="barter_unsupported")
             {
@@ -253,6 +263,7 @@ namespace WhiteDragon.Ledger
             if (action == "visible_windows") return ObserveTradeWindows(receipt);
             if (action == "bargain") return BargainAction(request,receipt);
             if (action == "barter") return ActOnBarter(request, receipt);
+            if (action == "appraisal") return AppraisalAction(request, receipt);
             if (action == "water_use") return WaterUseAction(request, receipt);
             if (action == "water_panel") return WaterPanelAction(request, receipt);
             if (action == "prepare_sleep" || action == "night_service") return ActOnBill(request, receipt);

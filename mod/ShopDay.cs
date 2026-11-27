@@ -341,6 +341,7 @@ namespace WhiteDragon.Ledger
                 ["nuclear_waste"]=NuclearWasteSummary(), ["capacities"]=ShopCapacities()
             };
             if (alerts.Count>0) result["alerts"]=alerts;
+            if (PlayerStore.Instance.isAppraisalIntroduced) result["appraisal_guild"] = AppraisalGuildView();
             return result;
         }
 
