@@ -1,6 +1,7 @@
 """Read the game-owned location receipt, without accessing any shop data."""
 import asyncio
 import json
+import os
 import re
 import subprocess
 from functools import lru_cache
@@ -101,25 +102,47 @@ def repository_commit():
     return commit or None
 
 
-def scene_version(scene, commit):
+def item_details_compat_enabled(override: bool | None = None) -> bool:
+    if override is not None:
+        return bool(override)
+    return os.environ.get("WHITE_DRAGON_ITEM_DETAILS_COMPAT", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def item_details_mod_status(folder: Path) -> dict:
+    mod = read_scene(folder).get("item_details_mod")
+    if not isinstance(mod, dict):
+        return {"loaded": False, "version": None}
+    return {"loaded": bool(mod.get("loaded")), "version": mod.get("version")}
+
+
+def scene_version(scene, commit, *, item_details_compat: bool | None = None):
+    out = dict(scene)
+    if item_details_compat_enabled(item_details_compat):
+        mod = out.get("item_details_mod")
+        if not isinstance(mod, dict) or not mod.get("loaded"):
+            out["item_details_compat"] = {
+                "enabled": True,
+                "mod_loaded": False,
+                "reason": "item_details_mod_not_loaded",
+            }
     if not commit:
-        return scene
-    dll = scene.get("dll_commit")
+        return out
+    dll = out.get("dll_commit")
     if dll:
         if dll != commit:
-            return {**scene, "version_mismatch": {"dll": dll, "mcp": commit}}
-        return scene
-    if scene.get("status") == "ready":
-        return {**scene, "version_mismatch": {"dll": None, "mcp": commit, "reason": "dll_without_commit"}}
-    return scene
+            return {**out, "version_mismatch": {"dll": dll, "mcp": commit}}
+        return out
+    if out.get("status") == "ready":
+        return {**out, "version_mismatch": {"dll": None, "mcp": commit, "reason": "dll_without_commit"}}
+    return out
 
 
-def register_scene_tools(server, folder):
+def register_scene_tools(server, folder, *, item_details_compat: bool | None = None):
     commit = repository_commit()
     @server.tool()
     def get_scene() -> dict:
         """Read the current location, transition destination, most recent journey, or the game_over reason shown by the game."""
-        return scene_version(read_scene(folder), commit)
+        return scene_version(read_scene(folder), commit, item_details_compat=item_details_compat)
 
     @server.tool()
     def get_travel_options() -> dict:

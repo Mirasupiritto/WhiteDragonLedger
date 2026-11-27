@@ -31,6 +31,28 @@ namespace WhiteDragon.Ledger
             PublishScene("waiting_for_load");
         }
 
+        private static LoadedMod FindItemDetailsMod()
+        {
+            var mods = ModLoader.Mods;
+            if (mods == null) return null;
+            foreach (var mod in mods)
+            {
+                if (mod?.Manifest != null && mod.Manifest.ID == "item_details" &&
+                    mod.IsEnabled && mod.Instance != null && string.IsNullOrEmpty(mod.LoadError))
+                    return mod;
+            }
+            return null;
+        }
+
+        private static JObject ItemDetailsModStatus()
+        {
+            var mod = FindItemDetailsMod();
+            return new JObject {
+                ["loaded"] = mod != null,
+                ["version"] = mod?.Manifest?.ModVersion
+            };
+        }
+
         private void PublishScene(string status,string reason=null)
         {
             journeyToken = null;
@@ -41,7 +63,7 @@ namespace WhiteDragon.Ledger
                 travelOptions = null;
             }
             var receipt = new JObject {
-                ["dll_commit"]=LedgerBuild.Commit, ["scratch_card_protocol"] = 2, ["feedback_protocol"] = 1, ["journey_protocol"] = 1, ["session"] = sceneSession, ["revision"] = ++sceneRevision, ["status"] = status,
+                ["dll_commit"]=LedgerBuild.Commit, ["item_details_mod"] = ItemDetailsModStatus(), ["scratch_card_protocol"] = 2, ["feedback_protocol"] = 1, ["journey_protocol"] = 1, ["session"] = sceneSession, ["revision"] = ++sceneRevision, ["status"] = status,
                 ["location"] = currentLocation, ["title"] = currentTitle,
                 ["tool_region"] = status == DifficultyPicker ? "new_game_difficulty" : status == PerkPicker ? "new_game_perks" : status == SpecializationPicker ? "new_game" : status == Picker ? "destination_selection" : status == "ready" ? (currentLocation == ShopScene ? "pawnshop" : "afterhours") : "transition",
                 ["destination"] = destination, ["destination_title"] = destinationTitle,
