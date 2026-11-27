@@ -228,6 +228,7 @@ ACTION_SPECS: dict[str, ActionSpec] = {
     "item_panel": ActionSpec(requires_open=False, protocol="item_panel_protocol"),
     "adjust_control": ActionSpec(requires_open=False, protocol="item_panel_protocol"),
     "item_menu": ActionSpec(requires_open=False, check=_check_item_menu),
+    "read_item_details": ActionSpec(requires_open=False),
     "sort_inventory": ActionSpec(
         requires_open=False,
         protocol="inventory_sort_protocol",

@@ -347,6 +347,60 @@ namespace WhiteDragon.Ledger
         private static JArray CloneChanges(List<JObject> list) =>
             new JArray(list.Select(c => c.DeepClone()));
 
+        private static readonly System.Reflection.MethodInfo GetTooltipBasicMethod =
+            typeof(GameItemElement).GetMethod("GetTooltipBasic",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
+
+        private static string ReadDisplayedTooltipText(GameItem item)
+        {
+            RichTextBuilder builder = null;
+            if (item is GameItemElement element && GetTooltipBasicMethod != null)
+                builder = GetTooltipBasicMethod.Invoke(element, null) as RichTextBuilder;
+            if (builder == null)
+            {
+                builder = new RichTextBuilder(int.MaxValue);
+                ModInternal.CreateTooltipLate(builder, item);
+            }
+            return builder.Build(int.MaxValue)?.nakedText ?? "";
+        }
+
+        private string ReadItemDetailsAction(JObject request, JObject receipt)
+        {
+            var mod = FindItemDetailsMod();
+            if (mod == null)
+            {
+                receipt["reason"] = "item_details_mod_not_loaded";
+                return "item_details_mod_not_loaded";
+            }
+            var requestedIds = request["item_ids"] as JArray;
+            if (requestedIds == null || requestedIds.Count == 0)
+            {
+                receipt["reason"] = "item_ids_required";
+                return "invalid_request";
+            }
+            var rows = new JArray();
+            foreach (var token in requestedIds)
+            {
+                int id = (int)token;
+                if (!itemsById.TryGetValue(id, out var item) || item == null || item.parentInventory == null)
+                {
+                    rows.Add(new JObject { ["item_id"] = id, ["status"] = "not_found" });
+                    continue;
+                }
+                rows.Add(new JObject {
+                    ["item_id"] = id,
+                    ["name"] = item.GetDisplayName(true),
+                    ["kind"] = item.identifier,
+                    ["status"] = "observed",
+                    ["details_text"] = ReadDisplayedTooltipText(item)
+                });
+            }
+            receipt["source"] = "item_details_mod";
+            receipt["mod_version"] = mod.Manifest?.ModVersion;
+            receipt["items"] = rows;
+            return "observed";
+        }
+
         private void AttachReceiptIdentityChanges(JObject receipt)
         {
             if (receipt == null || receiptIdentityChanges.Count == 0) return;

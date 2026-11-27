@@ -244,6 +244,7 @@ namespace WhiteDragon.Ledger
             if (WildNetworkUI.IsOpen && action != "visible_windows") return "wild_network_open";
             if (action == "item_panel") return ItemPanelAction(request,receipt);
             if (action == "item_menu") return ItemMenuAction(request, receipt);
+            if (action == "read_item_details") return ReadItemDetailsAction(request, receipt);
             if (action == "sort_inventory") return SortInventory(receipt);
             if (action == "toggle_poster") return TogglePosterAction(request, receipt);
             if (action == "inspect_window" || action == "transfer_slot" || action == "transfer_slots" || action == "adjust_control" || action == "press_control" ||

@@ -13,7 +13,7 @@ import workstation_tools
 __all__ = ["SaleLine", "register_pawnshop_tools"]
 
 
-def register_pawnshop_tools(server, folder, database):
+def register_pawnshop_tools(server, folder, database, *, item_details_compat: bool | None = None):
     state = getattr(server, "state", None)
     section_cache = state.section_cache if state is not None else (getattr(server, "section_cache", None) or shop_day.SectionCache())
     server.section_cache = section_cache
@@ -21,7 +21,7 @@ def register_pawnshop_tools(server, folder, database):
     trade_tools.register(server, folder, database)
     shop_day.register_day_tools(server, folder, database, section_cache=section_cache)
     counter_tools.register(server, folder, database, section_cache=section_cache)
-    stock_tools.register(server, folder, database, section_cache=section_cache)
+    stock_tools.register(server, folder, database, section_cache=section_cache, item_details_compat=item_details_compat)
     workstation_tools.register(server, folder)
     water_tools.register(server, folder)
     phone_tools.register(server, folder)

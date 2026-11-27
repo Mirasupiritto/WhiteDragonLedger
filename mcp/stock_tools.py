@@ -4,12 +4,13 @@ from typing import Literal
 from ledger import lookup, same_observation
 from moves import move_item as submit_move, move_items as submit_batch
 import counter
+import scene as scene_mod
 import shop_day
 import shopdesk
 import trade_journal
 
 
-def register(server, folder, database, *, section_cache=None):
+def register(server, folder, database, *, section_cache=None, item_details_compat: bool | None = None):
     state = getattr(server, "state", None)
     cache = section_cache if section_cache is not None else (
         state.section_cache if state is not None else (getattr(server, "section_cache", None) or shop_day.SectionCache())
@@ -75,6 +76,15 @@ def register(server, folder, database, *, section_cache=None):
     def get_stock_items(item_ids: list[int], generation: str) -> dict:
         """Read this load's stock IDs in request order, with current locations, size/slot/rotatable, labels, water/purifier details, estimated_value and missing IDs."""
         return lookup(folder, database, stock_query=dict(item_ids=item_ids, generation=generation))
+
+    if scene_mod.item_details_compat_enabled(item_details_compat) and scene_mod.item_details_mod_status(folder).get("loaded"):
+        @server.tool()
+        def read_item_details(item_ids: list[int], generation: str, revision: int) -> dict:
+            """Read the on-screen tooltip text rendered by the Item Details mod (item_details) for the given item IDs.
+            Only registered when item_details_compat is enabled and the Item Details mod is loaded."""
+            if not item_ids or any(item_id < 1 for item_id in item_ids):
+                raise ValueError("Expected a nonempty list of positive item IDs")
+            return counter.command(folder, "read_item_details", generation, revision, item_ids=item_ids)
 
     @server.tool()
     def move_item(item_id: int, source: str,

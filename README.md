@@ -80,7 +80,7 @@ $python = "$work/venv/Scripts/python.exe"
 }
 ```
 
-> 可選參數：`--database <路徑>` 指定 SQLite 帳本位置；`--journal <路徑>` 指定遊戲 `ModData/white_dragon_ledger` 目錄。
+> 可選參數：`--database <路徑>` 指定 SQLite 帳本位置；`--journal <路徑>` 指定遊戲 `ModData/white_dragon_ledger` 目錄；`--item-details-compat`（或環境變數 `WHITE_DRAGON_ITEM_DETAILS_COMPAT=1`）開啟「物品詳情」模組（`Item Details / 物品详情`，ID：`item_details`，工作坊 `3828868413`）相容。此開關**預設關閉**，因為該模組會在未鑑定前直接於懸停說明顯示真偽與瑕疵清單，僅當玩家已安裝並主動開啟時才註冊 `read_item_details` 讀取畫面實際顯示的文字。
 
 4. **驗證連線**：載入存檔（或停在新遊戲專精頁）後，讓智能體呼叫 `get_scene()`；確認 `location=pawnshop`、無 `version_mismatch` 後，再呼叫 `get_shop_updates()` 建立基準與 `get_shop_status()` 查看店況即可開玩。
 
