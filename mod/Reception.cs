@@ -58,7 +58,7 @@ namespace WhiteDragon.Ledger
                 store.CanEndDay();
         }
 
-        private bool CanDismissCustomer(PlayerStore store)
+        private bool CanDismissCustomer(PlayerStore store, bool interrupt = false)
         {
             if (ResponseInventory() != null || WildNetworkUI.IsOpen || phase != "OPEN" || visit == null || store.currentClientInstance != visit ||
                 !store.isClientArrived || store.lockNextBellFlag > 0 || !store.IsClientDimissable() ||
@@ -66,9 +66,14 @@ namespace WhiteDragon.Ledger
                 store.isClientBeingArrested || store.isHandlingShootout)
                 return false;
             var dialog = DialogUIManager.Instance;
-            if (dialog != null && (dialog.GetCurrentDialog() != null || dialog.IsChoice() ||
-                dialog.HasPausedConversation || dialog.isWaitingForManualAdvance)) return false;
-            return !StoreUIManager.Instance.isAboutToStartMainDialog && !NegociationUIManager.IsTradeLocked();
+            if (dialog != null && dialog.IsChoice()) return false;
+            if (!interrupt)
+            {
+                if (dialog != null && (dialog.GetCurrentDialog() != null ||
+                    dialog.HasPausedConversation || dialog.isWaitingForManualAdvance)) return false;
+                if (StoreUIManager.Instance.isAboutToStartMainDialog) return false;
+            }
+            return !NegociationUIManager.IsTradeLocked();
         }
 
         private string VisitMismatchStatus(JObject receipt = null)
@@ -81,7 +86,7 @@ namespace WhiteDragon.Ledger
             return visitId == null ? "customer_left" : "customer_replaced";
         }
 
-        private string DismissBlockerReason(PlayerStore store)
+        private string DismissBlockerReason(PlayerStore store, bool interrupt = false)
         {
             if (WildNetworkUI.IsOpen) return "wild_network_open";
             if (ResponseInventory() != null) return "response_required";
@@ -95,18 +100,21 @@ namespace WhiteDragon.Ledger
             if (!store.IsClientDimissable()) return "client_not_dismissable";
             if (order != null || staged != null || stagedBundle.Count > 0) return "order_in_progress";
             var dialog = DialogUIManager.Instance;
-            if ((dialog != null && (dialog.GetCurrentDialog() != null || dialog.IsChoice() ||
+            if (dialog != null && dialog.IsChoice()) return "dialogue_in_progress";
+            if (!interrupt && ((dialog != null && (dialog.GetCurrentDialog() != null ||
                 dialog.HasPausedConversation || dialog.isWaitingForManualAdvance)) ||
-                StoreUIManager.Instance.isAboutToStartMainDialog)
+                StoreUIManager.Instance.isAboutToStartMainDialog))
                 return "dialogue_in_progress";
             if (Interactable.isPaused) return "paused";
             if (NegociationUIManager.IsTradeLocked()) return "trade_locked";
             return "dismiss_unavailable";
         }
 
-        private void DescribeDismissBlock(PlayerStore store, JObject target)
+        private void DescribeDismissBlock(PlayerStore store, JObject target, bool interrupt = false)
         {
-            target["reason"] = DismissBlockerReason(store);
+            string reason = DismissBlockerReason(store, interrupt);
+            target["reason"] = reason;
+            if (reason == "client_not_dismissable") target["reason_detail"] = "story_npc";
             var rows = new JArray();
             var shop = EmporiumEntry.Instance;
             foreach (var item in shop.backInvinvElement.childItems)
@@ -117,9 +125,10 @@ namespace WhiteDragon.Ledger
             target["blocking_items"] = rows;
         }
 
-        private string DismissCustomer(JObject receipt)
+        private string DismissCustomer(JObject request, JObject receipt)
         {
             var store = PlayerStore.Instance;
+            bool interrupt = (bool?)request["interrupt"] == true;
             if (order == null && !Interactable.isPaused && !NegociationUIManager.IsTradeLocked() &&
                 store.lockAllInventoryFlag == 0)
             {
@@ -133,9 +142,9 @@ namespace WhiteDragon.Ledger
                     receipt["cleared_items"] = cleared;
                 }
             }
-            if (!CanDismissCustomer(store))
+            if (!CanDismissCustomer(store, interrupt))
             {
-                DescribeDismissBlock(store, receipt);
+                DescribeDismissBlock(store, receipt, interrupt);
                 receipt["visit"] = visitId;
                 if (merchant != null) receipt["customer"] = merchant.displayName;
                 var rec = ReceptionView();
@@ -145,8 +154,14 @@ namespace WhiteDragon.Ledger
                 return "dismiss_unavailable";
             }
             var departing = visit;
+            string latestLine = openingLines.Count > 0 ? (string)openingLines[openingLines.Count - 1] : null;
             receipt["visit"] = visitId;
             receipt["customer"] = merchant.displayName;
+            if (interrupt)
+            {
+                receipt["interrupted"] = true;
+                if (latestLine != null) receipt["latest_line"] = latestLine;
+            }
             store.TryPlayerDismissCurrentClient(true);
             ObserveVisit();
             var after = ReceptionView();
