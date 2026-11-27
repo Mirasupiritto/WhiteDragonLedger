@@ -227,7 +227,7 @@ namespace WhiteDragon.Ledger
 
         private void LateUpdate()
         {
-
+            SyncAssistConfigToScene();
             if (!CanObserveStore()) { EndHeat("scene_changed"); FinishMachineWait("scene_changed"); CheckJourney(); return; }
             if (pending)
             {

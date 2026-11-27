@@ -102,16 +102,22 @@ def repository_commit():
     return commit or None
 
 
-def item_details_compat_enabled(override: bool | None = None) -> bool:
+def item_details_compat_enabled(override: bool | None = None, *, folder: Path | None = None, scene: dict | None = None) -> bool:
     if override is not None:
         return bool(override)
-    return os.environ.get("WHITE_DRAGON_ITEM_DETAILS_COMPAT", "").strip().lower() in {"1", "true", "yes", "on"}
+    if os.environ.get("WHITE_DRAGON_ITEM_DETAILS_COMPAT", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    data = scene if isinstance(scene, dict) else (read_scene(folder) if folder is not None else None)
+    return bool(isinstance(data, dict) and data.get("item_details_compat_config"))
 
 
-def appraisal_assist_enabled(override: bool | None = None) -> bool:
+def appraisal_assist_enabled(override: bool | None = None, *, folder: Path | None = None, scene: dict | None = None) -> bool:
     if override is not None:
         return bool(override)
-    return os.environ.get("WHITE_DRAGON_APPRAISAL_ASSIST", "").strip().lower() in {"1", "true", "yes", "on"}
+    if os.environ.get("WHITE_DRAGON_APPRAISAL_ASSIST", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return True
+    data = scene if isinstance(scene, dict) else (read_scene(folder) if folder is not None else None)
+    return bool(isinstance(data, dict) and data.get("appraisal_assist_config"))
 
 
 def item_details_mod_status(folder: Path) -> dict:
@@ -123,7 +129,7 @@ def item_details_mod_status(folder: Path) -> dict:
 
 def scene_version(scene, commit, *, item_details_compat: bool | None = None):
     out = dict(scene)
-    if item_details_compat_enabled(item_details_compat):
+    if item_details_compat_enabled(item_details_compat, scene=out):
         mod = out.get("item_details_mod")
         if not isinstance(mod, dict) or not mod.get("loaded"):
             out["item_details_compat"] = {

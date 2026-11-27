@@ -53,17 +53,34 @@ namespace WhiteDragon.Ledger
             };
         }
 
+        private bool publishedAppraisalAssist;
+        private bool publishedItemDetailsCompat;
+
+        private void SyncAssistConfigToScene()
+        {
+            if (sceneStatus == null) return;
+            bool curAssist = InventorySorting.AppraisalAssistEnabled;
+            bool curDetails = InventorySorting.ItemDetailsCompatEnabled;
+            if (curAssist != publishedAppraisalAssist || curDetails != publishedItemDetailsCompat)
+                PublishScene(sceneStatus);
+        }
+
         private void PublishScene(string status,string reason=null)
         {
             journeyToken = null;
             sceneStatus = status;
+            publishedAppraisalAssist = InventorySorting.AppraisalAssistEnabled;
+            publishedItemDetailsCompat = InventorySorting.ItemDetailsCompatEnabled;
             if (status != Picker)
             {
                 firstTravelCard = null;
                 travelOptions = null;
             }
             var receipt = new JObject {
-                ["dll_commit"]=LedgerBuild.Commit, ["item_details_mod"] = ItemDetailsModStatus(), ["scratch_card_protocol"] = 2, ["feedback_protocol"] = 1, ["journey_protocol"] = 1, ["session"] = sceneSession, ["revision"] = ++sceneRevision, ["status"] = status,
+                ["dll_commit"]=LedgerBuild.Commit, ["item_details_mod"] = ItemDetailsModStatus(),
+                ["appraisal_assist_config"] = publishedAppraisalAssist,
+                ["item_details_compat_config"] = publishedItemDetailsCompat,
+                ["scratch_card_protocol"] = 2, ["feedback_protocol"] = 1, ["journey_protocol"] = 1, ["session"] = sceneSession, ["revision"] = ++sceneRevision, ["status"] = status,
                 ["location"] = currentLocation, ["title"] = currentTitle,
                 ["tool_region"] = status == DifficultyPicker ? "new_game_difficulty" : status == PerkPicker ? "new_game_perks" : status == SpecializationPicker ? "new_game" : status == Picker ? "destination_selection" : status == "ready" ? (currentLocation == ShopScene ? "pawnshop" : "afterhours") : "transition",
                 ["destination"] = destination, ["destination_title"] = destinationTitle,

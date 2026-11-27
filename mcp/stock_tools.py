@@ -77,7 +77,7 @@ def register(server, folder, database, *, section_cache=None, item_details_compa
         """Read this load's stock IDs in request order, with current locations, size/slot/rotatable, labels, water/purifier details, estimated_value and missing IDs."""
         return lookup(folder, database, stock_query=dict(item_ids=item_ids, generation=generation))
 
-    if scene_mod.item_details_compat_enabled(item_details_compat) and scene_mod.item_details_mod_status(folder).get("loaded"):
+    if scene_mod.item_details_compat_enabled(item_details_compat, folder=folder) and scene_mod.item_details_mod_status(folder).get("loaded"):
         @server.tool()
         def read_item_details(item_ids: list[int], generation: str, revision: int) -> dict:
             """Read the on-screen tooltip text rendered by the Item Details mod (item_details) for the given item IDs.

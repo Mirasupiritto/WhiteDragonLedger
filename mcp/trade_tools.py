@@ -377,7 +377,7 @@ def register(server, folder, database, *, appraisal_assist: bool | None = None):
             raise ValueError("Expected positive item_id and estimate")
         return counter.command(folder, "appraisal", generation, revision, visit=visit, item_id=item_id, estimate=estimate)
 
-    if scene_mod.appraisal_assist_enabled(appraisal_assist):
+    if scene_mod.appraisal_assist_enabled(appraisal_assist, folder=folder):
         @server.tool()
         def get_appraisal_assist(visit: str, generation: str, revision: int) -> dict:
             """Read recommended appraisal estimates for the current APPRAISAL_SERVICE visitor's counter items.
