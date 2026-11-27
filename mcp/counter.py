@@ -253,6 +253,7 @@ ACTION_SPECS: dict[str, ActionSpec] = {
     ),
     "barter": ActionSpec(check=_check_barter),
     "appraisal": ActionSpec(protocol="appraisal_protocol"),
+    "appraisal_assist": ActionSpec(protocol="appraisal_protocol"),
     "pay_info": ActionSpec(protocol="information_protocol"),
     "auto_receive": ActionSpec(check=_check_reception),
     "close_shop": ActionSpec(check=_check_reception),

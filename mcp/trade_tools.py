@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 import book_history
 import counter
 from flow import present_counter
+import scene as scene_mod
 import shopdesk
 import shop_day
 from ledger import lookup, same_observation
@@ -260,7 +261,7 @@ class Updates:
         return result
 
 
-def register(server, folder, database):
+def register(server, folder, database, *, appraisal_assist: bool | None = None):
     state = getattr(server, "state", None)
     tracker = Updates(folder, database, state=state)
     server.updates = tracker
@@ -375,3 +376,10 @@ def register(server, folder, database):
         if item_id < 1 or estimate < 1:
             raise ValueError("Expected positive item_id and estimate")
         return counter.command(folder, "appraisal", generation, revision, visit=visit, item_id=item_id, estimate=estimate)
+
+    if scene_mod.appraisal_assist_enabled(appraisal_assist):
+        @server.tool()
+        def get_appraisal_assist(visit: str, generation: str, revision: int) -> dict:
+            """Read recommended appraisal estimates for the current APPRAISAL_SERVICE visitor's counter items.
+            Only registered when WHITE_DRAGON_APPRAISAL_ASSIST=1 or --appraisal-assist is enabled."""
+            return counter.command(folder, "appraisal_assist", generation, revision, visit=visit)

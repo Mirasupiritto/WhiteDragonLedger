@@ -124,7 +124,10 @@ namespace WhiteDragon.Ledger
                 var appraisalView = AppraisalView();
                 view["appraisal"] = appraisalView;
                 if ((int)appraisalView["remaining_count"] > 0 && view["next_action"] == null)
-                    view["next_action"] = "player_visual_check";
+                {
+                    bool allHaveFeatures = ((JArray)appraisalView["items"]).All(row => row["visual_features"] != null);
+                    view["next_action"] = allHaveFeatures ? "appraise_from_features" : "player_visual_check";
+                }
             }
             if (heatRun != null || lastHeat != null) view["heat"] = (heatRun?.Summary ?? lastHeat).DeepClone();
             if (stage=="barter_unsupported")
@@ -264,6 +267,7 @@ namespace WhiteDragon.Ledger
             if (action == "bargain") return BargainAction(request,receipt);
             if (action == "barter") return ActOnBarter(request, receipt);
             if (action == "appraisal") return AppraisalAction(request, receipt);
+            if (action == "appraisal_assist") return AppraisalAssistAction(request, receipt);
             if (action == "water_use") return WaterUseAction(request, receipt);
             if (action == "water_panel") return WaterPanelAction(request, receipt);
             if (action == "prepare_sleep" || action == "night_service") return ActOnBill(request, receipt);
