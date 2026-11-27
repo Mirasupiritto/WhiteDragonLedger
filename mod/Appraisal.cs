@@ -142,13 +142,11 @@ namespace WhiteDragon.Ledger
             var dialog = DialogUIManager.Instance;
             string bubbleText = dialog?.clientBubble?.textfield?.text;
             if (!string.IsNullOrWhiteSpace(bubbleText)) return bubbleText;
-            var current = dialog?.GetCurrentDialog();
-            if (current != null)
+            if (dialog?.GetCurrentDialog() is Dialogue current)
             {
-                var lineProp = current.GetType().GetProperty("text") ?? current.GetType().GetProperty("line");
-                if (lineProp?.GetValue(current) is string s && !string.IsNullOrWhiteSpace(s)) return s;
-                var lineField = current.GetType().GetField("text") ?? current.GetType().GetField("line");
-                if (lineField?.GetValue(current) is string sf && !string.IsNullOrWhiteSpace(sf)) return sf;
+                if (!string.IsNullOrWhiteSpace(current.plainText)) return current.plainText;
+                string built = current.text?.Build(int.MaxValue)?.nakedText;
+                if (!string.IsNullOrWhiteSpace(built)) return built;
             }
             return fallbackLines != null && fallbackLines.Count > 0 ? (string)fallbackLines.Last : null;
         }
