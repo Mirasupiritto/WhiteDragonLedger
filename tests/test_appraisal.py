@@ -115,6 +115,34 @@ class AppraisalToolsTest(unittest.TestCase):
                          ("observed", "appraisal_assist", 470))
         cmd.assert_called_once_with(self.folder, "appraisal_assist", self.generation, 5, visit=self.visit)
 
+    def test_appraisal_inspect_action_spec_and_demand_highlight_forwarding(self):
+        head = {
+            "status": "observed", "generation": self.generation, "revision": 5,
+            "slot": 4, "phase": "OPEN", "load_scans": 1, "full_scans": 1, "appraisal_protocol": 1,
+        }
+        (self.folder / "head.json").write_text(json.dumps(head), encoding="utf-8")
+        with patch("counter.exchange", return_value={"status": "inspected", "item_id": 42, "item_index": 0, "inspecting": True}) as ex:
+            res = self.call("appraisal_inspect", {"visit": self.visit, "generation": self.generation, "revision": 5, "item_index": 0})
+        self.assertEqual((res["status"], res["item_id"], res["inspecting"]), ("inspected", 42, True))
+        self.assertEqual(ex.call_args.args[1], "appraisal_inspect")
+
+        (self.folder / f"{self.generation}-1.json").write_text(json.dumps({"op": "baseline", "items": [], "day": 20}), encoding="utf-8")
+        desk_hl = {
+            "status": "observed", "generation": self.generation, "revision": 5, "slot": 4,
+            "phase": "OPEN", "day": 20, "counter_protocol": 2,
+            "counter": {
+                "stage": "ready", "visit": self.visit, "customer": "路人", "lines": ["我要買東西。"],
+                "highlighted_item_ids": [42], "demand_highlight_status": "compat_unavailable",
+                "reception": {"token": "rt1", "waiting": 0},
+            },
+        }
+        head["revision"] = 1
+        (self.folder / "head.json").write_text(json.dumps(head), encoding="utf-8")
+        with patch.object(shopdesk, "published", return_value=desk_hl):
+            ctx = self.call("get_trade_context")
+        self.assertEqual(ctx["highlighted_item_ids"], [42])
+        self.assertEqual(ctx["demand_highlight_status"], "compat_unavailable")
+
         # V1: assist_disabled attaches next_action="ask_player_to_enable_in_mod_settings"
         disabled_resp = {"status": "assist_disabled", "reason": "appraisal_assist_off"}
         with patch("counter.command", return_value=disabled_resp):

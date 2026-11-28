@@ -48,7 +48,7 @@ def context(view):
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
     for key in ("client_role", "appraisal", "offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
-                "forced_choice", "forced_choice_reason", "wanted_name_match", "poster_match", "story_branch", "consequence_hint", "consequence", "counter_request", "inspection_exposure", "heat", "barter", "stale_during_speech", "table_items"):
+                "forced_choice", "forced_choice_reason", "wanted_name_match", "poster_match", "story_branch", "consequence_hint", "consequence", "counter_request", "inspection_exposure", "heat", "barter", "stale_during_speech", "table_items", "highlighted_item_ids", "demand_highlight_status"):
         if key in desk:
             result[key] = desk[key]
     if isinstance(desk.get("reception"), dict) and "token" in desk["reception"]:

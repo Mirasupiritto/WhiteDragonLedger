@@ -219,6 +219,18 @@ namespace WhiteDragon.Ledger
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
                 ["visit"] = visitId, ["force"] = true, ["expires_ms"] = long.MaxValue
             }, x4NamedForce) == "dismissed", "X4 first-visit named visitor dismissed when force=true");
+            seenNamedVisitors.Clear(); // Verify ResetLoad clears seenNamedVisitors
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "seedVisitor", displayName = "Seed" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            var x4AfterReset = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, x4AfterReset) == "protected_visitor" && (string)x4AfterReset["reason"] == "first_visit_named",
+                "X4 ResetLoad clears seenNamedVisitors for new save/load");
+            store.currentClientInstance = null;
+            ObserveVisit();
 
             // X8: demand_highlight_compat off -> omitted; on without mod -> compat_unavailable; on with mod -> highlighted_item_ids
             InventorySorting.Configure("replay");
