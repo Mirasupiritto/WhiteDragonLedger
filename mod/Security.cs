@@ -18,16 +18,13 @@ namespace WhiteDragon.Ledger
                 {"wanted7",("name_juan",125)}, {"wanted8",("name_john_smith",125)}, {"wanted9",("name_leroy",300)}
             };
 
-        private static readonly System.Reflection.FieldInfo BoardElements=typeof(WantedUIManager).GetField(
-            "wantedElements",System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-
         private static JArray WantedRows()
         {
             var rows=new JArray();
             var board=WantedUIManager.Instance;
-            var registered=board==null ? null : (List<WantedElement>)BoardElements.GetValue(board);
+            var registered=board==null ? null : UnityEngine.Object.FindObjectsOfType<WantedElement>(true);
             // Before the panel's first Awake, the native poster catalog supplies the same board IDs.
-            IEnumerable<string> ids=registered!=null && registered.Count>0
+            IEnumerable<string> ids=registered!=null && registered.Length>0
                 ? registered.Where(e=>e!=null).Select(e=>e.identifier).Distinct() : StoreClientListWanted.POSTER_IDS;
             foreach (string id in ids.OrderBy(id=>id))
             {
