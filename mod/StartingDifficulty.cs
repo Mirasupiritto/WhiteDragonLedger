@@ -6,7 +6,7 @@ namespace WhiteDragon.Ledger
 {
     internal static class StartingDifficulty
     {
-        // The open UI keeps its own ordered snapshot of Difficulty.GetAll(), including modded cards.
+        // 保留反射：無等效公開 API（W0 調查：difficulties、page、TurnPage、OnPlateClicked 皆為 private static）
         private const BindingFlags Flags = BindingFlags.Static | BindingFlags.NonPublic;
         private static readonly FieldInfo Cards = typeof(NewGameDifficultyUI).GetField("difficulties", Flags);
         private static readonly FieldInfo Page = typeof(NewGameDifficultyUI).GetField("page", Flags);
