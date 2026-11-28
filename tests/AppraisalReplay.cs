@@ -163,6 +163,52 @@ namespace WhiteDragon.Ledger
                 app1.parentInventory == shop.frontInvinvElement,
                 "T2 rejected returns line, impatience_delta and keeps item");
 
+            // V4: unchanged/empty line marks line_pending=true (omits stale line) and detects direction via native GetTooHighDialog/GetTooLowDialog
+            AppraisalServiceHelper.ReplayTooHighDialog = () => new Dialogue {
+                plainText = "這不對吧？",
+                nextDialogue = new Dialogue { plainText = "你喊得太高了。" }
+            };
+            AppraisalServiceHelper.ReplayTooLowDialog = () => new Dialogue {
+                plainText = "這不對吧？",
+                nextDialogue = new Dialogue { plainText = "你喊得太低了。" }
+            };
+            AppraisalServiceHelper.ReplayEstimate = (it, val) => {
+                merchant.clientImpatience += 10;
+                // clientBubble.textfield.text remains "這也太低了吧！" (unchanged from previous turn)
+                DialogUIManager.Instance.current = new Dialogue {
+                    plainText = "這不對吧？",
+                    nextDialogue = new Dialogue { plainText = "你喊得太高了。" }
+                };
+            };
+            var v4HighRes = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "appraisal", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["item_id"] = LocalId(app1), ["estimate"] = 400, ["expires_ms"] = long.MaxValue
+            }, v4HighRes) == "rejected" && (bool)v4HighRes["line_pending"] &&
+                (string)v4HighRes["next_action"] == "wait_for_dialogue_and_check_get_trade_context" &&
+                v4HighRes["line"] == null && (string)v4HighRes["direction"] == "too_high",
+                "V4 unchanged line sets line_pending=true and detects direction=too_high");
+
+            DialogUIManager.Instance.current = null;
+            AppraisalServiceHelper.ReplayEstimate = (it, val) => {
+                merchant.clientImpatience += 10;
+                DialogUIManager.Instance.clientBubble = new Bubble { textfield = new Label { text = "你再仔細看看！" } };
+                DialogUIManager.Instance.current = new Dialogue {
+                    plainText = "這不對吧？",
+                    nextDialogue = new Dialogue { plainText = "你喊得太低了。" }
+                };
+            };
+            var v4LowRes = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "appraisal", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["item_id"] = LocalId(app1), ["estimate"] = 20, ["expires_ms"] = long.MaxValue
+            }, v4LowRes) == "rejected" && v4LowRes["line_pending"] == null &&
+                (string)v4LowRes["line"] == "你再仔細看看！" && (string)v4LowRes["direction"] == "too_low",
+                "V4 fresh line omits line_pending and detects direction=too_low");
+            DialogUIManager.Instance.current = null;
+            AppraisalServiceHelper.ReplayTooHighDialog = null;
+            AppraisalServiceHelper.ReplayTooLowDialog = null;
+
             // T2-1: accepted (item destroyed, cash_delta > 0, slip_text captured, InspectionUI closed)
             InspectionUIManager.Instance.currentInspectingItem = app1;
             int cashBefore = store.playerCash;
@@ -218,7 +264,9 @@ namespace WhiteDragon.Ledger
             }, wrongIntent) == "wrong_client_intent" && (string)wrongIntent["reason"] == "not_appraisal_service",
                 "T2 non-appraisal client returns wrong_client_intent");
 
-            // U2: AppraisalAssistAction wrong_client_intent when not APPRAISAL_SERVICE
+            // U2: AppraisalAssistAction wrong_client_intent when not APPRAISAL_SERVICE (with toggle enabled)
+            InventorySorting.Configure("replay");
+            ModHelper.sortConfig.appraisalEntry.Value = true;
             var assistWrong = new JObject();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "appraisal_assist", ["generation"] = generation, ["revision"] = sequence,
@@ -293,6 +341,18 @@ namespace WhiteDragon.Ledger
                 uView["appraisal"]["items"][0]["recommended_estimate"] == null,
                 "U1 visual_features populated for hand/ribwich/plasma_fuel with appraise_from_features and no hidden value");
 
+            // V1: appraisal_assist requires in-game mod config enabled
+            InventorySorting.Configure("replay");
+            ModHelper.sortConfig.appraisalEntry.Value = false;
+            var assistOff = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "appraisal_assist", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, assistOff) == "assist_disabled" && (string)assistOff["reason"] == "appraisal_assist_off" &&
+                assistOff["items"] == null,
+                "V1 appraisal_assist returns assist_disabled when in-game toggle is off");
+
+            ModHelper.sortConfig.appraisalEntry.Value = true;
             AppraisalHelper.ReplayCorrectValue = it => it == uHand ? 470 : it == uRib ? 40 : 280;
             var assistOk = new JObject();
             Expect(ActAtCounter(new JObject {
@@ -320,6 +380,7 @@ namespace WhiteDragon.Ledger
                 uUnknownView["appraisal"]["items"][2]["visual_features"] == null,
                 "U1 unknown appraisal species falls back to player_visual_check");
             AppraisalHelper.ReplayCorrectValue = null;
+            ModHelper.sortConfig.appraisalEntry.Value = false;
             ModHelper.sortConfig.appraisalEntry.Value = false;
 
             AppraisalServiceHelper.ReplayEstimate = null;

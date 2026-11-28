@@ -657,7 +657,9 @@ namespace WhiteDragon.Ledger
                 "S4 OPEN with customer blocks hidden move with transfer_blocked/customer_present");
             store.currentClientInstance = null;
 
-            // R1 & R2: read_item_details requires item_details mod loaded and reads displayed tooltip text
+            // R1 & R2: read_item_details requires item_details_compat toggle and item_details mod loaded
+            InventorySorting.Configure("replay");
+            ModHelper.sortConfig.detailsEntry.Value = true;
             var r2Item = Item(2101, "hemingway_cigarettes", 100);
             r2Item.To(shop.invElement);
             FlushChanges();
@@ -677,6 +679,13 @@ namespace WhiteDragon.Ledger
             ModInternal.ReplayTooltipLate = (b, it) => {
                 b.Buffer.Append("（未拥有）一包海明威香烟\n[标签] 正品\n× 赝品（防伪标问题、商标问题）\n真实：赝品 -50%（伪装为 正品）");
             };
+            // V1: read_item_details requires in-game item_details_compat toggle enabled
+            ModHelper.sortConfig.detailsEntry.Value = false;
+            var r2ToggleOff = new JObject();
+            Expect(ActAtCounter(r2MissingReq, r2ToggleOff) == "assist_disabled" &&
+                (string)r2ToggleOff["reason"] == "item_details_compat_off" && r2ToggleOff["items"] == null,
+                "V1 read_item_details returns assist_disabled when in-game toggle is off");
+            ModHelper.sortConfig.detailsEntry.Value = true;
             var r2OkRes = new JObject();
             Expect(ActAtCounter(r2MissingReq, r2OkRes) == "observed" &&
                 (string)r2OkRes["source"] == "item_details_mod" &&
@@ -685,6 +694,7 @@ namespace WhiteDragon.Ledger
                 "R2 read_item_details returns displayed tooltip text and mod version");
             ModInternal.ReplayTooltipLate = null;
             ModLoader.Mods.Clear();
+            ModHelper.sortConfig.detailsEntry.Value = false;
             ModHelper.sortConfig.detailsEntry.Value = false;
 
             Console.WriteLine("Stock replay passed: counter staging, nested ownership, furnace roles, power, fermentation and notices.");
