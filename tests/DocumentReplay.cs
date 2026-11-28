@@ -6,7 +6,7 @@ using System.Linq;
 
 namespace UnityEngine
 {
-    public class Transform : List<Transform> { public GameObject gameObject; }
+    public class Transform : List<Transform> { public GameObject gameObject; public string name; }
     public class GameObject
     {
         public bool activeInHierarchy, activeSelf;

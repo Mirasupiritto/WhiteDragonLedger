@@ -220,6 +220,32 @@ namespace WhiteDragon.Ledger
                 ["visit"] = visitId, ["force"] = true, ["expires_ms"] = long.MaxValue
             }, x4NamedForce) == "dismissed", "X4 first-visit named visitor dismissed when force=true");
 
+            // X8: demand_highlight_compat off -> omitted; on without mod -> compat_unavailable; on with mod -> highlighted_item_ids
+            InventorySorting.Configure("replay");
+            var hlItem = new GameItemElement { identifier = "apple", uniqueId = "hl_1" };
+            hlItem.ReplayChildren = new[] { new UnityEngine.Transform { name = "CDH_Border" } };
+            hlItem.To(EmporiumEntry.Instance.invElement);
+            FlushChanges();
+            ModHelper.sortConfig.highlightEntry.Value = false;
+            var x8Off = CounterView();
+            Expect(x8Off["highlighted_item_ids"] == null && x8Off["demand_highlight_status"] == null,
+                "X8 demand_highlight_compat off omits highlight fields");
+            ModHelper.sortConfig.highlightEntry.Value = true;
+            ModLoader.Mods.Clear();
+            var x8Missing = CounterView();
+            Expect((string)x8Missing["demand_highlight_status"] == "compat_unavailable" && x8Missing["highlighted_item_ids"] == null,
+                "X8 demand_highlight_compat on without mod returns compat_unavailable");
+            ModLoader.Mods.Add(new LoadedMod {
+                Manifest = new ModManifest { ID = "hollow.clientdemandhighlight", Name = "Client Demand Highlight", ModVersion = "1.3.10" },
+                IsEnabled = true
+            });
+            var x8On = CounterView();
+            Expect(x8On["highlighted_item_ids"] != null && x8On["highlighted_item_ids"].Any(id => (int)id == LocalId(hlItem)),
+                "X8 demand_highlight_compat on with mod returns highlighted_item_ids");
+            ModLoader.Mods.Clear();
+            ModHelper.sortConfig.highlightEntry.Value = false;
+            hlItem.To(null);
+
             Console.WriteLine("Counter and night bill replay passed: page identity, choices, response items, service changes without sleep.");
         }
     }

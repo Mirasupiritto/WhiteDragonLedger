@@ -27,7 +27,10 @@ namespace WhiteDragon.Ledger {
     }
     public class GameItemElement : GameItem {
         public Func<RichTextBuilder> ReplayTooltipBasic;
+        public UnityEngine.Transform[] ReplayChildren;
         private RichTextBuilder GetTooltipBasic() => ReplayTooltipBasic?.Invoke();
+        public T[] GetComponentsInChildren<T>(bool includeInactive = false) where T : class =>
+            typeof(T) == typeof(UnityEngine.Transform) ? (ReplayChildren as T[] ?? Array.Empty<T>()) : Array.Empty<T>();
         public virtual RichText GetTooltip() {
             var builder = GetTooltipBasic() ?? new RichTextBuilder(int.MaxValue);
             ModInternal.CreateTooltipLate(builder, this);

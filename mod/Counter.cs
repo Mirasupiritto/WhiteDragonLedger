@@ -92,6 +92,34 @@ namespace WhiteDragon.Ledger
         private JObject lastDemand;
         private string lastDemandVisit;
 
+        private void AttachDemandHighlights(JObject view)
+        {
+            if (!InventorySorting.DemandHighlightCompatEnabled) return;
+            bool loaded = ModLoader.Mods.Any(mod => mod != null && mod.IsEnabled &&
+                string.Equals(mod.Manifest?.ID, "hollow.clientdemandhighlight", StringComparison.OrdinalIgnoreCase));
+            if (!loaded)
+            {
+                view["demand_highlight_status"] = "compat_unavailable";
+                return;
+            }
+            var highlighted = new JArray();
+            var shop = EmporiumEntry.Instance;
+            if (shop != null)
+            {
+                foreach (var inv in new[] { shop.invElement, shop.showcaseElement, shop.frontInvinvElement, shop.backInvinvElement })
+                {
+                    if (inv == null) continue;
+                    foreach (var item in inv.childItems)
+                    {
+                        if (item is GameItemElement element &&
+                            element.GetComponentsInChildren<Transform>(false).Any(t => t != null && string.Equals(t.name, "CDH_Border", StringComparison.Ordinal)))
+                            highlighted.Add(LocalId(item));
+                    }
+                }
+            }
+            view["highlighted_item_ids"] = highlighted;
+        }
+
         private string ClientRole()
         {
             if (merchant == null) return null;
@@ -177,6 +205,7 @@ namespace WhiteDragon.Ledger
             ObserveDecision(stage, view);
             AttachWantedMatch(view);
             AttachPosterMatch(view);
+            AttachDemandHighlights(view);
             if (phase == "OPEN") view["waiting"] = store.GetClientInQueueCount();
             if (stage == "information")
                 ObserveInformationReceipt(view);
