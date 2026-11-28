@@ -14,7 +14,16 @@ from mcp.client.stdio import stdio_client
 class SceneRouting(unittest.IsolatedAsyncioTestCase):
     def test_scene_version_and_delivery_interval(self):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
-        from scene import scene_version
+        from scene import repository_commit, scene_version
+        from unittest.mock import patch
+        import subprocess
+        with patch("scene.subprocess.run", return_value=subprocess.CompletedProcess([], 0, stdout="886f31b\n")) as run:
+            self.assertEqual(repository_commit(), "886f31b")
+        cmd = run.call_args.args[0]
+        self.assertIn("--first-parent", cmd)
+        self.assertEqual(cmd[-3:], ["--", "mod", "scripts/build.ps1"])
+        build_ps1 = (Path(__file__).resolve().parents[1] / "scripts" / "build.ps1").read_text(encoding="utf-8")
+        self.assertIn("log -1 --first-parent --format=%h -- mod scripts/build.ps1", build_ps1)
         from scene_server import attach_arrivals
         scene = {"dll_commit":"22baa43"}
         self.assertNotIn("version_mismatch",scene_version(scene,"22baa43"))
