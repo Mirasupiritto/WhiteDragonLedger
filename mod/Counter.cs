@@ -111,8 +111,8 @@ namespace WhiteDragon.Ledger
                     if (inv == null) continue;
                     foreach (var item in inv.childItems)
                     {
-                        if (item is GameItemElement element &&
-                            element.GetComponentsInChildren<Transform>(false).Any(t => t != null && string.Equals(t.name, "CDH_Border", StringComparison.Ordinal)))
+                        if (item is GameItemElement element && element.rectTransform != null &&
+                            element.rectTransform.GetComponentsInChildren<Transform>(false).Any(t => t != null && string.Equals(t.name, "CDH_Border", StringComparison.Ordinal)))
                             highlighted.Add(LocalId(item));
                     }
                 }

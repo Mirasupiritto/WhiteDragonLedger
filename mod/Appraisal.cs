@@ -387,13 +387,27 @@ namespace WhiteDragon.Ledger
             {
                 for (int i = 0; i < items.Count; i++)
                 {
-                    if (LocalId(items[i]) == requestedId.Value) { target = items[i]; resolvedIndex = i; break; }
+                    if ((int)items[i]["item_id"] == requestedId.Value &&
+                        itemsById.TryGetValue(requestedId.Value, out var found))
+                    {
+                        target = found;
+                        resolvedIndex = i;
+                        break;
+                    }
                 }
             }
             else
             {
                 int index = (int?)request["item_index"] ?? 0;
-                if (index >= 0 && index < items.Count) { target = items[index]; resolvedIndex = index; }
+                if (index >= 0 && index < items.Count)
+                {
+                    int itemId = (int)items[index]["item_id"];
+                    if (itemsById.TryGetValue(itemId, out var found))
+                    {
+                        target = found;
+                        resolvedIndex = index;
+                    }
+                }
             }
             if (target == null)
             {
@@ -410,7 +424,7 @@ namespace WhiteDragon.Ledger
             receipt["magnifier_id"] = LocalId(magnifier);
             int defVal = target.GetTagReadonly("APPRAISAL_DEFAULT_VALUE").GetInt();
             if (defVal > 0) receipt["default_estimate"] = defVal;
-            var features = ExtractVisualFeatures(target);
+            var features = VisualFeatures(target);
             if (features != null) receipt["visual_features"] = features;
             receipt["inspecting"] = InspectionUIManager.Instance?.currentInspectingItem == target;
             return "inspected";
