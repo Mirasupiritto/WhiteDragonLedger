@@ -7,7 +7,7 @@ namespace WhiteDragon.Ledger
 {
     public sealed partial class InventoryObserver
     {
-        // The native bill builds its visible controls in this private list.
+        // 保留反射：無等效公開 API（W0 調查：EndOfDayUIManager.rows 為 private，公開僅 HasToggleableService）
         private static readonly FieldInfo ServiceRows = typeof(EndOfDayUIManager).GetField("rows",
             BindingFlags.Instance | BindingFlags.NonPublic);
         private JObject previousBill;
