@@ -152,6 +152,22 @@ namespace WhiteDragon.Ledger
             Expect(Send("buy","referral",12)=="panel_changed" && store.playerCash==93,"second click cannot charge again");
             token = purchasedToken;
             Expect(Send("read",since:token) == "unchanged" && receipt["panel"] == null, "token matches full post-purchase view");
+            // X5: adjacent services select exact target ID on first call
+            var pharma = new NetworkUpgrade { id = "PHARMA", name = "Pharma", description = "P", tab = 0, cost = 5 };
+            var crim = new NetworkUpgrade { id = "CRIMINEL_NETWORK", name = "Criminal", description = "C", tab = 0, cost = 8 };
+            store.networkUpgrade["PHARMA"] = pharma;
+            store.networkUpgrade["CRIMINEL_NETWORK"] = crim;
+            catalog[0].id = "PHARMA";
+            catalog[1].id = "CRIMINEL_NETWORK";
+            Read();
+            Expect(Send("select", "CRIMINEL_NETWORK") == "service_selected" &&
+                   (string)receipt["selected"]["selected_id"] == "CRIMINEL_NETWORK",
+                   "X5 select picks exact adjacent service ID on first attempt");
+            token = (string)receipt["panel_token"];
+            store.networkUpgrade.Remove("PHARMA");
+            store.networkUpgrade.Remove("CRIMINEL_NETWORK");
+            catalog[0].id = "referral";
+            catalog[1].id = "s1";
             Expect(Send("close")=="closed" && Send("read")=="panel_closed","explicit close");
             foreach (var slot in catalog.GetRange(1, 54)) store.networkUpgrade.Remove(slot.id);
             store.playerCash=originalCash;
