@@ -137,6 +137,33 @@ namespace WhiteDragon.Ledger
             };
         }
 
+        private static string DialogueNodeText(Dialogue node)
+        {
+            if (node == null) return "";
+            if (!string.IsNullOrWhiteSpace(node.plainText)) return node.plainText;
+            return node.text?.Build(int.MaxValue)?.nakedText ?? "";
+        }
+
+        private static string DialogueChainText(Dialogue root)
+        {
+            if (root == null) return "";
+            string first = DialogueNodeText(root);
+            string second = DialogueNodeText(root.nextDialogue);
+            return second.Length > 0 ? first + "\n" + second : first;
+        }
+
+        private static bool MatchesDialogueTemplate(Dialogue current, Dialogue template)
+        {
+            if (current == null || template == null) return false;
+            string curChain = DialogueChainText(current);
+            string tplChain = DialogueChainText(template);
+            if (tplChain.Length > 0 && string.Equals(curChain, tplChain, StringComparison.Ordinal))
+                return true;
+            string tplSecond = DialogueNodeText(template.nextDialogue);
+            return tplSecond.Length > 0 &&
+                string.Equals(DialogueNodeText(current), tplSecond, StringComparison.Ordinal);
+        }
+
         private static string CurrentAppraisalDialogueLine(JArray fallbackLines)
         {
             var dialog = DialogUIManager.Instance;
@@ -210,6 +237,7 @@ namespace WhiteDragon.Ledger
             var store = PlayerStore.Instance;
             int cashBefore = store.playerCash;
             int impatienceBefore = merchant.clientImpatience;
+            string prevLine = CurrentAppraisalDialogueLine(null);
             var existingSlips = new HashSet<GameItem>();
             foreach (var inv in new[] { shop.frontInvinvElement, shop.backInvinvElement })
             {
@@ -251,8 +279,21 @@ namespace WhiteDragon.Ledger
             }
 
             receipt["cash_delta"] = 0;
-            string line = CurrentAppraisalDialogueLine(openingLines);
-            if (!string.IsNullOrEmpty(line)) receipt["line"] = line;
+            string line = CurrentAppraisalDialogueLine(null);
+            if (!string.IsNullOrEmpty(line) && !string.Equals(line, prevLine, StringComparison.Ordinal))
+                receipt["line"] = line;
+            else
+            {
+                receipt["line_pending"] = true;
+                receipt["next_action"] = "wait_for_dialogue_and_check_get_trade_context";
+            }
+            if (DialogUIManager.Instance?.GetCurrentDialog() is Dialogue dlg)
+            {
+                if (MatchesDialogueTemplate(dlg, AppraisalServiceHelper.GetTooHighDialog()))
+                    receipt["direction"] = "too_high";
+                else if (MatchesDialogueTemplate(dlg, AppraisalServiceHelper.GetTooLowDialog()))
+                    receipt["direction"] = "too_low";
+            }
             if (merchant.clientImpatience >= 100)
             {
                 receipt["reason"] = "patience_exhausted";
@@ -266,6 +307,11 @@ namespace WhiteDragon.Ledger
 
         private string AppraisalAssistAction(JObject request, JObject receipt)
         {
+            if (!InventorySorting.AppraisalAssistEnabled)
+            {
+                receipt["reason"] = "appraisal_assist_off";
+                return "assist_disabled";
+            }
             if (phase != "OPEN") return "shop_closed";
             ObserveVisit();
             if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);

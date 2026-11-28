@@ -322,3 +322,10 @@ class SceneRouting(unittest.IsolatedAsyncioTestCase):
                 register_pawnshop_tools(s2, folder, db)
                 names2 = {t.name for t in asyncio.run(s2.list_tools())}
                 self.assertIn("read_item_details", names2)
+                with patch("counter.command", return_value={"status": "assist_disabled", "reason": "item_details_compat_off"}):
+                    res_off = asyncio.run(s2.call_tool("read_item_details", {
+                        "item_ids": [1], "generation": "1" * 32, "revision": 1,
+                    }))
+                payload_off = json.loads(res_off[0].text)
+                self.assertEqual(payload_off["status"], "assist_disabled")
+                self.assertEqual(payload_off["next_action"], "ask_player_to_enable_in_mod_settings")

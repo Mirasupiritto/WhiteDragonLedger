@@ -299,6 +299,34 @@ class LedgerReplay(unittest.TestCase):
         self.assertNotIn("upsert", third)
         self.assertEqual(third["upsert_summary"], {"count": 6})
 
+    def test_trash_excluded_from_default_queries_and_tags(self):
+        caps = {area: {"capacity": 100} for area in ("inventory", "showcase", "front", "back")}
+        inv_item = {"id": 101, "name": "清潔劑", "kind": "cleaner", "area": "inventory", "owned": True,
+                    "quantity": 1, "size": {"w": 1, "h": 1}, "slot": {"x": 0, "y": 0}, "estimated_value": 10,
+                    "categories": ["WATER"], "tags": ["WATER"], "bottle_label": "Pure"}
+        trash_item = {"id": 102, "name": "廢棄水瓶", "kind": "junk_bottle", "area": "trash", "owned": True,
+                      "quantity": 1, "size": {"w": 1, "h": 1}, "slot": {"x": 0, "y": 0}, "estimated_value": 1,
+                      "categories": ["WATER"], "tags": ["WATER"], "bottle_label": "TrashLabel"}
+        self.event(1, op="baseline", items=[inv_item, trash_item], capacities=caps)
+        self.put("head.json", dict(
+            status="observed", slot=3, phase="CLOSED", generation=self.generation, revision=1,
+            full_scans=1, load_scans=1, item_details_protocol=1, stock_categories_protocol=1, trade_panel_protocol=1,
+        ))
+        default_all = self.read()
+        self.assertEqual([i["id"] for i in default_all["items"]], [101])
+        find_owned = self.read(stock_query=dict(owned=True))
+        self.assertEqual([i["id"] for i in find_owned["items"]], [101])
+        trash_only = self.read(area="trash")
+        self.assertEqual([i["id"] for i in trash_only["items"]], [102])
+        by_id = self.read(stock_query=dict(item_ids=[102], generation=self.generation))
+        self.assertEqual([i["id"] for i in by_id["items"]], [102])
+        import contextlib, sqlite3
+        from stock_query import list_tags
+        with contextlib.closing(sqlite3.connect(self.db)) as conn:
+            tags = list_tags(conn, {}, {}, {}, set(), {})
+        self.assertIn("Pure", tags["bottle_labels"])
+        self.assertNotIn("TrashLabel", tags["bottle_labels"])
+
 
 if __name__ == "__main__":
     unittest.main()

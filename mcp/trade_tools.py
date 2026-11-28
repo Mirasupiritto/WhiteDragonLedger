@@ -371,8 +371,8 @@ def register(server, folder, database, *, appraisal_assist: bool | None = None):
     @server.tool()
     def submit_appraisal(item_id: int, estimate: int, visit: str, generation: str, revision: int) -> dict:
         """Submit an appraisal estimate for an unowned APPRAISAL_ITEM on the counter for an APPRAISAL_SERVICE client.
-        Never guess the estimate: ask the player to inspect the item visually (or use read_item_details when item_details_compat is enabled) before calling this tool.
-        Returns accepted (with cash_delta, slip_text, remaining_count, all_done), rejected (with dialogue line and impatience_delta; wait for dialogue or re-read get_trade_context before retrying), or walked_out (patience_exhausted)."""
+        Calculate the estimate from visual_features against the appraisal guide (or use get_appraisal_assist if enabled); only ask the player to inspect visually when visual_features is absent (or read_item_details is unavailable).
+        Returns accepted (with cash_delta, slip_text, remaining_count, all_done), rejected (with dialogue line, optional direction, line_pending when typewriter is still updating, and impatience_delta), or walked_out (patience_exhausted)."""
         if item_id < 1 or estimate < 1:
             raise ValueError("Expected positive item_id and estimate")
         return counter.command(folder, "appraisal", generation, revision, visit=visit, item_id=item_id, estimate=estimate)
@@ -381,5 +381,8 @@ def register(server, folder, database, *, appraisal_assist: bool | None = None):
         @server.tool()
         def get_appraisal_assist(visit: str, generation: str, revision: int) -> dict:
             """Read recommended appraisal estimates for the current APPRAISAL_SERVICE visitor's counter items.
-            Only registered when WHITE_DRAGON_APPRAISAL_ASSIST=1 or --appraisal-assist is enabled."""
-            return counter.command(folder, "appraisal_assist", generation, revision, visit=visit)
+            Only registered when WHITE_DRAGON_APPRAISAL_ASSIST=1 or --appraisal-assist is enabled, and requires the in-game mod setting to be enabled."""
+            res = counter.command(folder, "appraisal_assist", generation, revision, visit=visit)
+            if res.get("status") == "assist_disabled":
+                return {**res, "next_action": "ask_player_to_enable_in_mod_settings"}
+            return res

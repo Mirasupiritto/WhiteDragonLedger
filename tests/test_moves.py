@@ -352,6 +352,9 @@ class MoveMailbox(unittest.TestCase):
         with patch("moves.move_item", side_effect=[moved(11), {"status": "stale_observation"}, moved(13)]) as call:
             res = move_items(self.folder, [25, 26], "inventory", "showcase", self.generation, 10)
         self.assertEqual((res["status"], res["moved_count"], call.call_count), ("moved", 2, 3))
+        self.assertEqual(res["stale_retries"], 1)
+        self.assertEqual(res["items"][1]["stale_retries"], 1)
+        self.assertNotIn("stale_retries", res["items"][0])
         # S7 with visit: head.json has no visit field, must still retry stale_observation
         visit = "c" * 32
         self.head.update(phase="OPEN", revision=14)

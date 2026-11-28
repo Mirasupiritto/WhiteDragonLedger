@@ -657,7 +657,9 @@ namespace WhiteDragon.Ledger
                 "S4 OPEN with customer blocks hidden move with transfer_blocked/customer_present");
             store.currentClientInstance = null;
 
-            // R1 & R2: read_item_details requires item_details mod loaded and reads displayed tooltip text
+            // R1 & R2: read_item_details requires item_details_compat toggle and item_details mod loaded
+            InventorySorting.Configure("replay");
+            ModHelper.sortConfig.detailsEntry.Value = true;
             var r2Item = Item(2101, "hemingway_cigarettes", 100);
             r2Item.To(shop.invElement);
             FlushChanges();
@@ -677,12 +679,37 @@ namespace WhiteDragon.Ledger
             ModInternal.ReplayTooltipLate = (b, it) => {
                 b.Buffer.Append("（未拥有）一包海明威香烟\n[标签] 正品\n× 赝品（防伪标问题、商标问题）\n真实：赝品 -50%（伪装为 正品）");
             };
+            // V1: read_item_details requires in-game item_details_compat toggle enabled
+            ModHelper.sortConfig.detailsEntry.Value = false;
+            var r2ToggleOff = new JObject();
+            Expect(ActAtCounter(r2MissingReq, r2ToggleOff) == "assist_disabled" &&
+                (string)r2ToggleOff["reason"] == "item_details_compat_off" && r2ToggleOff["items"] == null,
+                "V1 read_item_details returns assist_disabled when in-game toggle is off");
+            ModHelper.sortConfig.detailsEntry.Value = true;
             var r2OkRes = new JObject();
             Expect(ActAtCounter(r2MissingReq, r2OkRes) == "observed" &&
                 (string)r2OkRes["source"] == "item_details_mod" &&
                 (string)r2OkRes["mod_version"] == "0.9.7" &&
                 ((string)r2OkRes["items"][0]["details_text"]).Contains("真实：赝品 -50%（伪装为 正品）"),
                 "R2 read_item_details returns displayed tooltip text and mod version");
+            // V6: a GameItemElement is read through the public GetTooltip(), which includes the basic tooltip lines
+            var v6Element = new GameItemElement { uniqueId = 2102, identifier = "hemingway_cigarettes", price = 100 };
+            v6Element.ReplayTooltipBasic = () => {
+                var basic = new RichTextBuilder(int.MaxValue);
+                basic.Buffer.Append("售价：100\n");
+                return basic;
+            };
+            v6Element.To(shop.invElement);
+            LocalId(v6Element);
+            FlushChanges();
+            var v6Res = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "read_item_details", ["generation"] = generation, ["revision"] = sequence,
+                ["item_ids"] = new JArray(LocalId(v6Element)), ["expires_ms"] = long.MaxValue
+            }, v6Res) == "observed" &&
+                ((string)v6Res["items"][0]["details_text"]).StartsWith("售价：100") &&
+                ((string)v6Res["items"][0]["details_text"]).Contains("真实：赝品 -50%（伪装为 正品）"),
+                "V6 GameItemElement tooltip comes from GetTooltip() with basic and mod lines");
             ModInternal.ReplayTooltipLate = null;
             ModLoader.Mods.Clear();
             ModHelper.sortConfig.detailsEntry.Value = false;

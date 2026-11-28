@@ -347,28 +347,29 @@ namespace WhiteDragon.Ledger
         private static JArray CloneChanges(List<JObject> list) =>
             new JArray(list.Select(c => c.DeepClone()));
 
-        private static readonly System.Reflection.MethodInfo GetTooltipBasicMethod =
-            typeof(GameItemElement).GetMethod("GetTooltipBasic",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
-
         private static string ReadDisplayedTooltipText(GameItem item)
         {
-            RichTextBuilder builder = null;
-            if (item is GameItemElement element && GetTooltipBasicMethod != null)
+            if (item is GameItemElement element)
             {
-                try { builder = GetTooltipBasicMethod.Invoke(element, null) as RichTextBuilder; }
-                catch { builder = null; }
+                try
+                {
+                    string tooltip = element.GetTooltip()?.nakedText;
+                    if (!string.IsNullOrEmpty(tooltip)) return tooltip;
+                }
+                catch { }
             }
-            if (builder == null)
-            {
-                builder = new RichTextBuilder(int.MaxValue);
-                ModInternal.CreateTooltipLate(builder, item);
-            }
+            var builder = new RichTextBuilder(int.MaxValue);
+            ModInternal.CreateTooltipLate(builder, item);
             return builder.Build(int.MaxValue)?.nakedText ?? "";
         }
 
         private string ReadItemDetailsAction(JObject request, JObject receipt)
         {
+            if (!InventorySorting.ItemDetailsCompatEnabled)
+            {
+                receipt["reason"] = "item_details_compat_off";
+                return "assist_disabled";
+            }
             var mod = FindItemDetailsMod();
             if (mod == null)
             {

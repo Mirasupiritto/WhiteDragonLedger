@@ -124,6 +124,7 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
                   status="moved", moved_count=0, items=[])
     next_revision = revision
     previous_command = None
+    total_stale_retries = 0
     for position, item_id in enumerate(item_ids):
         command = uuid5(batch_id, str(item_id)).hex
         receipt = move_item(folder, item_id, source, destination, generation, next_revision, command,
@@ -134,12 +135,15 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
             if head.get("generation") != generation or head.get("revision", 0) <= next_revision:
                 break
             stale_retries += 1
+            total_stale_retries += 1
             next_revision = head["revision"]
             command = uuid5(batch_id, f"{item_id}:retry:{stale_retries}").hex
             receipt = move_item(folder, item_id, source, destination, generation, next_revision, command,
                                 previous_command=previous_command, visit=visit)
         row = {"item_id": item_id, "status": receipt["status"], "from": source,
                "actual_area": receipt.get("actual_area")}
+        if stale_retries:
+            row["stale_retries"] = stale_retries
         for field in ("name", "kind", "quantity", "observed_quantity", "bottle_label", "revision",
                       "reason", "item_size", "target_capacity", "identity_changed", "from_container"):
             if field in receipt:
@@ -170,4 +174,6 @@ def move_items(folder: Path, item_ids, source, destination, generation, revision
         previous_command = command
     if result["status"] == "moved" and result["moved_count"] == 0 and result.get("already_count"):
         result["status"] = "already_in_destination"
+    if total_stale_retries:
+        result["stale_retries"] = total_stale_retries
     return result
