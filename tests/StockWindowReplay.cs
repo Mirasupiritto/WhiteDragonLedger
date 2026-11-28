@@ -646,12 +646,12 @@ namespace WhiteDragon.Ledger
             chemBay.waterTags.Add("CONTAINER_TAG");
             var chemBayGrid = new GameGridInventory(8, 8);
             chemBayGrid.mayInventoryAddItemFunc = (it, inv) => it.identifier != "tough_cotton_fabric";
-            chemBay.contentWindow = new Window { childElement = chemBayGrid };
+            chemBay.contentWindow = new PixelWindow { childElement = chemBayGrid };
             chemBay.To(shop.invElement);
             var chemReagent = Item(1911, "acid_reagent", 1);
             var clothItem = Item(1912, "tough_cotton_fabric", 1);
             var chemContraband = Item(1913, "banned_chem", 1);
-            chemContraband.waterTags.Add("CONTRABAND");
+            chemContraband.waterTags.Add(TypeHelper.CONTRABAND);
             chemReagent.To(shop.invElement);
             clothItem.To(shop.invElement);
             chemContraband.To(chemBayGrid);
@@ -664,12 +664,14 @@ namespace WhiteDragon.Ledger
             });
             Expect((string)toChemBay["status"] == "moved" && (string)toChemBay["actual_area"] == "bay:" + LocalId(chemBay),
                 "X2 bay:<chem> accepts chemical reagent");
+            chemBayGrid.replayFull = true;
             var clothToChem = ExecuteMove(new JObject
             {
                 ["command_id"] = "a2000000000000000000000000000009",
                 ["item_id"] = LocalId(clothItem), ["source"] = "inventory", ["destination"] = "bay:" + LocalId(chemBay),
                 ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue
             });
+            chemBayGrid.replayFull = false;
             Expect((string)clothToChem["status"] == "rejected_by_container" && (string)clothToChem["reason"] == "rejected_by_container",
                 "X2 disallowed item returns rejected_by_container");
             var secChem = SecurityView();

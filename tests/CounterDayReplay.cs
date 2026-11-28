@@ -222,8 +222,10 @@ namespace WhiteDragon.Ledger
 
             // X8: demand_highlight_compat off -> omitted; on without mod -> compat_unavailable; on with mod -> highlighted_item_ids
             InventorySorting.Configure("replay");
-            var hlItem = new GameItemElement { identifier = "apple", uniqueId = "hl_1" };
-            hlItem.ReplayChildren = new[] { new UnityEngine.Transform { name = "CDH_Border" } };
+            var hlItem = new GameItemElement {
+                identifier = "apple", uniqueId = 9901,
+                rectTransform = new UnityEngine.RectTransform { ReplayChildren = new[] { new UnityEngine.Transform { name = "CDH_Border" } } }
+            };
             hlItem.To(EmporiumEntry.Instance.invElement);
             FlushChanges();
             ModHelper.sortConfig.highlightEntry.Value = false;
@@ -240,7 +242,7 @@ namespace WhiteDragon.Ledger
                 IsEnabled = true
             });
             var x8On = CounterView();
-            Expect(x8On["highlighted_item_ids"] != null && x8On["highlighted_item_ids"].Any(id => (int)id == LocalId(hlItem)),
+            Expect(x8On["highlighted_item_ids"] != null && ((JArray)x8On["highlighted_item_ids"]).Count == 1 && (int)x8On["highlighted_item_ids"][0] == LocalId(hlItem),
                 "X8 demand_highlight_compat on with mod returns highlighted_item_ids");
             ModLoader.Mods.Clear();
             ModHelper.sortConfig.highlightEntry.Value = false;

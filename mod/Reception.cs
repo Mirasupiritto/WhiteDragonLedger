@@ -18,15 +18,14 @@ namespace WhiteDragon.Ledger
             if (string.IsNullOrEmpty(id)) return false;
             string lower = id.ToLowerInvariant();
             foreach (var prefix in new[] {
-                "eleanor", "georgio", "victor", "li_", "arthur", "johnsmith", "john_smith",
-                "lou", "leroy", "wild", "appraisalboard", "mentor", "cartel" })
+                "eleanor", "appraisalboard", "mentor", "cartel", "wild_upgrade" })
                 if (lower.StartsWith(prefix, StringComparison.Ordinal)) return true;
             return false;
         }
 
         private static bool IsGenericVisitorIdentifier(string id)
         {
-            if (string.IsNullOrEmpty(id) || id == "NO_ID") return true;
+            if (string.IsNullOrEmpty(id) || id == "NO_ID" || id == "georgio") return true;
             string lower = id.ToLowerInvariant();
             foreach (var prefix in new[] {
                 "random", "scav", "citizen", "tourist", "worker", "miner", "merchant", "generic", "default" })
@@ -36,9 +35,8 @@ namespace WhiteDragon.Ledger
 
         private string ProtectedVisitorReason(PlayerStore store, StoreClient client)
         {
-            if (client == null) return null;
-            if (!store.IsClientDimissable() ||
-                client.clientIntent == StoreClient.ClientIntent.SPECIAL ||
+            if (client == null || !store.IsClientDimissable()) return null;
+            if (client.clientIntent == StoreClient.ClientIntent.SPECIAL ||
                 client.clientIntent == StoreClient.ClientIntent.RENT ||
                 client.clientIntent == StoreClient.ClientIntent.LOAN_SHARK ||
                 client.clientIntent == StoreClient.ClientIntent.INSPECTION ||
