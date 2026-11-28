@@ -641,6 +641,42 @@ namespace WhiteDragon.Ledger
             junkDust1.To(null);
             junkDust2.To(null);
 
+            // X2: bay:<id> supports storage_bay_chem, returns rejected_by_container on filter rejection, and keeps contraband outside smuggler_bay
+            var chemBay = Item(1910, "storage_bay_chem", 1);
+            chemBay.waterTags.Add("CONTAINER_TAG");
+            var chemBayGrid = new GameGridInventory(8, 8);
+            chemBayGrid.mayInventoryAddItemFunc = (it, inv) => it.identifier != "tough_cotton_fabric";
+            chemBay.contentWindow = new Window { childElement = chemBayGrid };
+            chemBay.To(shop.invElement);
+            var chemReagent = Item(1911, "acid_reagent", 1);
+            var clothItem = Item(1912, "tough_cotton_fabric", 1);
+            var chemContraband = Item(1913, "banned_chem", 1);
+            chemContraband.waterTags.Add("CONTRABAND");
+            chemReagent.To(shop.invElement);
+            clothItem.To(shop.invElement);
+            chemContraband.To(chemBayGrid);
+            FlushChanges();
+            var toChemBay = ExecuteMove(new JObject
+            {
+                ["command_id"] = "a2000000000000000000000000000008",
+                ["item_id"] = LocalId(chemReagent), ["source"] = "inventory", ["destination"] = "bay:" + LocalId(chemBay),
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue
+            });
+            Expect((string)toChemBay["status"] == "moved" && (string)toChemBay["actual_area"] == "bay:" + LocalId(chemBay),
+                "X2 bay:<chem> accepts chemical reagent");
+            var clothToChem = ExecuteMove(new JObject
+            {
+                ["command_id"] = "a2000000000000000000000000000009",
+                ["item_id"] = LocalId(clothItem), ["source"] = "inventory", ["destination"] = "bay:" + LocalId(chemBay),
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue
+            });
+            Expect((string)clothToChem["status"] == "rejected_by_container" && (string)clothToChem["reason"] == "rejected_by_container",
+                "X2 disallowed item returns rejected_by_container");
+            var secChem = SecurityView();
+            Expect((int)secChem["contraband"]["smuggler_bay"] == 0 && (int)secChem["contraband"]["inventory"] >= 1,
+                "X2 contraband in storage_bay_chem counts outside smuggler_bay");
+            chemReagent.To(null); clothItem.To(null); chemContraband.To(null); chemBay.To(null);
+
             // S4: MORNING hidden & bay:<id> <-> hidden
             var invToHidden = ExecuteMove(new JObject
             {

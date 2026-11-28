@@ -50,6 +50,9 @@ namespace WhiteDragon.Ledger
             return result;
         }
 
+        private static bool IsOpenableStorageContainer(GameItem candidate) =>
+            candidate != null && (IsSmugglerBayContainer(candidate) || candidate.IsTag("CONTAINER_TAG") || candidate.IsTag("BACKPACK_TAG"));
+
         private bool TryParseBayArea(string area, out GameItem bay, out GameInventory grid)
         {
             bay = null;
@@ -58,7 +61,7 @@ namespace WhiteDragon.Ledger
                 !int.TryParse(area.Substring(4), out int ownerId) || ownerId <= 0 ||
                 !itemsById.TryGetValue(ownerId, out var candidate) ||
                 !GeneralHelper.IsItemEffectivelyOwned(candidate) ||
-                !IsSmugglerBayContainer(candidate))
+                !IsOpenableStorageContainer(candidate))
                 return false;
             var bagGrid = candidate.contentWindow?.childElement as GameGridInventory;
             if (bagGrid == null) return false;
@@ -237,6 +240,13 @@ namespace WhiteDragon.Ledger
 
             if ((destination == "showcase" || destination == "hidden" || destination == "trash" || destBayGrid != null) && !GraphUtils.CanAccept(target, item))
             {
+                if (destBayGrid != null && !IsSpaceFailure(target, item))
+                {
+                    var rejected = Receipt(request, "rejected_by_container");
+                    rejected["reason"] = "rejected_by_container";
+                    rejected["actual_area"] = source;
+                    return rejected;
+                }
                 string fullCode = destination == "showcase" ? "showcase_full" : "no_space";
                 var full = Receipt(request, fullCode);
                 full["reason"] = destination == "showcase" ? "showcase_full" : destination == "trash" ? "trash_full" : destBayGrid != null ? "bay_full" : "hidden_full";
