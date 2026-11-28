@@ -179,6 +179,47 @@ namespace WhiteDragon.Ledger
             DialogUIManager.Instance=new DialogUIManager();
             store.currentClientInstance=null;
             ObserveVisit();
+
+            // X4: protected_visitor blocks story NPC and first-visit named visitor unless force=true
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "randomBuyer", displayName = "路人" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            var x4Normal = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, x4Normal) == "dismissed", "X4 generic visitor dismisses normally");
+
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "eleanorIntro", displayName = "埃莉諾" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            var x4StoryBlock = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, x4StoryBlock) == "protected_visitor" && (string)x4StoryBlock["reason"] == "story_npc",
+                "X4 story NPC blocked without force");
+            var x4StoryForce = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["force"] = true, ["expires_ms"] = long.MaxValue
+            }, x4StoryForce) == "dismissed", "X4 story NPC dismissed when force=true");
+
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "seedVisitor", displayName = "Seed" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            var x4NamedBlock = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, x4NamedBlock) == "protected_visitor" && (string)x4NamedBlock["reason"] == "first_visit_named",
+                "X4 first-visit named visitor blocked without force");
+            var x4NamedForce = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["force"] = true, ["expires_ms"] = long.MaxValue
+            }, x4NamedForce) == "dismissed", "X4 first-visit named visitor dismissed when force=true");
+
             Console.WriteLine("Counter and night bill replay passed: page identity, choices, response items, service changes without sleep.");
         }
     }
