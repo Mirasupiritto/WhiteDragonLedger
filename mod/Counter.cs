@@ -150,6 +150,7 @@ namespace WhiteDragon.Ledger
             var view = new JObject { ["stage"] = stage, ["appraisal_protocol"]=1, ["heat_control_protocol"]=1, ["machine_wait_protocol"]=1, ["chemist_protocol"]=1, ["item_panel_protocol"]=1, ["item_menu_protocol"]=1, ["inventory_sort_protocol"]=1, ["barter_protocol"]=1, ["dialogue_protocol"]=1, ["night_bill_protocol"]=1, ["dismiss_recheck_protocol"] = 1, ["wild_network_protocol"] = 1, ["trade_tools_protocol"] = 1, ["sale_resume_protocol"] = 1, ["water_use_protocol"] = 1, ["purifier_notice_protocol"]=1, ["water_panel_protocol"] = 1, ["information_protocol"] = 1, ["batch_slot_protocol"] = 1, ["workstation_protocol"] = 1, ["archive_protocol"] = 1, ["poster_protocol"] = 1, ["can_open_shop"] = CanOpenShop(), ["reception"] = ReceptionView(), ["cash"] = store.playerCash, ["visit"] = visitId,
                 ["customer"] = merchant?.displayName, ["lines"] = openingLines.DeepClone() };
             if (ClientRole() is string clientRole) view["client_role"] = clientRole;
+            if (merchant != null && !string.IsNullOrEmpty(merchant.identifier)) view["customer_id"] = merchant.identifier;
             if (merchant?.clientIntent == StoreClient.ClientIntent.APPRAISAL_SERVICE)
             {
                 var appraisalView = AppraisalView();

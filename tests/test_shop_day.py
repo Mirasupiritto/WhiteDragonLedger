@@ -187,3 +187,14 @@ class TrashLedger(unittest.TestCase):
             self.assertEqual((dial_res["display"], dial_res["line"], dial_res["phone_token"]), ("4615", "你好，要什麼貨？", "pt2"))
             self.assertEqual((adv_res["line"], adv_res["can_advance"], adv_res["phone_token"]), ("第二句，請選擇", False, "pt3"))
             self.assertEqual(len(adv_res["choices"]), 1)
+
+    def test_visited_clients_persistence_and_day_rollback(self):
+        import database
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            db = Path(temp) / "ledger.sqlite"
+            database.record_visited_client(db, 13, "seedVisitor", "v1", 10)
+            self.assertFalse(database.is_visited_client_known(db, 13, "seedVisitor", "v1", 10))
+            self.assertTrue(database.is_visited_client_known(db, 13, "seedVisitor", "v2", 10))
+            self.assertTrue(database.is_visited_client_known(db, 13, "seedVisitor", "v3", 12))
+            # Reloading to an earlier day than first_day (day 8 < 10) treats as not yet seen.
+            self.assertFalse(database.is_visited_client_known(db, 13, "seedVisitor", "v4", 8))

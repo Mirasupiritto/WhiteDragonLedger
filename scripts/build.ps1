@@ -17,7 +17,8 @@ $target = Join-Path $output 'white_dragon_ledger'
 $references = Get-ChildItem -LiteralPath $managed -Filter '*.dll' | ForEach-Object { '/reference:'+$_.FullName }
 $dll = Join-Path $target 'WhiteDragonLedger.dll'
 $sources = (Get-ChildItem -LiteralPath (Join-Path $root 'mod') -Filter '*.cs').FullName
-$commit = git -C $root rev-parse --short HEAD
+# Keep identical to mcp/scene.py repository_commit() so merge commits stay authoritative and doc-only commits don't cause false version_mismatch.
+$commit = git -C $root log -1 --first-parent --format=%h -- mod scripts/build.ps1
 if ($LASTEXITCODE -ne 0 -or $commit -notmatch '^[a-f0-9]{7,64}$') { throw 'Cannot identify build commit' }
 $versionSource = Join-Path $output 'LedgerBuild.cs'
 Set-Content -LiteralPath $versionSource -Value "namespace WhiteDragon.Ledger { internal static class LedgerBuild { internal const string Commit = `"$commit`"; } }"

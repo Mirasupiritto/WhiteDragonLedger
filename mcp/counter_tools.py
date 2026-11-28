@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from command_transport import poll
 import counter
+import database as db_mod
 from flow import present_counter
 import shop_day
 import shopdesk
@@ -152,7 +153,13 @@ def register(server, folder, database, *, section_cache=None):
         Pass skip_current=<visit> to dismiss the current dismissible visitor mid-speech (interrupt=True) and immediately admit the next customer within the same timeout; stops without ringing if the visitor changed (customer_replaced), is protected (protected_visitor unless force=True), or cannot be dismissed.
         Auto-closes tool-opened item panels; player-opened panels return item_panel_open with current visit/customer/stage and after_close_next_tool.
         Large (>5 item) supplier offers return a summary unless verbose=True."""
-        return _present(admit_customer(generation, revision, waiting, timeout, skip_current=skip_current, force=force), verbose=verbose)
+        result = admit_customer(generation, revision, waiting, timeout, skip_current=skip_current, force=force)
+        if isinstance(result, dict) and result.get("status") in {"called", "already_present"}:
+            raw = shopdesk.published(folder)
+            if isinstance(raw, dict) and raw.get("status") == "observed":
+                dc = raw.get("counter") or {}
+                db_mod.record_visited_client(database, raw.get("slot"), dc.get("customer_id"), dc.get("visit"), raw.get("day"))
+        return _present(result, verbose=verbose)
 
     def admit_customer(generation, revision, waiting, timeout, skip_current=None, force=False):
         view = counter.context(folder)
@@ -267,13 +274,21 @@ def register(server, folder, database, *, section_cache=None):
 
     @server.tool()
     def finish_customer(generation: str, revision: int, visit: str, interrupt: bool = False, force: bool = False) -> dict:
-        """Pass generation, revision and visit from the counter receipt. Dismiss this visitor. Set interrupt=True to dismiss a dismissible visitor mid-speech (still blocked on choice pages, active orders, and protected visitors). Story NPCs and first-visit named visitors return status="protected_visitor" (reason="story_npc" or "first_visit_named") unless force=True. A brief native lock is retried once if the same visitor becomes dismissible.
+        """Pass generation, revision and visit from the counter receipt. Dismiss this visitor. Set interrupt=True to dismiss a dismissible visitor mid-speech (still blocked on choice pages, active orders, and protected visitors). When interrupt=True, story NPCs and first-visit named visitors return status="protected_visitor" (reason="story_npc" or "first_visit_named") unless force=True. A brief native lock is retried once if the same visitor becomes dismissible.
         If blocked, returns status="dismiss_unavailable" with reason, blocking_items, reception_token and latest_revision; if visitor left or changed, returns customer_left or customer_replaced."""
         dismiss_args = {"visit": visit}
         if interrupt:
             dismiss_args["interrupt"] = True
         if force:
             dismiss_args["force"] = True
+        elif database is not None:
+            raw = shopdesk.published(folder)
+            if isinstance(raw, dict) and raw.get("status") == "observed":
+                dc = raw.get("counter") or {}
+                if dc.get("visit") == visit and db_mod.is_visited_client_known(
+                    database, raw.get("slot"), dc.get("customer_id"), visit, raw.get("day")
+                ):
+                    dismiss_args["visited_known"] = True
         result = counter.command(folder, "dismiss", generation, revision, **dismiss_args)
         if result.get("status")=="dismiss_unavailable" and result.get("reason") in {"client_not_dismissable","bell_locked","dialogue_in_progress"} and result.get("reason_detail")!="story_npc":
             replaced = None

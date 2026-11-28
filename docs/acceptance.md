@@ -134,3 +134,12 @@
 | 場景 | 回放驗收 | 實機待驗 |
 |---|---|---|
 | 自有腰包、裝入、移包與取回 | 讀檔基準含關閉腰包裡原有的物品。裝入後同一 ID 附父包與格位，整包移到展示櫃後包內貨同步換區，取出後清除父包。同一份原生回放日誌已實際匯入 SQLite，四個狀態經 `find_stock`、`get_stock_items` 都查回同一件，數量恆為 1、全店盤點 1 次。雙層包、堆疊、鎖包及包離店另有回放 | 第 4 欄用可移動的自有腰包和一件能放入的貨，在歇業或晨間比對遊戲及 MCP 三步回執 |
+
+## 0.35.0 第 23 天實測修正
+
+| 情境 | 回放與單元測試 | 實機待驗 |
+|---|---|---|
+| 鑑定放大鏡檢查（`appraisal_inspect`） | 回放自有放大鏡檢查進入 `appraisal` 並回傳 `visual_features`，Python 測試覆蓋 `ACTION_SPECS` 與轉發 | 實機持有放大鏡對鑑定客物品呼叫 `appraisal_inspect`，核對開啟檢查 UI 與估價流程 |
+| 送客保護（`protected_visitor`） | 回放驗證劇情 NPC、首訪具名訪客攔截與 `force=true` 放行，帳本持久紀錄與名片例外另有單元測試 | 實機遇埃莉諾或首訪具名訪客時不帶 `force` 應回 `protected_visitor`；自然離場或重載後再訪不再誤攔 |
+| 客戶需求高亮相容（`demand_highlight_compat`） | 回放覆蓋關閉省略、缺模組回 `compat_unavailable` 與偵測 `CDH_Border` 回傳 `highlighted_item_ids` | 實機安裝並開啟「客戶需求高亮」模組與設定開關，核對 `get_trade_context` 的 `highlighted_item_ids` |
+| 化學師儲藏區搬貨（`bay:<id>`） | 回放驗證化學試劑搬入 `storage_bay_chem`、禁放品回 `rejected_by_container`、違禁品仍計為暗格外 | 實機對 `storage_bay_chem` 執行 `move_items` 放入化學品與布料，核對拒收原因與盤查計數 |

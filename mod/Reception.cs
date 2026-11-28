@@ -16,9 +16,12 @@ namespace WhiteDragon.Ledger
         private static bool IsStoryIdentifier(string id)
         {
             if (string.IsNullOrEmpty(id)) return false;
+            // Verified against ps-decomp StoreClientUniqueList / StoreClientListAppraisal / WildNetworkUI.
             string lower = id.ToLowerInvariant();
             foreach (var prefix in new[] {
-                "eleanor", "appraisalboard", "mentor", "cartel", "wild_upgrade" })
+                "eleanor", "serpico", "nellis", "grandpa_cheng", "sawyer_grandpa_cheng", "wild_grandpa_cheng",
+                "officerlun", "luncriminel", "evidenceseller", "foodietourist", "caseenjoyer",
+                "appraisalboard", "wild_upgrade" })
                 if (lower.StartsWith(prefix, StringComparison.Ordinal)) return true;
             return false;
         }
@@ -26,14 +29,36 @@ namespace WhiteDragon.Ledger
         private static bool IsGenericVisitorIdentifier(string id)
         {
             if (string.IsNullOrEmpty(id) || id == "NO_ID" || id == "georgio") return true;
+            if (PlayerStore.Instance?.unseenMinorDict != null && PlayerStore.Instance.unseenMinorDict.ContainsKey(id))
+                return false;
+            // Verified against ps-decomp StoreClientList / StoreClientListAppraisal.
             string lower = id.ToLowerInvariant();
             foreach (var prefix in new[] {
-                "random", "scav", "citizen", "tourist", "worker", "miner", "merchant", "generic", "default" })
+                "scav", "miner", "merchant", "tourist", "cluelesstourist", "spacer", "upperlowervisitor",
+                "uldiscerningshopper", "poisonbuyer", "junker", "farmer_standard", "inventor",
+                "shady", "machine_scrapper", "lowerlevelchemist", "thief", "pettythief", "foodthief",
+                "supplier", "waterseller", "landlord", "securityinspector", "loan_shark",
+                "mercenarybuyer", "lower_level_", "rarelowerlevelchemist", "secsurplus",
+                "secrequisition", "brokeupperlevel", "foodbankbuyer", "criminalbuyer",
+                "upperlevelcharity", "lotteryrep", "businesspermitofficial" })
                 if (lower.StartsWith(prefix, StringComparison.Ordinal)) return true;
             return false;
         }
 
-        private string ProtectedVisitorReason(PlayerStore store, StoreClient client)
+        private static bool HasBusinessCard(StoreClient client)
+        {
+            var dict = PlayerStore.Instance?.PhoneClientDict;
+            if (dict == null || client == null || string.IsNullOrEmpty(client.displayName)) return false;
+            foreach (var person in dict.Values)
+            {
+                if (person != null && person.ShownInPhoneBook() &&
+                    string.Equals(person.GetLocalizedDisplayName(), client.displayName, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        private string ProtectedVisitorReason(PlayerStore store, StoreClient client, bool visitedKnown)
         {
             if (client == null || !store.IsClientDimissable()) return null;
             if (client.clientIntent == StoreClient.ClientIntent.SPECIAL ||
@@ -45,7 +70,8 @@ namespace WhiteDragon.Ledger
                 IsStoryIdentifier(client.identifier) ||
                 (client.mainDialogue != null && client.clientIntent == StoreClient.ClientIntent.DIALOGUE))
                 return "story_npc";
-            if (!IsGenericVisitorIdentifier(client.identifier) && !seenNamedVisitors.Contains(client.identifier))
+            if (!IsGenericVisitorIdentifier(client.identifier) && !HasBusinessCard(client) &&
+                !visitedKnown && !seenNamedVisitors.Contains(client.identifier))
                 return "first_visit_named";
             return null;
         }
@@ -169,7 +195,8 @@ namespace WhiteDragon.Ledger
             var store = PlayerStore.Instance;
             bool interrupt = (bool?)request["interrupt"] == true;
             bool force = (bool?)request["force"] == true;
-            if (!force && ProtectedVisitorReason(store, merchant) is string protectedReason)
+            bool visitedKnown = (bool?)request["visited_known"] == true;
+            if (interrupt && !force && ProtectedVisitorReason(store, merchant, visitedKnown) is string protectedReason)
             {
                 receipt["reason"] = protectedReason;
                 receipt["visit"] = visitId;

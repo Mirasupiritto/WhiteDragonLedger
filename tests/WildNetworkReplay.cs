@@ -161,9 +161,14 @@ namespace WhiteDragon.Ledger
             catalog[1].id = "CRIMINEL_NETWORK";
             catalog[1].onClick = catalog[0].onClick;
             Read();
+            string staleToken = token;
             Expect(Send("select", "CRIMINEL_NETWORK") == "service_selected" &&
                    (string)receipt["selected"]["selected_id"] == "CRIMINEL_NETWORK",
                    "X5 select picks exact adjacent service ID on first attempt");
+            token = staleToken;
+            Expect(Send("select", "PHARMA") == "panel_changed" &&
+                   (string)receipt["selected_id"] == "CRIMINEL_NETWORK",
+                   "X'3 stale token select returns panel_changed without changing selection");
             token = (string)receipt["panel_token"];
             Expect(Send("close")=="closed" && Send("read")=="panel_closed","explicit close");
             store.networkUpgrade.Remove("PHARMA");

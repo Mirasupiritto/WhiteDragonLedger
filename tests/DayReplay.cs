@@ -8,7 +8,10 @@ namespace WhiteDragon.Ledger
     public class SavePreviewData { public int dayCount; public DateTime lastSaveDateTime; }
     public static class SaveUIManager { public static SavePreviewData preview; public static SavePreviewData GetPreview(int slot)=>preview; }
     public static class StoreClientListWanted { public static HashSet<string> POSTER_IDS=new HashSet<string>{"wanted4"}; }
-    public partial class PlayerStore { public Dictionary<string,int> wantedStatus=new Dictionary<string,int>(); }
+    public partial class PlayerStore {
+        public Dictionary<string,int> wantedStatus=new Dictionary<string,int>();
+        public Dictionary<string, Func<StoreClient>> unseenMinorDict;
+    }
     public class SlotMarker {}
     public partial class GameInventory {
         public Action<GameItem,GameInventory,SlotMarker> onSlotAddItemLateFunc,onSlotRemoveItemLateFunc,onSlotChangeAmountItemFunc;

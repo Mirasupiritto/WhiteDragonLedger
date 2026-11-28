@@ -83,6 +83,9 @@ def ensure_schema(db):
     db.execute("CREATE TABLE IF NOT EXISTS trash_items (slot INTEGER,id INTEGER,name TEXT,kind TEXT,quantity INTEGER,PRIMARY KEY(slot,id))")
     db.execute("""CREATE TABLE IF NOT EXISTS notified_heat(
         generation TEXT, run_id TEXT, PRIMARY KEY(generation, run_id))""")
+    db.execute("""CREATE TABLE IF NOT EXISTS visited_clients(
+        slot INTEGER NOT NULL, identifier TEXT NOT NULL, first_visit TEXT NOT NULL, first_day INTEGER NOT NULL,
+        PRIMARY KEY(slot, identifier))""")
 
 
 @contextmanager
@@ -106,3 +109,38 @@ def transaction(database):
     if needs_schema:
         with _SCHEMA_LOCK:
             _INITIALIZED_DBS.add(resolved)
+
+
+def record_visited_client(database, slot, identifier, visit, day):
+    if database is None or slot is None or not identifier or not visit:
+        return
+    day_val = int(day or 0)
+    with transaction(database) as db:
+        row = db.execute(
+            "SELECT first_visit, first_day FROM visited_clients WHERE slot=? AND identifier=?",
+            (int(slot), identifier),
+        ).fetchone()
+        if row is None:
+            db.execute(
+                "INSERT INTO visited_clients(slot, identifier, first_visit, first_day) VALUES(?,?,?,?)",
+                (int(slot), identifier, visit, day_val),
+            )
+        elif day_val < row["first_day"]:
+            db.execute(
+                "UPDATE visited_clients SET first_visit=?, first_day=? WHERE slot=? AND identifier=?",
+                (visit, day_val, int(slot), identifier),
+            )
+
+
+def is_visited_client_known(database, slot, identifier, visit, day) -> bool:
+    if database is None or slot is None or not identifier or not visit:
+        return False
+    day_val = int(day or 0)
+    with transaction(database) as db:
+        row = db.execute(
+            "SELECT first_visit, first_day FROM visited_clients WHERE slot=? AND identifier=?",
+            (int(slot), identifier),
+        ).fetchone()
+    if row is None:
+        return False
+    return row["first_day"] < day_val or (row["first_day"] == day_val and row["first_visit"] != visit)

@@ -90,10 +90,11 @@ def tool_region(scene):
 
 
 def repository_commit():
+    # Keep identical to scripts/build.ps1 so merge commits stay authoritative and doc-only commits don't cause false version_mismatch.
     root = Path(__file__).resolve().parents[1]
     try:
         result = subprocess.run(
-            ["git", "-C", str(root), "log", "-1", "--format=%h", "--", "mod", "scripts/build.ps1"],
+            ["git", "-C", str(root), "log", "-1", "--first-parent", "--format=%h", "--", "mod", "scripts/build.ps1"],
             capture_output=True, text=True, check=True, timeout=3,
         )
     except (OSError, subprocess.SubprocessError):

@@ -14,7 +14,7 @@ import scene as scene_mod
 import shopdesk
 import shop_day
 from ledger import lookup, same_observation
-from database import transaction
+from database import record_visited_client, transaction
 from server_state import ServerState
 
 
@@ -313,10 +313,18 @@ def register(server, folder, database, *, appraisal_assist: bool | None = None):
         """Read the customer, budget, tablet requirements, quote, offered water, wanted name matches, story consequences, forced_choice warnings, counter_request (from dialogue lines and owned table items), and any page awaiting a choice.
         During stage=speaking, retains the last observed demand/barter with stale_during_speech=True until speech settles.
         Supplier offers with >5 items return a category/count/total summary unless verbose=True."""
-        ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
+        raw = shopdesk.published(folder)
+        if isinstance(raw, dict) and raw.get("status") == "observed":
+            desk_counter = raw.get("counter") or {}
+            record_visited_client(database, raw.get("slot"), desk_counter.get("customer_id"), desk_counter.get("visit"), raw.get("day"))
+        ctx = counter.with_barter(folder, context(raw))
         if ctx.get("status") == "observed" and ctx.get("stage") == "choice_required" and "dialog_choices" in ctx and not ctx["dialog_choices"]:
             counter.wait_choices_ready(folder, ctx)
-            ctx = counter.with_barter(folder, context(shopdesk.published(folder)))
+            raw = shopdesk.published(folder)
+        if isinstance(raw, dict) and raw.get("status") == "observed":
+            desk_counter = raw.get("counter") or {}
+            record_visited_client(database, raw.get("slot"), desk_counter.get("customer_id"), desk_counter.get("visit"), raw.get("day"))
+        ctx = counter.with_barter(folder, context(raw))
         return present_counter(ctx, folder=folder, database=database,
                                summarize_offer=summarize_offer, verbose=verbose)
 
