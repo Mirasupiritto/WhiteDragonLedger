@@ -381,7 +381,6 @@ namespace WhiteDragon.Ledger
                 "U1 unknown appraisal species falls back to player_visual_check");
             AppraisalHelper.ReplayCorrectValue = null;
             ModHelper.sortConfig.appraisalEntry.Value = false;
-            ModHelper.sortConfig.appraisalEntry.Value = false;
 
             AppraisalServiceHelper.ReplayEstimate = null;
             shop.frontInvinvElement.childItems.Clear();

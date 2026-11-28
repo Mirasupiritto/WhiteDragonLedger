@@ -692,9 +692,26 @@ namespace WhiteDragon.Ledger
                 (string)r2OkRes["mod_version"] == "0.9.7" &&
                 ((string)r2OkRes["items"][0]["details_text"]).Contains("真实：赝品 -50%（伪装为 正品）"),
                 "R2 read_item_details returns displayed tooltip text and mod version");
+            // V6: a GameItemElement is read through the public GetTooltip(), which includes the basic tooltip lines
+            var v6Element = new GameItemElement { uniqueId = 2102, identifier = "hemingway_cigarettes", price = 100 };
+            v6Element.ReplayTooltipBasic = () => {
+                var basic = new RichTextBuilder(int.MaxValue);
+                basic.Buffer.Append("售价：100\n");
+                return basic;
+            };
+            v6Element.To(shop.invElement);
+            LocalId(v6Element);
+            FlushChanges();
+            var v6Res = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "read_item_details", ["generation"] = generation, ["revision"] = sequence,
+                ["item_ids"] = new JArray(LocalId(v6Element)), ["expires_ms"] = long.MaxValue
+            }, v6Res) == "observed" &&
+                ((string)v6Res["items"][0]["details_text"]).StartsWith("售价：100") &&
+                ((string)v6Res["items"][0]["details_text"]).Contains("真实：赝品 -50%（伪装为 正品）"),
+                "V6 GameItemElement tooltip comes from GetTooltip() with basic and mod lines");
             ModInternal.ReplayTooltipLate = null;
             ModLoader.Mods.Clear();
-            ModHelper.sortConfig.detailsEntry.Value = false;
             ModHelper.sortConfig.detailsEntry.Value = false;
 
             Console.WriteLine("Stock replay passed: counter staging, nested ownership, furnace roles, power, fermentation and notices.");
