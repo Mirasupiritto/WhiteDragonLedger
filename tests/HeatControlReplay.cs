@@ -98,6 +98,17 @@ namespace WhiteDragon.Ledger
             Tick(50);
             Expect(heatRun==null && (string)lastHeat["status"]=="vessel_changed" && modeTag.associatedId==0,
                 "removing bottle shuts original plate off");
+            // X7: status call after duration finishes immediately without waiting for TickHeat
+            bottle.To(MachineHelper.chemistrySlots[1]);
+            plate.associatedId = 0;
+            bottle.associatedId = 46;
+            request["command_id"] = Guid.NewGuid().ToString("N");
+            Expect(ActAtCounter(request, new JObject()) == "started", "X7 start run before status timeout check");
+            Time.realtimeSinceStartup += 10;
+            var statusReq = new JObject { ["action"]="control_heat", ["mode"]="status", ["generation"]=generation, ["revision"]=sequence, ["expires_ms"]=long.MaxValue };
+            var statusRes = new JObject();
+            Expect(ActAtCounter(statusReq, statusRes) == "observed" && (string)statusRes["heat"]["status"] == "finished" && heatRun == null,
+                "X7 status finishes expired heat run immediately");
             plate.To(null); MachineHelper.chemistrySlots=null; lastHeat=null;
         }
     }

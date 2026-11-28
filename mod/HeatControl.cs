@@ -126,6 +126,8 @@ namespace WhiteDragon.Ledger
             string mode = (string)request["mode"];
             if (mode == "stop" && heatRun != null && (string)heatRun.Summary["run_id"] == (string)request["run_id"])
                 EndHeat("stopped");
+            if (mode == "status" && heatRun != null && Time.realtimeSinceStartup - heatRun.Started >= heatRun.Seconds)
+                EndHeat("finished");
             if (mode == "status" || mode == "stop")
             {
                 var summary = heatRun?.Summary ?? lastHeat;
