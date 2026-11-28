@@ -11,13 +11,14 @@ namespace WhiteDragon.Ledger
         private JObject lastBargain;
         private const BindingFlags BargainMembers = BindingFlags.Instance | BindingFlags.Static | BindingFlags.NonPublic;
 
-        // These private members drive the native button state, reputation preview and outcome dialogue.
+        // 保留反射：無等效公開 API（W0 調查：BargainUsesRoll、ComputePreviewMultipliers、GetMarkupBudgetCutPercent 為 private）
         private static object NativeBargain(string name, params object[] args) =>
             typeof(BargainUIManager).GetMethod(name,BargainMembers).Invoke(BargainUIManager.Instance,args);
 
         private string pendingBargainVisit;
         private BargainType pendingBargainType;
 
+        // 保留反射：無等效公開 API（W0 調查：PRICE_PERCENTS、BLACKMAIL_PERCENT、THREATEN_PERCENT、DISCOUNT_BUDGET_FACTOR 與 *Applied 為 private）
         private static object BargainField(string name) =>
             typeof(BargainUIManager).GetField(name,BargainMembers).GetValue(BargainUIManager.Instance);
 
@@ -66,13 +67,27 @@ namespace WhiteDragon.Ledger
                 ["buy"]=1+(buy?.GetCurrentValueMod() ?? 0)/100.0 };
         }
 
+        private static bool CanOfferType(BargainUIManager ui, BargainType type)
+        {
+            switch (type)
+            {
+                case BargainType.Discount: return ui.CanOfferDiscount();
+                case BargainType.Markup: return ui.CanOfferMarkup();
+                case BargainType.BuyingMarkup: return ui.CanOfferBuyingMarkup();
+                case BargainType.BuyingDiscount: return ui.CanDemandBuyingDiscount();
+                case BargainType.Blackmail: return ui.CanBlackmail();
+                case BargainType.Threaten: return ui.CanThreatenAug();
+                default: return false;
+            }
+        }
+
         private JObject BargainView()
         {
             var ui = BargainUIManager.Instance;
             var options = new JArray();
             foreach (BargainType type in Enum.GetValues(typeof(BargainType)))
             {
-                if (!(bool)NativeBargain("CanOffer",type) ||
+                if (!CanOfferType(ui, type) ||
                     (type == BargainType.Threaten && !PlayerStore.Instance.isAugIntroduced)) continue;
                 bool crime = type == BargainType.Threaten || type == BargainType.Blackmail;
                 foreach (int percent in ButtonPercents(type))
@@ -114,8 +129,10 @@ namespace WhiteDragon.Ledger
                 return VisitMismatchStatus(receipt);
             }
             string stage = CounterStage(true);
+            bool clientMoving = StoreClientMono.Instance != null && StoreClientMono.Instance.IsMoving();
+            bool dialoguePlaying = DialogUIManager.Instance != null && DialogUIManager.Instance.GetCurrentDialog() != null;
             bool busy=BargainUIManager.Instance==null || Interactable.isPaused ||
-                (bool)NativeBargain("IsClientMoving") || (bool)NativeBargain("IsDialoguePlaying") ||
+                clientMoving || dialoguePlaying ||
                 StoreUIManager.Instance.isAboutToStartMainDialog;
             if (settling)
             {
