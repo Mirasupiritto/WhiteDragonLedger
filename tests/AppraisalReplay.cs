@@ -37,7 +37,9 @@ namespace WhiteDragon.Ledger
     {
         public static InspectionUIManager Instance = new InspectionUIManager();
         public GameItem currentInspectingItem;
+        public UnityEngine.GameObject appraisalPanel;
         public int closeCalls;
+        public void OnInspectItem(GameItem item) { currentInspectingItem = item; }
         public void CloseUI() { currentInspectingItem = null; closeCalls++; }
     }
 
@@ -381,6 +383,36 @@ namespace WhiteDragon.Ledger
                 "U1 unknown appraisal species falls back to player_visual_check");
             AppraisalHelper.ReplayCorrectValue = null;
             ModHelper.sortConfig.appraisalEntry.Value = false;
+
+            // X3: appraisal_inspect & CounterStage() detects active appraisal items/inspection even when dialog==null and !isIntroduced
+            merchant.isIntroduced = false;
+            DialogUIManager.Instance.current = null;
+            shop.frontInvinvElement.childItems.Clear();
+            shop.backInvinvElement.childItems.Clear();
+            FlushChanges();
+            Expect(CounterStage() == "awaiting_opening", "X3 empty counter with unintroduced appraisal client is awaiting_opening");
+            uHand.To(shop.frontInvinvElement);
+            FlushChanges();
+            Expect(CounterStage() == "appraisal", "X3 counter with appraisal item transitions out of awaiting_opening");
+            var noMag = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "appraisal_inspect", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["item_index"] = 0, ["expires_ms"] = long.MaxValue
+            }, noMag) == "magnifier_unavailable", "X3 appraisal_inspect requires owned magnifier");
+            var mag = Item(9605, "magnifier", 1);
+            mag.To(shop.invElement);
+            FlushChanges();
+            var inspOk = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "appraisal_inspect", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["item_index"] = 0, ["expires_ms"] = long.MaxValue
+            }, inspOk) == "inspected" && (bool)inspOk["inspecting"] &&
+                (string)inspOk["visual_features"]["type"] == "hand" &&
+                InspectionUIManager.Instance.currentInspectingItem == uHand,
+                "X3 appraisal_inspect opens InspectionUIManager and returns visual_features");
+            InspectionUIManager.Instance.CloseUI();
+            mag.To(null);
+            merchant.isIntroduced = true;
 
             AppraisalServiceHelper.ReplayEstimate = null;
             shop.frontInvinvElement.childItems.Clear();

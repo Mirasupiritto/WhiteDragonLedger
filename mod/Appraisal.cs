@@ -344,5 +344,76 @@ namespace WhiteDragon.Ledger
             receipt["items"] = rows;
             return "observed";
         }
+
+        private GameItem FindOwnedMagnifier()
+        {
+            foreach (var item in itemsById.Values)
+            {
+                if (item == null || item.parentInventory == null) continue;
+                if (item.identifier != "magnifier" && !item.IsTag("MAGNIFYING_GLASS")) continue;
+                if (!GeneralHelper.IsItemEffectivelyOwned(item) || StockLocation(item) == null) continue;
+                return item;
+            }
+            return null;
+        }
+
+        private string AppraisalInspectAction(JObject request, JObject receipt)
+        {
+            if (phase != "OPEN") return "shop_closed";
+            ObserveVisit();
+            if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);
+            receipt["visit"] = visitId;
+            if (merchant == null || merchant.clientIntent != StoreClient.ClientIntent.APPRAISAL_SERVICE)
+            {
+                receipt["reason"] = "not_appraisal_service";
+                return "wrong_client_intent";
+            }
+            if (Interactable.isPaused)
+            {
+                receipt["reason"] = "paused";
+                return "interaction_blocked";
+            }
+            var magnifier = FindOwnedMagnifier();
+            if (magnifier == null)
+            {
+                receipt["reason"] = "no_owned_magnifier";
+                return "magnifier_unavailable";
+            }
+            var items = AppraisalItems();
+            GameItem target = null;
+            int resolvedIndex = -1;
+            int? requestedId = (int?)request["item_id"];
+            if (requestedId.HasValue)
+            {
+                for (int i = 0; i < items.Count; i++)
+                {
+                    if (LocalId(items[i]) == requestedId.Value) { target = items[i]; resolvedIndex = i; break; }
+                }
+            }
+            else
+            {
+                int index = (int?)request["item_index"] ?? 0;
+                if (index >= 0 && index < items.Count) { target = items[index]; resolvedIndex = index; }
+            }
+            if (target == null)
+            {
+                receipt["reason"] = "item_not_found";
+                return "item_unavailable";
+            }
+            InspectionUIManager.Instance?.OnInspectItem(target);
+            FlushChanges();
+            ObserveVisit();
+            receipt["item_id"] = LocalId(target);
+            receipt["item_index"] = resolvedIndex;
+            receipt["name"] = target.GetDisplayName(true);
+            receipt["kind"] = target.identifier;
+            receipt["magnifier_id"] = LocalId(magnifier);
+            int defVal = target.GetTagReadonly("APPRAISAL_DEFAULT_VALUE").GetInt();
+            if (defVal > 0) receipt["default_estimate"] = defVal;
+            var features = ExtractVisualFeatures(target);
+            if (features != null) receipt["visual_features"] = features;
+            receipt["inspecting"] = InspectionUIManager.Instance?.currentInspectingItem == target;
+            return "inspected";
+        }
     }
 }

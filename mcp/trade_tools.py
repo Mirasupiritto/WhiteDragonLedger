@@ -369,6 +369,19 @@ def register(server, folder, database, *, appraisal_assist: bool | None = None):
         return shopdesk.sell_order(folder,[line],generation,revision,visit,database=database,tool="confirm_trade",on_table=True)
 
     @server.tool()
+    def appraisal_inspect(visit: str, generation: str, revision: int, item_index: int = 0, item_id: int | None = None) -> dict:
+        """Equip/use an owned magnifier to inspect the current APPRAISAL_SERVICE visitor's counter item (by 0-based item_index or item_id).
+        Opens the native inspection UI on that item and returns its visual_features."""
+        if item_index < 0:
+            raise ValueError("Expected non-negative item_index")
+        args = {"visit": visit, "item_index": item_index}
+        if item_id is not None:
+            if item_id < 1:
+                raise ValueError("Expected positive item_id")
+            args["item_id"] = item_id
+        return counter.command(folder, "appraisal_inspect", generation, revision, **args)
+
+    @server.tool()
     def submit_appraisal(item_id: int, estimate: int, visit: str, generation: str, revision: int) -> dict:
         """Submit an appraisal estimate for an unowned APPRAISAL_ITEM on the counter for an APPRAISAL_SERVICE client.
         Calculate the estimate from visual_features against the appraisal guide (or use get_appraisal_assist if enabled); only ask the player to inspect visually when visual_features is absent (or read_item_details is unavailable).
