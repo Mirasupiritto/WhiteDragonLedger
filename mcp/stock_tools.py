@@ -32,10 +32,10 @@ def register(server, folder, database, *, section_cache=None, item_details_compa
 
     @server.tool()
     def query_inventory(name: str | None = None,
-                        area: Literal["inventory", "showcase", "front", "back", "hidden"] | None = None,
+                        area: Literal["inventory", "showcase", "front", "back", "hidden", "trash"] | None = None,
                         owned: bool | None = None,
                         verbose: bool = False) -> dict:
-        """Query the most recently published inventory by literal name substring, area or owner.
+        """Query the most recently published inventory by literal name substring, area or owner. Excludes trash by default unless area="trash" is specified.
         Items include native categories (the same as find_stock), size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate, before haggling/markup),
         actual water_ml, liquid_main and water-majority contains_water on water containers, and charge_remaining/liters_remaining on portable_water_purifier.
         Includes area capacity{w,h,free_cells,largest_free{w,h}} for inventory/showcase. IDs are scoped to generation.
@@ -61,9 +61,9 @@ def register(server, folder, database, *, section_cache=None, item_details_compa
     @server.tool()
     def find_stock(bottle_label: str | None = None, categories: list[str] | None = None,
                    exclude_categories: list[str] | None = None, owned: bool | None = None,
-                   area: Literal["inventory", "showcase", "front", "back", "purifier", "hidden"] | None = None,
+                   area: Literal["inventory", "showcase", "front", "back", "purifier", "hidden", "trash"] | None = None,
                    exclude_contraband: bool = False, kinds: list[str] | None = None, exclude_kinds: list[str] | None = None) -> dict:
-        """Pick stock by exact visible label, area, ownership and native item categories.
+        """Pick stock by exact visible label, area, ownership and native item categories. Excludes trash by default unless area="trash" is specified.
         Match any requested category or kind, then apply all exclusions. Searching category WATER also matches empty water containers categorized as HOUSEHOLD_GOOD and filled water containers with at least 50% water.
         Each item includes size{w,h}, slot{x,y}, rotatable, estimated_value (reference estimate), and purifier charge_remaining/liters_remaining when applicable.
         Visible variety restrictions group sellable matches by kind, one per kind for this visit.
@@ -84,7 +84,10 @@ def register(server, folder, database, *, section_cache=None, item_details_compa
             Only registered when item_details_compat is enabled and the Item Details mod is loaded."""
             if not item_ids or any(item_id < 1 for item_id in item_ids):
                 raise ValueError("Expected a nonempty list of positive item IDs")
-            return counter.command(folder, "read_item_details", generation, revision, item_ids=item_ids)
+            res = counter.command(folder, "read_item_details", generation, revision, item_ids=item_ids)
+            if res.get("status") == "assist_disabled":
+                return {**res, "next_action": "ask_player_to_enable_in_mod_settings"}
+            return res
 
     @server.tool()
     def move_item(item_id: int, source: str,
@@ -103,7 +106,7 @@ def register(server, folder, database, *, section_cache=None, item_details_compa
         """Move owned stock between visible inventory, showcase, smuggler bays ("bay:<owner_id>"), hidden (morning/closed or open without customer, poster pulled), and trash (destination="trash", or source="trash"->inventory; rejects IMPORTANT_TAG and hazardous waste), including while open, stage owned goods onto the trade table (back) with visit (including dialogue choice_required/counter_request stages), or collect owned front/back items to inventory.
         Valid source areas: "inventory", "showcase", "front", "back", "hidden", "trash", or "bay:<owner_id>". Valid destination areas: "inventory", "showcase", "back", "hidden", "trash", or "bay:<owner_id>".
         Pass the current visit during any arrived customer visit without an active order (including ready, barter, seller-only or dialogue), or omit it at an empty counter (destination="back" always requires visit). Pass the generation and
-        starting revision from query_inventory. When space is insufficient, returns no_space or showcase_full with item_size and target_capacity and skips that item into skipped_ids.
+        starting revision from query_inventory. Automatically retries stale_observation up to 2 times with the latest revision (DLL still returns source_changed if the item moved). When space is insufficient, returns no_space or showcase_full with item_size and target_capacity and skips that item into skipped_ids.
         Stops at the first unconfirmed or rejected item. The original arguments recover completed lines and can continue pending lines."""
         return submit_batch(folder, item_ids, source, destination, generation, revision, visit=visit)
 

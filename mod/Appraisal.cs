@@ -210,6 +210,7 @@ namespace WhiteDragon.Ledger
             var store = PlayerStore.Instance;
             int cashBefore = store.playerCash;
             int impatienceBefore = merchant.clientImpatience;
+            string prevLine = CurrentAppraisalDialogueLine(null);
             var existingSlips = new HashSet<GameItem>();
             foreach (var inv in new[] { shop.frontInvinvElement, shop.backInvinvElement })
             {
@@ -251,8 +252,25 @@ namespace WhiteDragon.Ledger
             }
 
             receipt["cash_delta"] = 0;
-            string line = CurrentAppraisalDialogueLine(openingLines);
-            if (!string.IsNullOrEmpty(line)) receipt["line"] = line;
+            string line = CurrentAppraisalDialogueLine(null);
+            if (!string.IsNullOrEmpty(line) && !string.Equals(line, prevLine, StringComparison.Ordinal))
+                receipt["line"] = line;
+            else
+            {
+                receipt["line_pending"] = true;
+                receipt["next_action"] = "wait_for_dialogue_and_check_get_trade_context";
+            }
+            if (DialogUIManager.Instance?.GetCurrentDialog() is Dialogue dlg)
+            {
+                string secondLine = dlg.nextDialogue?.plainText;
+                if (!string.IsNullOrEmpty(secondLine))
+                {
+                    if (string.Equals(secondLine, LocHelper.GetLocalizedMechanic("appraisal_too_high_2"), StringComparison.Ordinal))
+                        receipt["direction"] = "too_high";
+                    else if (string.Equals(secondLine, LocHelper.GetLocalizedMechanic("appraisal_too_low_2"), StringComparison.Ordinal))
+                        receipt["direction"] = "too_low";
+                }
+            }
             if (merchant.clientImpatience >= 100)
             {
                 receipt["reason"] = "patience_exhausted";
@@ -266,6 +284,11 @@ namespace WhiteDragon.Ledger
 
         private string AppraisalAssistAction(JObject request, JObject receipt)
         {
+            if (!InventorySorting.AppraisalAssistEnabled)
+            {
+                receipt["reason"] = "appraisal_assist_off";
+                return "assist_disabled";
+            }
             if (phase != "OPEN") return "shop_closed";
             ObserveVisit();
             if (visitId == null || (string)request["visit"] != visitId) return VisitMismatchStatus(receipt);

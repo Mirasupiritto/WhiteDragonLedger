@@ -132,6 +132,8 @@ def lookup(folder: Path, database: Path | Connection, name=None, area=None, owne
         filters, values = [], []
         if save_ids is None:
             filters.append("area != 'purifier'")
+            if area is None:
+                filters.append("area != 'trash'")
         if name is not None:
             filters.append("instr(name,?) > 0")
             values.append(name)

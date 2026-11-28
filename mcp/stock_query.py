@@ -111,7 +111,7 @@ def list_tags(db, receipt, query, labels, present, names):
     categories = [{"code": code, "label": labels.get(code, code), "in_stock": code in present}
                   for code in sorted(matches)]
     bottles = [label for (label,) in db.execute(
-        "SELECT DISTINCT bottle_label FROM stock WHERE bottle_label IS NOT NULL ORDER BY bottle_label"
+        "SELECT DISTINCT bottle_label FROM stock WHERE bottle_label IS NOT NULL AND area != 'trash' ORDER BY bottle_label"
     ) if term in search_text(label)]
     return {**receipt, "categories": categories, "bottle_labels": bottles}
 
@@ -196,6 +196,8 @@ def select_stock(folder, db, head, query):
             filters.append(field + " = ?")
             params.append(query[field])
     ids = query.get("item_ids")
+    if query.get("area") is None and ids is None:
+        filters.append("area != 'trash'")
     if ids is not None:
         filters.append(within("id", ids))
     where = " WHERE " + " AND ".join(filters) if filters else ""

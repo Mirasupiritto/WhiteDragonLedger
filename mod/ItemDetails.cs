@@ -369,6 +369,11 @@ namespace WhiteDragon.Ledger
 
         private string ReadItemDetailsAction(JObject request, JObject receipt)
         {
+            if (!InventorySorting.ItemDetailsCompatEnabled)
+            {
+                receipt["reason"] = "item_details_compat_off";
+                return "assist_disabled";
+            }
             var mod = FindItemDetailsMod();
             if (mod == null)
             {
