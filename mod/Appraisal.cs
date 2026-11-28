@@ -137,6 +137,33 @@ namespace WhiteDragon.Ledger
             };
         }
 
+        private static string DialogueNodeText(Dialogue node)
+        {
+            if (node == null) return "";
+            if (!string.IsNullOrWhiteSpace(node.plainText)) return node.plainText;
+            return node.text?.Build(int.MaxValue)?.nakedText ?? "";
+        }
+
+        private static string DialogueChainText(Dialogue root)
+        {
+            if (root == null) return "";
+            string first = DialogueNodeText(root);
+            string second = DialogueNodeText(root.nextDialogue);
+            return second.Length > 0 ? first + "\n" + second : first;
+        }
+
+        private static bool MatchesDialogueTemplate(Dialogue current, Dialogue template)
+        {
+            if (current == null || template == null) return false;
+            string curChain = DialogueChainText(current);
+            string tplChain = DialogueChainText(template);
+            if (tplChain.Length > 0 && string.Equals(curChain, tplChain, StringComparison.Ordinal))
+                return true;
+            string tplSecond = DialogueNodeText(template.nextDialogue);
+            return tplSecond.Length > 0 &&
+                string.Equals(DialogueNodeText(current), tplSecond, StringComparison.Ordinal);
+        }
+
         private static string CurrentAppraisalDialogueLine(JArray fallbackLines)
         {
             var dialog = DialogUIManager.Instance;
@@ -262,14 +289,10 @@ namespace WhiteDragon.Ledger
             }
             if (DialogUIManager.Instance?.GetCurrentDialog() is Dialogue dlg)
             {
-                string secondLine = dlg.nextDialogue?.plainText;
-                if (!string.IsNullOrEmpty(secondLine))
-                {
-                    if (string.Equals(secondLine, LocHelper.GetLocalizedMechanic("appraisal_too_high_2"), StringComparison.Ordinal))
-                        receipt["direction"] = "too_high";
-                    else if (string.Equals(secondLine, LocHelper.GetLocalizedMechanic("appraisal_too_low_2"), StringComparison.Ordinal))
-                        receipt["direction"] = "too_low";
-                }
+                if (MatchesDialogueTemplate(dlg, AppraisalServiceHelper.GetTooHighDialog()))
+                    receipt["direction"] = "too_high";
+                else if (MatchesDialogueTemplate(dlg, AppraisalServiceHelper.GetTooLowDialog()))
+                    receipt["direction"] = "too_low";
             }
             if (merchant.clientImpatience >= 100)
             {
