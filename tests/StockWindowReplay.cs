@@ -618,6 +618,28 @@ namespace WhiteDragon.Ledger
             });
             Expect((string)fromTrash["status"] == "moved" && (string)fromTrash["actual_area"] == "inventory" &&
                 junkDust.parentInventory == shop.invElement, "S2 recover from trash to inventory succeeds");
+            // X1: two consecutive trash moves both report moved + actual_area=trash
+            var junkDust1 = Item(1902, "dust", 10);
+            var junkDust2 = Item(1903, "dust2", 10);
+            junkDust1.To(shop.invElement);
+            junkDust2.To(shop.invElement);
+            FlushChanges();
+            var toTrash1 = ExecuteMove(new JObject
+            {
+                ["command_id"] = "a2000000000000000000000000000006",
+                ["item_id"] = LocalId(junkDust1), ["source"] = "inventory", ["destination"] = "trash",
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue
+            });
+            Expect((string)toTrash1["status"] == "moved" && (string)toTrash1["actual_area"] == "trash", "X1 first trash move succeeds");
+            var toTrash2 = ExecuteMove(new JObject
+            {
+                ["command_id"] = "a2000000000000000000000000000007",
+                ["item_id"] = LocalId(junkDust2), ["source"] = "inventory", ["destination"] = "trash",
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue
+            });
+            Expect((string)toTrash2["status"] == "moved" && (string)toTrash2["actual_area"] == "trash", "X1 second trash move succeeds");
+            junkDust1.To(null);
+            junkDust2.To(null);
 
             // S4: MORNING hidden & bay:<id> <-> hidden
             var invToHidden = ExecuteMove(new JObject

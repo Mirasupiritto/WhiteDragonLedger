@@ -256,6 +256,7 @@ namespace WhiteDragon.Ledger
 
             // The native placement routine enforces available space and slot rules.
             int quantityBefore = item.unitCount;
+            var sourceInv = item.parentInventory;
             if (loading || destination == "hidden" || destination == "trash" || destBayGrid != null)
             {
                 if (!GraphUtils.CanAccept(container ?? target, item)) return Receipt(request, loading ? "slot_rejected" : "no_space");
@@ -267,14 +268,17 @@ namespace WhiteDragon.Ledger
             ScanKnownIdentities();
             FlushChanges();
             string observed = null;
+            bool consumedIntoTrash = destination == "trash" && item.parentInventory == null &&
+                sourceInv != null && !sourceInv.childItems.Contains(item);
             if (destBayGrid != null && item.parentInventory == destBayGrid) observed = destination;
-            else if (destination == "trash" && shop.trashcanInvElement != null && item.parentInventory == shop.trashcanInvElement) observed = "trash";
+            else if (destination == "trash" && ((shop.trashcanInvElement != null && item.parentInventory == shop.trashcanInvElement) || consumedIntoTrash)) observed = "trash";
             else if (sourceBayGrid != null && item.parentInventory == sourceBayGrid) observed = source;
             else if (source == "trash" && shop.trashcanInvElement != null && item.parentInventory == shop.trashcanInvElement) observed = "trash";
             else if (item.parentInventory != null) areas.TryGetValue(item.parentInventory, out observed);
             if (container != null && item.parentInventory == container) observed = "purifier";
             bool sourceCleared = container == null || (loading ? container.childItem == item : container.childItem == null);
-            string status = sourceCleared && observed == destination && item.unitCount == quantityBefore ? "moved" :
+            bool quantityMatches = item.unitCount == quantityBefore || consumedIntoTrash;
+            string status = sourceCleared && observed == destination && quantityMatches ? "moved" :
                 observed == source && item.unitCount == quantityBefore ? "not_moved" : "outcome_unknown";
             var spaceTarget = !loading && destination == "showcase" ? target : !loading && destination == "inventory" ? shop.invElement : null;
             if (status == "not_moved" && spaceTarget != null && !GraphUtils.CanAccept(spaceTarget, item) && IsSpaceFailure(spaceTarget, item))
@@ -308,7 +312,7 @@ namespace WhiteDragon.Ledger
             if (BottleLabel(item) is string label) result["bottle_label"] = label;
             if (sourceBay != null) result["from_container"] = FromContainerJson(sourceBay);
             result["actual_area"] = observed;
-            result["quantity"] = item.unitCount;
+            result["quantity"] = consumedIntoTrash ? quantityBefore : item.unitCount;
             AttachReceiptIdentityChanges(result);
             return result;
         }
