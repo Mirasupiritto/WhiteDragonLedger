@@ -115,6 +115,16 @@ class AppraisalToolsTest(unittest.TestCase):
                          ("observed", "appraisal_assist", 470))
         cmd.assert_called_once_with(self.folder, "appraisal_assist", self.generation, 5, visit=self.visit)
 
+        # V1: assist_disabled attaches next_action="ask_player_to_enable_in_mod_settings"
+        disabled_resp = {"status": "assist_disabled", "reason": "appraisal_assist_off"}
+        with patch("counter.command", return_value=disabled_resp):
+            res_off = asyncio.run(assist_server.call_tool("get_appraisal_assist", {
+                "visit": self.visit, "generation": self.generation, "revision": 5,
+            }))
+        payload_off = json.loads(res_off[0].text)
+        self.assertEqual(payload_off["status"], "assist_disabled")
+        self.assertEqual(payload_off["next_action"], "ask_player_to_enable_in_mod_settings")
+
     def test_appraisal_inspect_action_spec_and_demand_highlight_forwarding(self):
         head = {
             "status": "observed", "generation": self.generation, "revision": 1,
@@ -142,16 +152,6 @@ class AppraisalToolsTest(unittest.TestCase):
         self.assertEqual(ex.call_args.args[2]["action"], "appraisal_inspect")
         self.assertEqual(ctx["highlighted_item_ids"], [42])
         self.assertEqual(ctx["demand_highlight_status"], "compat_unavailable")
-
-        # V1: assist_disabled attaches next_action="ask_player_to_enable_in_mod_settings"
-        disabled_resp = {"status": "assist_disabled", "reason": "appraisal_assist_off"}
-        with patch("counter.command", return_value=disabled_resp):
-            res_off = asyncio.run(assist_server.call_tool("get_appraisal_assist", {
-                "visit": self.visit, "generation": self.generation, "revision": 5,
-            }))
-        payload_off = json.loads(res_off[0].text)
-        self.assertEqual(payload_off["status"], "assist_disabled")
-        self.assertEqual(payload_off["next_action"], "ask_player_to_enable_in_mod_settings")
 
 
 if __name__ == "__main__":
