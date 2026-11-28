@@ -9,6 +9,5 @@ bin/
 *.sqlite*
 *.log
 tasks/
-tests/
 /白龍店帳-*.md
 /probably-stolen-*.md
