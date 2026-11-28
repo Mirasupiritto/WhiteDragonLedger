@@ -180,8 +180,8 @@ namespace WhiteDragon.Ledger
             store.currentClientInstance=null;
             ObserveVisit();
 
-            // X4: protected_visitor blocks story NPC and first-visit named visitor unless force=true
-            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "randomBuyer", displayName = "路人" } };
+            // X4 / X'2: protected_visitor blocks story NPC and first-visit named visitor unless force=true or known
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "scavGeneral", displayName = "拾荒者" } };
             store.isClientArrived = true;
             ObserveVisit();
             var x4Normal = new JObject();
@@ -214,21 +214,40 @@ namespace WhiteDragon.Ledger
                 ["visit"] = visitId, ["expires_ms"] = long.MaxValue
             }, x4NamedBlock) == "protected_visitor" && (string)x4NamedBlock["reason"] == "first_visit_named",
                 "X4 first-visit named visitor blocked without force");
-            var x4NamedForce = new JObject();
+            // Natural departure records visitor so a repeat visit is not blocked
+            store.currentClientInstance = null;
+            ObserveVisit();
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "seedVisitor", displayName = "Seed" } };
+            store.isClientArrived = true;
+            ObserveVisit();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
-                ["visit"] = visitId, ["force"] = true, ["expires_ms"] = long.MaxValue
-            }, x4NamedForce) == "dismissed", "X4 first-visit named visitor dismissed when force=true");
-            seenNamedVisitors.Clear(); // Verify ResetLoad clears seenNamedVisitors
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, new JObject()) == "dismissed", "X'2 natural departure marks named visitor as seen");
+
+            // After reload (seenNamedVisitors cleared), ledger visited_known=true allows dismiss
+            seenNamedVisitors.Clear();
             store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "seedVisitor", displayName = "Seed" } };
             store.isClientArrived = true;
             ObserveVisit();
             var x4AfterReset = new JObject();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["visited_known"] = true, ["expires_ms"] = long.MaxValue
+            }, x4AfterReset) == "dismissed",
+                "X'2 reloaded known visitor is not blocked when visited_known=true");
+
+            // Visitor in phonebook / business card is never treated as first_visit_named
+            seenNamedVisitors.Clear();
+            store.PhoneClientDict[9991] = new StorePhoneClient { listed = true, dialogFuncId = "CardGuest" };
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "cardGuest", displayName = "CardGuest" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
                 ["visit"] = visitId, ["expires_ms"] = long.MaxValue
-            }, x4AfterReset) == "protected_visitor" && (string)x4AfterReset["reason"] == "first_visit_named",
-                "X4 ResetLoad clears seenNamedVisitors for new save/load");
+            }, new JObject()) == "dismissed", "X'2 phonebook contact visitor is not blocked");
+            store.PhoneClientDict.Remove(9991);
             store.currentClientInstance = null;
             ObserveVisit();
 

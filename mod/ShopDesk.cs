@@ -44,6 +44,8 @@ namespace WhiteDragon.Ledger
         {
             if (merchant != null)
             {
+                if (!string.IsNullOrEmpty(merchant.identifier))
+                    seenNamedVisitors.Add(merchant.identifier);
                 merchant.onItemSold -= BoughtFromMerchant;
                 merchant.onItemBought -= SoldToMerchant;
             }
