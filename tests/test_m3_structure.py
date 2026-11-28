@@ -28,7 +28,7 @@ EXPECTED_TOOL_NAMES = {
     "chem_finish",
     # trade_tools
     "report_client", "bargain", "get_shop_updates", "get_trade_context",
-    "wait_for_shop_event", "get_shop_state", "trade_batch", "confirm_trade", "submit_appraisal",
+    "wait_for_shop_event", "get_shop_state", "trade_batch", "confirm_trade", "appraisal_inspect", "submit_appraisal",
     # shop_day
     "get_shop_status", "get_trash", "prepare_sleep", "night_service", "sleep",
     # counter_tools

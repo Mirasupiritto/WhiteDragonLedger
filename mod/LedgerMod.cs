@@ -89,6 +89,7 @@ namespace WhiteDragon.Ledger
             waterPlan = null;
             NativeItemPanels.Reset();
             lastItemPanel = null;
+            seenNamedVisitors.Clear();
             itemPanelToken = null;
             previousItemMenu = null;
             itemMenuToken = null;

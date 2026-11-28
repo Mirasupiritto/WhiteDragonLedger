@@ -58,15 +58,18 @@ namespace WhiteDragon.Ledger
                 if (current != null) return "speaking";
                 if (dialog.HasPausedConversation) return "conversation_paused";
             }
-            if (StoreUIManager.Instance.isAboutToStartMainDialog ||
-                (merchant.mainDialogue != null && (!merchant.isMainDialogueStarted || dialog == null)))
+            bool appraisal = merchant.clientIntent == StoreClient.ClientIntent.APPRAISAL_SERVICE;
+            bool appraisalActive = appraisal && (AppraisalItems().Count > 0 ||
+                InspectionUIManager.Instance?.currentInspectingItem?.IsTag("APPRAISAL_ITEM") == true ||
+                InspectionUIManager.Instance?.appraisalPanel?.activeInHierarchy == true);
+            if (!appraisalActive && (StoreUIManager.Instance.isAboutToStartMainDialog ||
+                (merchant.mainDialogue != null && (!merchant.isMainDialogueStarted || dialog == null))))
                 return "awaiting_opening";
             if (merchant.isBusinessComplete) return "business_complete";
             if (NegociationUIManager.IsTradeLocked()) return "trade_locked";
             bool dealer = merchant.clientIntent == StoreClient.ClientIntent.INFORMATION_DEALER;
             if (dealer && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
-            bool appraisal = merchant.clientIntent == StoreClient.ClientIntent.APPRAISAL_SERVICE;
-            if (appraisal && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
+            if (appraisal && !appraisalActive && (!merchant.isIntroduced || dialog == null)) return "awaiting_opening";
             if (appraisal) return "appraisal";
             bool barter = IsPagedBarter();
             if (merchant.clientIntent==StoreClient.ClientIntent.BARTER && !barter) return "barter_unsupported";
@@ -88,6 +91,34 @@ namespace WhiteDragon.Ledger
 
         private JObject lastDemand;
         private string lastDemandVisit;
+
+        private void AttachDemandHighlights(JObject view)
+        {
+            if (!InventorySorting.DemandHighlightCompatEnabled) return;
+            bool loaded = ModLoader.Mods.Any(mod => mod != null && mod.IsEnabled &&
+                string.Equals(mod.Manifest?.ID, "hollow.clientdemandhighlight", StringComparison.OrdinalIgnoreCase));
+            if (!loaded)
+            {
+                view["demand_highlight_status"] = "compat_unavailable";
+                return;
+            }
+            var highlighted = new JArray();
+            var shop = EmporiumEntry.Instance;
+            if (shop != null)
+            {
+                foreach (var inv in new[] { shop.invElement, shop.showcaseElement, shop.frontInvinvElement, shop.backInvinvElement })
+                {
+                    if (inv == null) continue;
+                    foreach (var item in inv.childItems)
+                    {
+                        if (item is GameItemElement element && element.rectTransform != null &&
+                            element.rectTransform.GetComponentsInChildren<Transform>(false).Any(t => t != null && string.Equals(t.name, "CDH_Border", StringComparison.Ordinal)))
+                            highlighted.Add(LocalId(item));
+                    }
+                }
+            }
+            view["highlighted_item_ids"] = highlighted;
+        }
 
         private string ClientRole()
         {
@@ -174,6 +205,7 @@ namespace WhiteDragon.Ledger
             ObserveDecision(stage, view);
             AttachWantedMatch(view);
             AttachPosterMatch(view);
+            AttachDemandHighlights(view);
             if (phase == "OPEN") view["waiting"] = store.GetClientInQueueCount();
             if (stage == "information")
                 ObserveInformationReceipt(view);
@@ -267,6 +299,7 @@ namespace WhiteDragon.Ledger
             if (action == "bargain") return BargainAction(request,receipt);
             if (action == "barter") return ActOnBarter(request, receipt);
             if (action == "appraisal") return AppraisalAction(request, receipt);
+            if (action == "appraisal_inspect") return AppraisalInspectAction(request, receipt);
             if (action == "appraisal_assist") return AppraisalAssistAction(request, receipt);
             if (action == "water_use") return WaterUseAction(request, receipt);
             if (action == "water_panel") return WaterPanelAction(request, receipt);

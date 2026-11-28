@@ -9,10 +9,12 @@ namespace WhiteDragon.Ledger
         private static ConfigEntry<string> mode;
         private static ConfigEntry<bool> appraisalAssist;
         private static ConfigEntry<bool> itemDetailsCompat;
+        private static ConfigEntry<bool> demandHighlightCompat;
         private static readonly List<LoadedMod> sorters = new List<LoadedMod>();
 
         public static bool AppraisalAssistEnabled => appraisalAssist?.Value == true;
         public static bool ItemDetailsCompatEnabled => itemDetailsCompat?.Value == true;
+        public static bool DemandHighlightCompatEnabled => demandHighlightCompat?.Value == true;
 
         public static void Configure(string id)
         {
@@ -26,6 +28,9 @@ namespace WhiteDragon.Ledger
             itemDetailsCompat = cfg.Define("item_details_compat", false, "鑑定與輔助",
                 () => "物品詳情模組相容",
                 () => "預設關閉。開啟且已載入物品詳情模組時，允許助手讀取畫面顯示的懸停說明判斷真偽；變更後重連 MCP 生效。");
+            demandHighlightCompat = cfg.Define("demand_highlight_compat", false, "鑑定與輔助",
+                () => "客戶需求高亮模組相容",
+                () => "預設關閉。開啟且已載入客戶需求高亮模組時，於交易上下文回報目前高亮的物品編號。");
         }
 
         public static void Observe(LoadedMod mod)

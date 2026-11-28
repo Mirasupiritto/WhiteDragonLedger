@@ -6,7 +6,13 @@ using System.Linq;
 
 namespace UnityEngine
 {
-    public class Transform : List<Transform> { public GameObject gameObject; }
+    public class Transform : List<Transform> { public GameObject gameObject; public string name; }
+    public class RectTransform : Transform
+    {
+        public Transform[] ReplayChildren;
+        public T[] GetComponentsInChildren<T>(bool includeInactive = false) where T : class =>
+            typeof(T) == typeof(Transform) ? (ReplayChildren as T[] ?? Array.Empty<T>()) : Array.Empty<T>();
+    }
     public class GameObject
     {
         public bool activeInHierarchy, activeSelf;

@@ -10,6 +10,45 @@ namespace WhiteDragon.Ledger
         private float nextReceptionCheck;
         private string receptionToken;
         private (string load, int day, int waiting, bool prompt, bool available, bool automatic, string visit) receptionState;
+        private readonly System.Collections.Generic.HashSet<string> seenNamedVisitors =
+            new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+
+        private static bool IsStoryIdentifier(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return false;
+            string lower = id.ToLowerInvariant();
+            foreach (var prefix in new[] {
+                "eleanor", "appraisalboard", "mentor", "cartel", "wild_upgrade" })
+                if (lower.StartsWith(prefix, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        private static bool IsGenericVisitorIdentifier(string id)
+        {
+            if (string.IsNullOrEmpty(id) || id == "NO_ID" || id == "georgio") return true;
+            string lower = id.ToLowerInvariant();
+            foreach (var prefix in new[] {
+                "random", "scav", "citizen", "tourist", "worker", "miner", "merchant", "generic", "default" })
+                if (lower.StartsWith(prefix, StringComparison.Ordinal)) return true;
+            return false;
+        }
+
+        private string ProtectedVisitorReason(PlayerStore store, StoreClient client)
+        {
+            if (client == null || !store.IsClientDimissable()) return null;
+            if (client.clientIntent == StoreClient.ClientIntent.SPECIAL ||
+                client.clientIntent == StoreClient.ClientIntent.RENT ||
+                client.clientIntent == StoreClient.ClientIntent.LOAN_SHARK ||
+                client.clientIntent == StoreClient.ClientIntent.INSPECTION ||
+                client.clientIntent == StoreClient.ClientIntent.EXPEDITION ||
+                client.OnDismiss != null ||
+                IsStoryIdentifier(client.identifier) ||
+                (client.mainDialogue != null && client.clientIntent == StoreClient.ClientIntent.DIALOGUE))
+                return "story_npc";
+            if (!IsGenericVisitorIdentifier(client.identifier) && !seenNamedVisitors.Contains(client.identifier))
+                return "first_visit_named";
+            return null;
+        }
 
         private bool ClosePrompt => StoreUIManager.Instance.closeShutterConfirmationPanel.activeInHierarchy;
 
@@ -129,6 +168,18 @@ namespace WhiteDragon.Ledger
         {
             var store = PlayerStore.Instance;
             bool interrupt = (bool?)request["interrupt"] == true;
+            bool force = (bool?)request["force"] == true;
+            if (!force && ProtectedVisitorReason(store, merchant) is string protectedReason)
+            {
+                receipt["reason"] = protectedReason;
+                receipt["visit"] = visitId;
+                if (merchant != null) receipt["customer"] = merchant.displayName;
+                var protRec = ReceptionView();
+                receipt["reception"] = protRec;
+                receipt["reception_token"] = protRec["token"];
+                receipt["waiting"] = protRec["waiting"];
+                return "protected_visitor";
+            }
             if (order == null && !Interactable.isPaused && !NegociationUIManager.IsTradeLocked() &&
                 store.lockAllInventoryFlag == 0)
             {
@@ -154,6 +205,7 @@ namespace WhiteDragon.Ledger
                 return "dismiss_unavailable";
             }
             var departing = visit;
+            var departingId = merchant?.identifier;
             string latestLine = openingLines.Count > 0 ? (string)openingLines[openingLines.Count - 1] : null;
             receipt["visit"] = visitId;
             receipt["customer"] = merchant.displayName;
@@ -164,6 +216,8 @@ namespace WhiteDragon.Ledger
             }
             store.TryPlayerDismissCurrentClient(true);
             ObserveVisit();
+            if (store.currentClientInstance != departing && !string.IsNullOrEmpty(departingId))
+                seenNamedVisitors.Add(departingId);
             var after = ReceptionView();
             receipt["reception"] = after;
             receipt["reception_token"] = after["token"];

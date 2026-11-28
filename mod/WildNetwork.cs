@@ -97,7 +97,12 @@ namespace WhiteDragon.Ledger
                 receipt["panel"] = view;
                 return "observed";
             }
-            if ((string)request["panel_token"] != networkToken) return "panel_changed";
+            if ((string)request["panel_token"] != networkToken)
+            {
+                receipt["panel_token"] = networkToken;
+                if (view["selected_id"] != null) receipt["selected_id"] = view["selected_id"];
+                return "panel_changed";
+            }
             string id = (string)request["target"];
             if (mode == "close")
             {

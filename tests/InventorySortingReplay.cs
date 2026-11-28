@@ -9,6 +9,7 @@ namespace WhiteDragon.Ledger
         public readonly ConfigEntry<string> entry = new ConfigEntry<string>();
         public readonly ConfigEntry<bool> appraisalEntry = new ConfigEntry<bool>();
         public readonly ConfigEntry<bool> detailsEntry = new ConfigEntry<bool>();
+        public readonly ConfigEntry<bool> highlightEntry = new ConfigEntry<bool>();
         public ConfigEntry<string> Define(string key, string initial, string category, Func<string> label, string[] choices, Func<string> hint)
         {
             entry.Value = initial;
@@ -16,7 +17,7 @@ namespace WhiteDragon.Ledger
         }
         public ConfigEntry<bool> Define(string key, bool initial, string category, Func<string> label, Func<string> hint)
         {
-            var target = key == "appraisal_assist" ? appraisalEntry : detailsEntry;
+            var target = key == "appraisal_assist" ? appraisalEntry : key == "demand_highlight_compat" ? highlightEntry : detailsEntry;
             target.Value = initial;
             return target;
         }

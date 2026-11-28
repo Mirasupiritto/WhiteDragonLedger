@@ -48,7 +48,7 @@ def context(view):
     if desk["stage"] == "wild_network":
         result["next_action"] = "wild_network"
     for key in ("client_role", "appraisal", "offer", "offer_token", "info_receipt", "visit_variety", "page", "dialog_choices", "response_choices",
-                "forced_choice", "forced_choice_reason", "wanted_name_match", "poster_match", "story_branch", "consequence_hint", "consequence", "counter_request", "inspection_exposure", "heat", "barter", "stale_during_speech", "table_items"):
+                "forced_choice", "forced_choice_reason", "wanted_name_match", "poster_match", "story_branch", "consequence_hint", "consequence", "counter_request", "inspection_exposure", "heat", "barter", "stale_during_speech", "table_items", "highlighted_item_ids", "demand_highlight_status"):
         if key in desk:
             result[key] = desk[key]
     if isinstance(desk.get("reception"), dict) and "token" in desk["reception"]:
@@ -367,6 +367,19 @@ def register(server, folder, database, *, appraisal_assist: bool | None = None):
         line = {"item_id":item_id,"side":side,"exact_price":price,
                 ("min_price" if side=="sell" else "max_price"):price}
         return shopdesk.sell_order(folder,[line],generation,revision,visit,database=database,tool="confirm_trade",on_table=True)
+
+    @server.tool()
+    def appraisal_inspect(visit: str, generation: str, revision: int, item_index: int = 0, item_id: int | None = None) -> dict:
+        """Equip/use an owned magnifier to inspect the current APPRAISAL_SERVICE visitor's counter item (by 0-based item_index or item_id).
+        Opens the native inspection UI on that item and returns its visual_features."""
+        if item_index < 0:
+            raise ValueError("Expected non-negative item_index")
+        args = {"visit": visit, "item_index": item_index}
+        if item_id is not None:
+            if item_id < 1:
+                raise ValueError("Expected positive item_id")
+            args["item_id"] = item_id
+        return counter.command(folder, "appraisal_inspect", generation, revision, **args)
 
     @server.tool()
     def submit_appraisal(item_id: int, estimate: int, visit: str, generation: str, revision: int) -> dict:

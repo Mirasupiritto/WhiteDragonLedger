@@ -27,6 +27,7 @@ namespace WhiteDragon.Ledger {
     }
     public class GameItemElement : GameItem {
         public Func<RichTextBuilder> ReplayTooltipBasic;
+        public UnityEngine.RectTransform rectTransform;
         private RichTextBuilder GetTooltipBasic() => ReplayTooltipBasic?.Invoke();
         public virtual RichText GetTooltip() {
             var builder = GetTooltipBasic() ?? new RichTextBuilder(int.MaxValue);
@@ -189,8 +190,9 @@ namespace WhiteDragon.Ledger {
         }
     }
     public partial class StoreClient {
-        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER, DIALOGUE, APPRAISAL_SERVICE, EXPEDITION, GUNSMITH, INSPECTION, LOAN_SHARK, PROCUREMENT_COLLECT, PROCUREMENT_OFFER, RENT }
+        public enum ClientIntent { MERCHANT, INFORMATION_DEALER, BARTER, DIALOGUE, APPRAISAL_SERVICE, EXPEDITION, GUNSMITH, INSPECTION, LOAN_SHARK, PROCUREMENT_COLLECT, PROCUREMENT_OFFER, RENT, SPECIAL }
         public ClientIntent clientIntent;
+        public Action OnDismiss;
         public BarterOffer barterOffer;
         public bool isIntroduced;
         public int serviceCost;

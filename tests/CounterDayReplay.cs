@@ -179,6 +179,87 @@ namespace WhiteDragon.Ledger
             DialogUIManager.Instance=new DialogUIManager();
             store.currentClientInstance=null;
             ObserveVisit();
+
+            // X4: protected_visitor blocks story NPC and first-visit named visitor unless force=true
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "randomBuyer", displayName = "路人" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            var x4Normal = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, x4Normal) == "dismissed", "X4 generic visitor dismisses normally");
+
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "eleanorIntro", displayName = "埃莉諾" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            var x4StoryBlock = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, x4StoryBlock) == "protected_visitor" && (string)x4StoryBlock["reason"] == "story_npc",
+                "X4 story NPC blocked without force");
+            var x4StoryForce = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["force"] = true, ["expires_ms"] = long.MaxValue
+            }, x4StoryForce) == "dismissed", "X4 story NPC dismissed when force=true");
+
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "seedVisitor", displayName = "Seed" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            var x4NamedBlock = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, x4NamedBlock) == "protected_visitor" && (string)x4NamedBlock["reason"] == "first_visit_named",
+                "X4 first-visit named visitor blocked without force");
+            var x4NamedForce = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["force"] = true, ["expires_ms"] = long.MaxValue
+            }, x4NamedForce) == "dismissed", "X4 first-visit named visitor dismissed when force=true");
+            seenNamedVisitors.Clear(); // Verify ResetLoad clears seenNamedVisitors
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "seedVisitor", displayName = "Seed" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            var x4AfterReset = new JObject();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, x4AfterReset) == "protected_visitor" && (string)x4AfterReset["reason"] == "first_visit_named",
+                "X4 ResetLoad clears seenNamedVisitors for new save/load");
+            store.currentClientInstance = null;
+            ObserveVisit();
+
+            // X8: demand_highlight_compat off -> omitted; on without mod -> compat_unavailable; on with mod -> highlighted_item_ids
+            InventorySorting.Configure("replay");
+            var hlItem = new GameItemElement {
+                identifier = "apple", uniqueId = 9901,
+                rectTransform = new UnityEngine.RectTransform { ReplayChildren = new[] { new UnityEngine.Transform { name = "CDH_Border" } } }
+            };
+            hlItem.To(EmporiumEntry.Instance.invElement);
+            FlushChanges();
+            ModHelper.sortConfig.highlightEntry.Value = false;
+            var x8Off = CounterView();
+            Expect(x8Off["highlighted_item_ids"] == null && x8Off["demand_highlight_status"] == null,
+                "X8 demand_highlight_compat off omits highlight fields");
+            ModHelper.sortConfig.highlightEntry.Value = true;
+            ModLoader.Mods.Clear();
+            var x8Missing = CounterView();
+            Expect((string)x8Missing["demand_highlight_status"] == "compat_unavailable" && x8Missing["highlighted_item_ids"] == null,
+                "X8 demand_highlight_compat on without mod returns compat_unavailable");
+            ModLoader.Mods.Add(new LoadedMod {
+                Manifest = new ModManifest { ID = "hollow.clientdemandhighlight", Name = "Client Demand Highlight", ModVersion = "1.3.10" },
+                IsEnabled = true
+            });
+            var x8On = CounterView();
+            Expect(x8On["highlighted_item_ids"] != null && ((JArray)x8On["highlighted_item_ids"]).Count == 1 && (int)x8On["highlighted_item_ids"][0] == LocalId(hlItem),
+                "X8 demand_highlight_compat on with mod returns highlighted_item_ids");
+            ModLoader.Mods.Clear();
+            ModHelper.sortConfig.highlightEntry.Value = false;
+            hlItem.To(null);
+
             Console.WriteLine("Counter and night bill replay passed: page identity, choices, response items, service changes without sleep.");
         }
     }

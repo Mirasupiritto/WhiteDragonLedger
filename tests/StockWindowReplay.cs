@@ -618,6 +618,66 @@ namespace WhiteDragon.Ledger
             });
             Expect((string)fromTrash["status"] == "moved" && (string)fromTrash["actual_area"] == "inventory" &&
                 junkDust.parentInventory == shop.invElement, "S2 recover from trash to inventory succeeds");
+            // X1: two consecutive trash moves both report moved + actual_area=trash
+            var junkDust1 = Item(1902, "dust", 10);
+            var junkDust2 = Item(1903, "dust2", 10);
+            junkDust1.To(shop.invElement);
+            junkDust2.To(shop.invElement);
+            FlushChanges();
+            var toTrash1 = ExecuteMove(new JObject
+            {
+                ["command_id"] = "a2000000000000000000000000000006",
+                ["item_id"] = LocalId(junkDust1), ["source"] = "inventory", ["destination"] = "trash",
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue
+            });
+            Expect((string)toTrash1["status"] == "moved" && (string)toTrash1["actual_area"] == "trash", "X1 first trash move succeeds");
+            var toTrash2 = ExecuteMove(new JObject
+            {
+                ["command_id"] = "a2000000000000000000000000000007",
+                ["item_id"] = LocalId(junkDust2), ["source"] = "inventory", ["destination"] = "trash",
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue
+            });
+            Expect((string)toTrash2["status"] == "moved" && (string)toTrash2["actual_area"] == "trash", "X1 second trash move succeeds");
+            junkDust1.To(null);
+            junkDust2.To(null);
+
+            // X2: bay:<id> supports storage_bay_chem, returns rejected_by_container on filter rejection, and keeps contraband outside smuggler_bay
+            var chemBay = Item(1910, "storage_bay_chem", 1);
+            chemBay.waterTags.Add("CONTAINER_TAG");
+            var chemBayGrid = new GameGridInventory(8, 8);
+            chemBayGrid.mayInventoryAddItemFunc = (it, inv) => it.identifier != "tough_cotton_fabric";
+            chemBay.contentWindow = new PixelWindow { childElement = chemBayGrid };
+            chemBay.To(shop.invElement);
+            var chemReagent = Item(1911, "acid_reagent", 1);
+            var clothItem = Item(1912, "tough_cotton_fabric", 1);
+            var chemContraband = Item(1913, "banned_chem", 1);
+            chemContraband.waterTags.Add(TypeHelper.CONTRABAND);
+            chemReagent.To(shop.invElement);
+            clothItem.To(shop.invElement);
+            chemContraband.To(chemBayGrid);
+            FlushChanges();
+            var toChemBay = ExecuteMove(new JObject
+            {
+                ["command_id"] = "a2000000000000000000000000000008",
+                ["item_id"] = LocalId(chemReagent), ["source"] = "inventory", ["destination"] = "bay:" + LocalId(chemBay),
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue
+            });
+            Expect((string)toChemBay["status"] == "moved" && (string)toChemBay["actual_area"] == "bay:" + LocalId(chemBay),
+                "X2 bay:<chem> accepts chemical reagent");
+            chemBayGrid.replayFull = true;
+            var clothToChem = ExecuteMove(new JObject
+            {
+                ["command_id"] = "a2000000000000000000000000000009",
+                ["item_id"] = LocalId(clothItem), ["source"] = "inventory", ["destination"] = "bay:" + LocalId(chemBay),
+                ["generation"] = generation, ["revision"] = sequence, ["expires_ms"] = long.MaxValue
+            });
+            chemBayGrid.replayFull = false;
+            Expect((string)clothToChem["status"] == "rejected_by_container" && (string)clothToChem["reason"] == "rejected_by_container",
+                "X2 disallowed item returns rejected_by_container");
+            var secChem = SecurityView();
+            Expect((int)secChem["contraband"]["smuggler_bay"] == 0 && (int)secChem["contraband"]["inventory"] >= 1,
+                "X2 contraband in storage_bay_chem counts outside smuggler_bay");
+            chemReagent.To(null); clothItem.To(null); chemContraband.To(null); chemBay.To(null);
 
             // S4: MORNING hidden & bay:<id> <-> hidden
             var invToHidden = ExecuteMove(new JObject

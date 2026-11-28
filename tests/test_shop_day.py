@@ -154,3 +154,36 @@ class TrashLedger(unittest.TestCase):
         warning = dict(view, alerts=[{"type":"addiction_withdrawal"}])
         self.assertIn("health", cache.filter("g", warning))
         self.assertIn("alerts", cache.filter("g", warning))
+
+    def test_phone_dial_and_advance_settle_state(self):
+        from mcp.server.fastmcp import FastMCP
+        import phone_tools
+        with tempfile.TemporaryDirectory(dir=os.environ.get("LEDGER_TEST_TEMP")) as temp:
+            folder = Path(temp)
+            server = FastMCP("phone-test")
+            phone_tools.register(server, folder)
+            gen = "a" * 32
+            contexts = iter([
+                {"status": "observed", "panel_open": True, "display": "8376", "line": "舊通話"},
+                {"status": "observed", "panel_open": True, "display": "4615", "connected_to": "戴爾",
+                 "line": "你好，要什麼貨？", "can_advance": True, "choices": [], "phone_token": "pt2"},
+                {"status": "observed", "panel_open": True, "display": "4615", "line": "第一句", "phone_token": "pt2"},
+                {"status": "observed", "panel_open": True, "display": "4615", "line": "第一句", "can_advance": False, "choices": []},
+                {"status": "observed", "panel_open": True, "display": "4615", "line": "第二句，請選擇", "can_advance": False,
+                 "choices": [{"id": 0, "label": "訂貨", "enabled": True}], "phone_token": "pt3"},
+            ])
+            with patch("counter.phone_context", side_effect=lambda _f: next(contexts)), \
+                 patch("counter.command", side_effect=[
+                     {"status": "connected", "number": 4615, "display": "8376", "connected_to": "戴爾", "phone_token": "pt1"},
+                     {"status": "advanced", "phone_token": "pt2"},
+                 ]), \
+                 patch("phone_tools.time.sleep"):
+                dial_res = json.loads(asyncio.run(server.call_tool("dial_contact", {
+                    "number": 4615, "generation": gen, "revision": 1, "phone_token": "pt0",
+                }))[0].text)
+                adv_res = json.loads(asyncio.run(server.call_tool("advance_phone_dialogue", {
+                    "generation": gen, "revision": 2, "phone_token": "pt2",
+                }))[0].text)
+            self.assertEqual((dial_res["display"], dial_res["line"], dial_res["phone_token"]), ("4615", "你好，要什麼貨？", "pt2"))
+            self.assertEqual((adv_res["line"], adv_res["can_advance"], adv_res["phone_token"]), ("第二句，請選擇", False, "pt3"))
+            self.assertEqual(len(adv_res["choices"]), 1)
