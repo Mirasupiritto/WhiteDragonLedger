@@ -64,7 +64,7 @@ class AppraisalToolsTest(unittest.TestCase):
         (self.folder / f"{self.generation}-3.json").write_text(json.dumps({"op": "delta", "upsert": [], "remove": [], "day": 20}), encoding="utf-8")
         desk = {
             "status": "observed", "generation": self.generation, "revision": 3, "slot": 4,
-            "phase": "OPEN", "day": 20, "counter_protocol": 2,
+            "phase": "OPEN", "day": 20, "counter_protocol": 2, "appraisal_protocol": 1,
             "day_info": {
                 "calendar": {}, "trash": {"status": "unavailable"}, "sleep": {},
                 "appraisal_guild": {"rank": 1, "rank_name": "鑑定師", "base_fee": 35, "progress": 42.5},
@@ -117,29 +117,29 @@ class AppraisalToolsTest(unittest.TestCase):
 
     def test_appraisal_inspect_action_spec_and_demand_highlight_forwarding(self):
         head = {
-            "status": "observed", "generation": self.generation, "revision": 5,
-            "slot": 4, "phase": "OPEN", "load_scans": 1, "full_scans": 1, "appraisal_protocol": 1,
+            "status": "observed", "generation": self.generation, "revision": 1,
+            "slot": 4, "phase": "OPEN", "load_scans": 1, "full_scans": 1,
+            "counter_protocol": 2, "appraisal_protocol": 1,
         }
         (self.folder / "head.json").write_text(json.dumps(head), encoding="utf-8")
-        with patch("counter.exchange", return_value={"status": "inspected", "item_id": 42, "item_index": 0, "inspecting": True}) as ex:
-            res = self.call("appraisal_inspect", {"visit": self.visit, "generation": self.generation, "revision": 5, "item_index": 0})
-        self.assertEqual((res["status"], res["item_id"], res["inspecting"]), ("inspected", 42, True))
-        self.assertEqual(ex.call_args.args[1], "appraisal_inspect")
-
         (self.folder / f"{self.generation}-1.json").write_text(json.dumps({"op": "baseline", "items": [], "day": 20}), encoding="utf-8")
         desk_hl = {
-            "status": "observed", "generation": self.generation, "revision": 5, "slot": 4,
-            "phase": "OPEN", "day": 20, "counter_protocol": 2,
+            "status": "observed", "generation": self.generation, "revision": 1, "slot": 4,
+            "phase": "OPEN", "day": 20, "counter_protocol": 2, "appraisal_protocol": 1,
             "counter": {
-                "stage": "ready", "visit": self.visit, "customer": "路人", "lines": ["我要買東西。"],
+                "stage": "appraisal", "client_role": "appraisal", "visit": self.visit,
+                "customer": "委託客", "lines": ["幫我鑑定一下。"], "appraisal_protocol": 1,
                 "highlighted_item_ids": [42], "demand_highlight_status": "compat_unavailable",
                 "reception": {"token": "rt1", "waiting": 0},
             },
         }
-        head["revision"] = 1
-        (self.folder / "head.json").write_text(json.dumps(head), encoding="utf-8")
-        with patch.object(shopdesk, "published", return_value=desk_hl):
+        with patch.object(shopdesk, "published", return_value=desk_hl), \
+             patch("counter.published", return_value=desk_hl), \
+             patch("counter.exchange", return_value={"status": "inspected", "item_id": 42, "item_index": 0, "inspecting": True}) as ex:
+            res = self.call("appraisal_inspect", visit=self.visit, generation=self.generation, revision=1, item_index=0)
             ctx = self.call("get_trade_context")
+        self.assertEqual((res["status"], res["item_id"], res["inspecting"]), ("inspected", 42, True))
+        self.assertEqual(ex.call_args.args[2]["action"], "appraisal_inspect")
         self.assertEqual(ctx["highlighted_item_ids"], [42])
         self.assertEqual(ctx["demand_highlight_status"], "compat_unavailable")
 
