@@ -180,15 +180,24 @@ namespace WhiteDragon.Ledger
             store.currentClientInstance=null;
             ObserveVisit();
 
-            // X4 / X'2: protected_visitor blocks story NPC and first-visit named visitor unless force=true or known
+            // X4 / X'2 / X'0: protected_visitor only applies when interrupt=true (unless force=true or known)
             store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "scavGeneral", displayName = "拾荒者" } };
             store.isClientArrived = true;
             ObserveVisit();
             var x4Normal = new JObject();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["interrupt"] = true, ["expires_ms"] = long.MaxValue
+            }, x4Normal) == "dismissed", "X4 generic visitor dismisses normally with interrupt=true");
+
+            // Non-interrupt dismiss (finish_customer without interrupt) is never blocked by protected_visitor
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "eleanorIntro", displayName = "埃莉諾" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
                 ["visit"] = visitId, ["expires_ms"] = long.MaxValue
-            }, x4Normal) == "dismissed", "X4 generic visitor dismisses normally");
+            }, new JObject()) == "dismissed", "X'0 story NPC normal dismiss (without interrupt) succeeds without force");
 
             store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "eleanorIntro", displayName = "埃莉諾" } };
             store.isClientArrived = true;
@@ -196,14 +205,22 @@ namespace WhiteDragon.Ledger
             var x4StoryBlock = new JObject();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
-                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+                ["visit"] = visitId, ["interrupt"] = true, ["expires_ms"] = long.MaxValue
             }, x4StoryBlock) == "protected_visitor" && (string)x4StoryBlock["reason"] == "story_npc",
-                "X4 story NPC blocked without force");
+                "X4 story NPC blocked on interrupt=true without force");
             var x4StoryForce = new JObject();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
-                ["visit"] = visitId, ["force"] = true, ["expires_ms"] = long.MaxValue
-            }, x4StoryForce) == "dismissed", "X4 story NPC dismissed when force=true");
+                ["visit"] = visitId, ["interrupt"] = true, ["force"] = true, ["expires_ms"] = long.MaxValue
+            }, x4StoryForce) == "dismissed", "X4 story NPC dismissed when interrupt=true and force=true");
+
+            store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "seedVisitorFirst", displayName = "SeedFirst" } };
+            store.isClientArrived = true;
+            ObserveVisit();
+            Expect(ActAtCounter(new JObject {
+                ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
+                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+            }, new JObject()) == "dismissed", "X'0 first-visit named visitor normal dismiss (without interrupt) succeeds without force");
 
             store.currentClientInstance = new StoreClientInstance { client = new StoreClient { identifier = "seedVisitor", displayName = "Seed" } };
             store.isClientArrived = true;
@@ -211,9 +228,9 @@ namespace WhiteDragon.Ledger
             var x4NamedBlock = new JObject();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
-                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+                ["visit"] = visitId, ["interrupt"] = true, ["expires_ms"] = long.MaxValue
             }, x4NamedBlock) == "protected_visitor" && (string)x4NamedBlock["reason"] == "first_visit_named",
-                "X4 first-visit named visitor blocked without force");
+                "X4 first-visit named visitor blocked on interrupt=true without force");
             // Natural departure records visitor so a repeat visit is not blocked
             store.currentClientInstance = null;
             ObserveVisit();
@@ -222,7 +239,7 @@ namespace WhiteDragon.Ledger
             ObserveVisit();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
-                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+                ["visit"] = visitId, ["interrupt"] = true, ["expires_ms"] = long.MaxValue
             }, new JObject()) == "dismissed", "X'2 natural departure marks named visitor as seen");
 
             // After reload (seenNamedVisitors cleared), ledger visited_known=true allows dismiss
@@ -233,7 +250,7 @@ namespace WhiteDragon.Ledger
             var x4AfterReset = new JObject();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
-                ["visit"] = visitId, ["visited_known"] = true, ["expires_ms"] = long.MaxValue
+                ["visit"] = visitId, ["interrupt"] = true, ["visited_known"] = true, ["expires_ms"] = long.MaxValue
             }, x4AfterReset) == "dismissed",
                 "X'2 reloaded known visitor is not blocked when visited_known=true");
 
@@ -245,7 +262,7 @@ namespace WhiteDragon.Ledger
             ObserveVisit();
             Expect(ActAtCounter(new JObject {
                 ["action"] = "dismiss", ["generation"] = generation, ["revision"] = sequence,
-                ["visit"] = visitId, ["expires_ms"] = long.MaxValue
+                ["visit"] = visitId, ["interrupt"] = true, ["expires_ms"] = long.MaxValue
             }, new JObject()) == "dismissed", "X'2 phonebook contact visitor is not blocked");
             store.PhoneClientDict.Remove(9991);
             store.currentClientInstance = null;

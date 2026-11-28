@@ -196,7 +196,7 @@ namespace WhiteDragon.Ledger
             bool interrupt = (bool?)request["interrupt"] == true;
             bool force = (bool?)request["force"] == true;
             bool visitedKnown = (bool?)request["visited_known"] == true;
-            if (!force && ProtectedVisitorReason(store, merchant, visitedKnown) is string protectedReason)
+            if (interrupt && !force && ProtectedVisitorReason(store, merchant, visitedKnown) is string protectedReason)
             {
                 receipt["reason"] = protectedReason;
                 receipt["visit"] = visitId;

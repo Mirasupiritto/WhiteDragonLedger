@@ -274,7 +274,7 @@ def register(server, folder, database, *, section_cache=None):
 
     @server.tool()
     def finish_customer(generation: str, revision: int, visit: str, interrupt: bool = False, force: bool = False) -> dict:
-        """Pass generation, revision and visit from the counter receipt. Dismiss this visitor. Set interrupt=True to dismiss a dismissible visitor mid-speech (still blocked on choice pages, active orders, and protected visitors). Story NPCs and first-visit named visitors return status="protected_visitor" (reason="story_npc" or "first_visit_named") unless force=True. A brief native lock is retried once if the same visitor becomes dismissible.
+        """Pass generation, revision and visit from the counter receipt. Dismiss this visitor. Set interrupt=True to dismiss a dismissible visitor mid-speech (still blocked on choice pages, active orders, and protected visitors). When interrupt=True, story NPCs and first-visit named visitors return status="protected_visitor" (reason="story_npc" or "first_visit_named") unless force=True. A brief native lock is retried once if the same visitor becomes dismissible.
         If blocked, returns status="dismiss_unavailable" with reason, blocking_items, reception_token and latest_revision; if visitor left or changed, returns customer_left or customer_replaced."""
         dismiss_args = {"visit": visit}
         if interrupt:
