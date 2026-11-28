@@ -13,6 +13,13 @@
 
 引用來自 Assembly-CSharp.dll 方法內的靜態 IL，包括直接呼叫、建構、方法指標和欄位存取。Unity 場景綁定、反射、與虛擬方法在執行時分派到哪個實作，要另外從遊戲行為判定。外部程序集只列被用到的引用簽名。
 
+## ModScanner 反射規則（W0 調查）
+
+- 依據遊戲 `ModScanner.cs`、`ModCapability.cs` 與 `ModSecurityDebug.cs`：
+  - `ModCapability.Retiring` 包含 `"reflection-external"`、`"native"`、`"dynamic-code"`、`"threads"`。目前 `REFUSE_UNSCANNABLE_CAPABILITIES` 為 `false`，預定於 **2026-12-10** 改為拒絕載入（`Hard`）。
+  - 動態／計算型別反射（例如 `obj.GetType().GetProperty(...)`）無法靜態解析型別來源，會觸發 `ReflectionExternal(... "on a computed type")`（`reflection-external`）。
+  - 靜態 `typeof(遊戲型別).GetField/GetMethod(...)` 可由 `TryResolveTypeSource` 解析為遊戲內型別（`IsExternalScope` 為 `false`），不會觸發 `reflection-external`、`Pending` 或 `Hard`；但仍應優先使用公開原生 API，僅於無等效公開成員時保留並註記。
+
 ## 重建與註冊
 
 用 PowerShell 7 執行。索引和遊戲程序集留在本機，產品資料夾在 Git 儲存庫外。

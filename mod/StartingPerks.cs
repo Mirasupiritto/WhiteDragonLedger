@@ -7,7 +7,7 @@ namespace WhiteDragon.Ledger
 {
     internal static class StartingPerks
     {
-        // This native panel exposes IsOpen publicly; the live page model and its counters are private.
+        // 保留反射：無等效公開 API（W0 調查：frame、sorted、firstRun、page、selectedPage、TurnPage、UsedPoints、MaxPerkCount、LockedBy 皆為 private static）
         private const BindingFlags Flags = BindingFlags.NonPublic | BindingFlags.Static;
         private static FieldInfo Field(string name) => typeof(NewGamePerksUI).GetField(name, Flags);
         private static MethodInfo Method(string name) => typeof(NewGamePerksUI).GetMethod(name, Flags);
